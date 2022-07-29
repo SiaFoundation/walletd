@@ -9,6 +9,7 @@ import (
 	"go.sia.tech/siad/modules/consensus"
 	"go.sia.tech/siad/modules/gateway"
 	"go.sia.tech/siad/modules/transactionpool"
+	"go.sia.tech/walletd/internal/walletutil"
 	"go.sia.tech/walletd/wallet"
 )
 
@@ -66,7 +67,17 @@ func newNode(addr, dir string) (*node, error) {
 		return nil, err
 	}
 
-	w := wallet.New()
+	// TODO: persist
+	store := walletutil.NewEphemeralStore()
+	w := wallet.New(wallet.NewSeed(), store)
+
+	ccid, err := store.ConsensusChangeID()
+	if err != nil {
+		return nil, err
+	}
+	if err := cm.ConsensusSetSubscribe(store, ccid, nil); err != nil {
+		return nil, err
+	}
 
 	return &node{
 		g:  g,

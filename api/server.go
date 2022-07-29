@@ -35,7 +35,8 @@ type (
 
 	// A Wallet can spend and receive siacoins.
 	Wallet interface {
-		Balance() types.Currency
+		Balance() (types.Currency, error)
+		Address() (types.UnlockHash, error)
 		UnspentOutputs() ([]wallet.SiacoinElement, error)
 		Transactions(since time.Time, max int) ([]wallet.Transaction, error)
 	}
@@ -111,9 +112,23 @@ func (s *server) txpoolBroadcastHandler(w http.ResponseWriter, req *http.Request
 }
 
 func (s *server) walletBalanceHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	balance, err := s.w.Balance()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
 	WriteJSON(w, WalletBalanceResponse{
-		Siacoins: s.w.Balance(),
+		Siacoins: balance,
 	})
+}
+
+func (s *server) walletAddressHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	address, err := s.w.Address()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	WriteJSON(w, address)
 }
 
 func (s *server) walletTransactionsHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
@@ -171,6 +186,7 @@ func NewServer(cm ChainManager, s Syncer, tp TransactionPool, w Wallet) http.Han
 	mux.POST("/txpool/broadcast", srv.txpoolBroadcastHandler)
 
 	mux.GET("/wallet/balance", srv.walletBalanceHandler)
+	mux.GET("/wallet/address", srv.walletAddressHandler)
 	mux.GET("/wallet/transactions", srv.walletTransactionsHandler)
 	mux.GET("/wallet/outputs", srv.walletOutputsHandler)
 

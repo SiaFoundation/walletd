@@ -4,8 +4,11 @@ go 1.17
 
 require (
 	github.com/julienschmidt/httprouter v1.3.0
+	github.com/minio/blake2b-simd v0.0.0-20160723061019-3f5f724cb5b1
+	gitlab.com/NebulousLabs/entropy-mnemonics v0.0.0-20181018051301-7532f67e3500
 	go.sia.tech/siad v1.5.9
 	golang.org/x/term v0.0.0-20220722155259-a9ba230a4035
+	lukechampine.com/frand v1.4.2
 )
 
 require (
@@ -18,7 +21,6 @@ require (
 	gitlab.com/NebulousLabs/bolt v1.4.4 // indirect
 	gitlab.com/NebulousLabs/demotemutex v0.0.0-20151003192217-235395f71c40 // indirect
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe // indirect
-	gitlab.com/NebulousLabs/entropy-mnemonics v0.0.0-20181018051301-7532f67e3500 // indirect
 	gitlab.com/NebulousLabs/errors v0.0.0-20200929122200-06c536cf6975 // indirect
 	gitlab.com/NebulousLabs/fastrand v0.0.0-20181126182046-603482d69e40 // indirect
 	gitlab.com/NebulousLabs/go-upnp v0.0.0-20211002182029-11da932010b6 // indirect
