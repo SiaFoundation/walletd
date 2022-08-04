@@ -10,20 +10,15 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/minio/blake2b-simd"
 	mnemonics "gitlab.com/NebulousLabs/entropy-mnemonics"
-	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/types"
+	"golang.org/x/crypto/blake2b"
 	"lukechampine.com/frand"
 )
 
 type Seed struct {
 	entropy *[32]byte
 }
-
-const (
-	seedChecksumSize = 6
-)
 
 // deriveKey derives the keypair for the specified index. Note that s.siadSeed is
 // used in the derivation, not s.entropy; this is what allows Seeds to be used
@@ -105,10 +100,10 @@ func SeedFromPhrase(str string) (Seed, error) {
 	}
 
 	// Copy the seed from the checksummed slice.
-	var seed Seed
-	copy(seed.entropy[:], checksumSeedBytes)
-	fullChecksum := crypto.HashObject(seed)
-	if len(checksumSeedBytes) != crypto.EntropySize+seedChecksumSize || !bytes.Equal(fullChecksum[:seedChecksumSize], checksumSeedBytes[crypto.EntropySize:]) {
+	seed := Seed{entropy: new([32]byte)}
+	copy(seed.entropy[:], checksumSeedBytes[:32])
+	checksum := blake2b.Sum256(seed.entropy[:])
+	if !bytes.Equal(checksumSeedBytes[32:], checksum[:6]) {
 		return Seed{}, errors.New("seed failed checksum verification")
 	}
 	return seed, nil
