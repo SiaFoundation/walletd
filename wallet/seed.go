@@ -13,12 +13,13 @@ import (
 	"github.com/minio/blake2b-simd"
 	mnemonics "gitlab.com/NebulousLabs/entropy-mnemonics"
 	"go.sia.tech/siad/crypto"
-	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/types"
 	"lukechampine.com/frand"
 )
 
-type Seed modules.Seed
+type Seed struct {
+	entropy *[32]byte
+}
 
 const (
 	seedChecksumSize = 6
@@ -29,8 +30,8 @@ const (
 // with standard siad wallets. s.entropy is only used to provide a shorter seed
 // phrase in the String method.
 func (s Seed) deriveKeyPair(index uint64) (keypair [64]byte) {
-	buf := make([]byte, len(s)+8)
-	n := copy(buf, s[:])
+	buf := make([]byte, len(s.entropy)+8)
+	n := copy(buf, s.entropy[:])
 	binary.LittleEndian.PutUint64(buf[n:], index)
 	seed := blake2b.Sum256(buf)
 	copy(keypair[:], ed25519.NewKeyFromSeed(seed[:]))
@@ -54,7 +55,8 @@ func (s Seed) SecretKey(index uint64) ed25519.PrivateKey {
 
 // SeedFromEntropy returns the Seed derived from the supplied entropy.
 func SeedFromEntropy(entropy [16]byte) Seed {
-	return Seed(modules.Seed(blake2b.Sum256(entropy[:])))
+	sum := blake2b.Sum256(entropy[:])
+	return Seed{&sum}
 }
 
 // SeedFromBIP39 returns the Seed derived from the supplied BIP39 phrase.
@@ -104,7 +106,7 @@ func SeedFromPhrase(str string) (Seed, error) {
 
 	// Copy the seed from the checksummed slice.
 	var seed Seed
-	copy(seed[:], checksumSeedBytes)
+	copy(seed.entropy[:], checksumSeedBytes)
 	fullChecksum := crypto.HashObject(seed)
 	if len(checksumSeedBytes) != crypto.EntropySize+seedChecksumSize || !bytes.Equal(fullChecksum[:seedChecksumSize], checksumSeedBytes[crypto.EntropySize:]) {
 		return Seed{}, errors.New("seed failed checksum verification")
