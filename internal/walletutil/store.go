@@ -212,6 +212,11 @@ func (s *EphemeralStore) SetSeedIndex(index uint64) error {
 	return nil
 }
 
+func (s *EphemeralStore) AddressInfo(addr types.UnlockHash) (wallet.SeedAddressInfo, bool, error) {
+	info, ok := s.addrs[addr]
+	return info, ok, nil
+}
+
 func (s *EphemeralStore) AddAddress(info wallet.SeedAddressInfo) error {
 	s.addrs[info.UnlockConditions.UnlockHash()] = info
 	if next := info.KeyIndex + 1; s.seedIndex < next {

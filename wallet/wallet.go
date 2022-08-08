@@ -2,10 +2,14 @@ package wallet
 
 import (
 	"crypto/ed25519"
+	"errors"
+	"reflect"
 	"time"
 
+	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/types"
+	"lukechampine.com/frand"
 )
 
 // A SiacoinElement is a SiacoinOutput along with its ID.
@@ -54,14 +58,17 @@ type Store interface {
 
 	SeedIndex() (uint64, error)
 	SetSeedIndex(index uint64) error
+	AddressInfo(addr types.UnlockHash) (SeedAddressInfo, bool, error)
 	AddAddress(info SeedAddressInfo) error
 }
 
 // A Wallet contains a seed for generating addresses and a store for storing
 // information relevant to addresses owned by the wallet.
 type Wallet struct {
-	seed  Seed
 	store Store
+
+	seed Seed
+	used map[types.SiacoinOutputID]struct{}
 }
 
 // StandardUnlockConditions returns the standard unlock conditions for a single
@@ -79,6 +86,17 @@ func StandardUnlockConditions(priv ed25519.PublicKey) types.UnlockConditions {
 // StandardAddress returns the standard address for an Ed25519 key.
 func StandardAddress(priv ed25519.PublicKey) types.UnlockHash {
 	return StandardUnlockConditions(priv).UnlockHash()
+}
+
+// StandardTransactionSignature is the most common form of TransactionSignature.
+// It covers the entire transaction and references the first (typically the
+// only) public key.
+func StandardTransactionSignature(id crypto.Hash) types.TransactionSignature {
+	return types.TransactionSignature{
+		ParentID:       id,
+		CoveredFields:  types.FullCoveredFields,
+		PublicKeyIndex: 0,
+	}
 }
 
 // Balance returns the total value of the unspent outputs owned by the wallet.
@@ -120,7 +138,94 @@ func (w *Wallet) Transactions(since time.Time, max int) ([]Transaction, error) {
 	return w.store.Transactions(since, max)
 }
 
+// FundTransaction adds inputs to txn worth at least amount, adding a change
+// output if needed. It returns the added input IDs, for use with
+// SignTransaction. It also returns a function that will "unclaim" the inputs;
+// this function must be called once the transaction has been broadcast or
+// discarded.
+func (w *Wallet) FundTransaction(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error) {
+	if amount.IsZero() {
+		return nil, func() {}, nil
+	}
+
+	outputs, err := w.store.UnspentOutputs()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var unused []SiacoinElement
+	for _, out := range outputs {
+		if _, ok := w.used[out.ID]; !ok {
+			unused = append(unused, out)
+		}
+	}
+
+	var balance types.Currency
+	for _, o := range unused {
+		balance = balance.Add(o.Value)
+	}
+
+	// choose outputs randomly
+	frand.Shuffle(len(unused), reflect.Swapper(unused))
+
+	// keep adding outputs until we have enough
+	var outputSum types.Currency
+	for i, o := range unused {
+		if outputSum = outputSum.Add(o.Value); outputSum.Cmp(amount) >= 0 {
+			unused = unused[:i+1]
+			break
+		}
+	}
+
+	var toSign []crypto.Hash
+	for _, o := range unused {
+		info, ok, err := w.store.AddressInfo(o.UnlockHash)
+		if err != nil {
+			return nil, nil, err
+		} else if !ok {
+			return nil, nil, errors.New("missing unlock conditions for address")
+		}
+		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
+			ParentID:         o.ID,
+			UnlockConditions: info.UnlockConditions,
+		})
+		txn.TransactionSignatures = append(txn.TransactionSignatures, StandardTransactionSignature(crypto.Hash(o.ID)))
+		toSign = append(toSign, crypto.Hash(o.ID))
+	}
+	// add change output, if needed
+	if change := outputSum.Sub(amount); !change.IsZero() {
+		index, err := w.store.SeedIndex()
+		if err != nil {
+			return nil, nil, err
+		}
+		info := SeedAddressInfo{
+			UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index).Key),
+			KeyIndex:         index,
+		}
+		w.store.AddAddress(info)
+		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
+			UnlockHash: info.UnlockConditions.UnlockHash(),
+			Value:      change,
+		})
+	}
+
+	for _, o := range unused {
+		w.used[o.ID] = struct{}{}
+	}
+	discard := func() {
+		for _, o := range unused {
+			delete(w.used, o.ID)
+		}
+	}
+	return toSign, discard, nil
+}
+
 // New returns a new Wallet.
 func New(seed Seed, store Store) *Wallet {
-	return &Wallet{seed, store}
+	return &Wallet{
+		store: store,
+
+		seed: seed,
+		used: make(map[types.SiacoinOutputID]struct{}),
+	}
 }
