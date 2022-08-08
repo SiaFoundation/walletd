@@ -1,6 +1,7 @@
 package walletutil
 
 import (
+	"sync"
 	"time"
 
 	"go.sia.tech/siad/modules"
@@ -9,6 +10,8 @@ import (
 )
 
 type EphemeralStore struct {
+	mu sync.Mutex
+
 	ccid modules.ConsensusChangeID
 
 	addrs map[types.UnlockHash]wallet.SeedAddressInfo
@@ -28,6 +31,9 @@ func (s *EphemeralStore) ownsAddress(addr types.UnlockHash) bool {
 }
 
 func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for _, sco := range cc.SiacoinOutputDiffs {
 		if _, ok := s.addrs[sco.SiacoinOutput.UnlockHash]; !ok {
 			continue
@@ -174,15 +180,24 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 }
 
 func (s *EphemeralStore) ConsensusChangeID() (modules.ConsensusChangeID, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	return s.ccid, nil
 }
 
 func (s *EphemeralStore) Transaction(id types.TransactionID) (wallet.Transaction, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	txn, ok := s.txns[id]
 	return txn, ok, nil
 }
 
 func (s *EphemeralStore) Transactions(since time.Time, max int) (txns []wallet.Transaction, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for _, txn := range s.txns {
 		if max == 0 {
 			return
@@ -197,6 +212,9 @@ func (s *EphemeralStore) Transactions(since time.Time, max int) (txns []wallet.T
 }
 
 func (s *EphemeralStore) UnspentOutputs() (outputs []wallet.SiacoinElement, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for _, output := range s.scOutputs {
 		outputs = append(outputs, output)
 	}
@@ -204,20 +222,32 @@ func (s *EphemeralStore) UnspentOutputs() (outputs []wallet.SiacoinElement, err 
 }
 
 func (s *EphemeralStore) SeedIndex() (uint64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	return s.seedIndex, nil
 }
 
 func (s *EphemeralStore) SetSeedIndex(index uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.seedIndex = index
 	return nil
 }
 
 func (s *EphemeralStore) AddressInfo(addr types.UnlockHash) (wallet.SeedAddressInfo, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	info, ok := s.addrs[addr]
 	return info, ok, nil
 }
 
 func (s *EphemeralStore) AddAddress(info wallet.SeedAddressInfo) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.addrs[info.UnlockConditions.UnlockHash()] = info
 	if next := info.KeyIndex + 1; s.seedIndex < next {
 		s.seedIndex = next

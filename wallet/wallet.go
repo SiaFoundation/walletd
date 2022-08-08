@@ -2,10 +2,14 @@ package wallet
 
 import (
 	"crypto/ed25519"
+	"crypto/sha512"
 	"errors"
 	"reflect"
+	"strconv"
+	"sync"
 	"time"
 
+	"filippo.io/edwards25519"
 	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/types"
@@ -65,10 +69,41 @@ type Store interface {
 // A Wallet contains a seed for generating addresses and a store for storing
 // information relevant to addresses owned by the wallet.
 type Wallet struct {
-	store Store
+	mu sync.Mutex
 
-	seed Seed
-	used map[types.SiacoinOutputID]struct{}
+	seed  Seed
+	store Store
+	used  map[types.SiacoinOutputID]struct{}
+}
+
+func ed25519Sign(priv ed25519.PrivateKey, hash crypto.Hash) []byte {
+	if l := len(priv); l != ed25519.PrivateKeySize {
+		panic("ed25519: bad private key length: " + strconv.Itoa(l))
+	}
+
+	keyDigest := sha512.Sum512(priv[:32])
+	expandedSecretKey := new(edwards25519.Scalar).SetBytesWithClamping(keyDigest[:32])
+
+	buf := make([]byte, 96)
+	copy(buf[:32], keyDigest[32:])
+	copy(buf[32:], hash[:])
+	messageDigest := sha512.Sum512(buf[:64])
+
+	messageDigestReduced := new(edwards25519.Scalar).SetUniformBytes(messageDigest[:])
+	encodedR := new(edwards25519.Point).ScalarBaseMult(messageDigestReduced).Bytes()
+
+	copy(buf[:32], encodedR[:])
+	copy(buf[32:], priv[32:])
+	copy(buf[64:], hash[:])
+	hramDigest := sha512.Sum512(buf[:96])
+	hramDigestReduced := new(edwards25519.Scalar).SetUniformBytes(hramDigest[:])
+
+	s := hramDigestReduced.MultiplyAdd(hramDigestReduced, expandedSecretKey, messageDigestReduced)
+
+	signature := make([]byte, ed25519.SignatureSize)
+	copy(signature[:32], encodedR)
+	copy(signature[32:], s.Bytes())
+	return signature
 }
 
 // StandardUnlockConditions returns the standard unlock conditions for a single
@@ -97,6 +132,14 @@ func StandardTransactionSignature(id crypto.Hash) types.TransactionSignature {
 		CoveredFields:  types.FullCoveredFields,
 		PublicKeyIndex: 0,
 	}
+}
+
+// AppendTransactionSignature appends a TransactionSignature to txn and signs it
+// with key.
+func AppendTransactionSignature(txn *types.Transaction, txnSig types.TransactionSignature, key ed25519.PrivateKey) {
+	txn.TransactionSignatures = append(txn.TransactionSignatures, txnSig)
+	sigIndex := len(txn.TransactionSignatures) - 1
+	txn.TransactionSignatures[sigIndex].Signature = ed25519Sign(key, txn.SigHash(sigIndex, types.FoundationHardforkHeight+1))
 }
 
 // Balance returns the total value of the unspent outputs owned by the wallet.
@@ -209,15 +252,93 @@ func (w *Wallet) FundTransaction(txn *types.Transaction, amount types.Currency) 
 		})
 	}
 
+	w.mu.Lock()
 	for _, o := range unused {
 		w.used[o.ID] = struct{}{}
 	}
+	w.mu.Unlock()
+
 	discard := func() {
+		w.mu.Lock()
 		for _, o := range unused {
 			delete(w.used, o.ID)
 		}
+		w.mu.Unlock()
 	}
 	return toSign, discard, nil
+}
+
+// SignTransaction signs the specified transaction using keys derived from the
+// wallet seed. If toSign is nil, SignTransaction will automatically add
+// TransactionSignatures for each input owned by the seed. If toSign is not nil,
+// it a list of indices of TransactionSignatures already present in txn;
+// SignTransaction will fill in the Signature field of each.
+func (w *Wallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error {
+	if len(toSign) == 0 {
+		// lazy mode: add standard sigs for every input we own
+		for _, input := range txn.SiacoinInputs {
+			info, ok, err := w.store.AddressInfo(input.UnlockConditions.UnlockHash())
+			if !ok {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			sk := w.seed.SecretKey(info.KeyIndex)
+			txnSig := StandardTransactionSignature(crypto.Hash(input.ParentID))
+			AppendTransactionSignature(txn, txnSig, sk)
+		}
+		return nil
+	}
+
+	sigAddr := func(id crypto.Hash) (types.UnlockHash, bool) {
+		for _, sci := range txn.SiacoinInputs {
+			if crypto.Hash(sci.ParentID) == id {
+				return sci.UnlockConditions.UnlockHash(), true
+			}
+		}
+		for _, sfi := range txn.SiafundInputs {
+			if crypto.Hash(sfi.ParentID) == id {
+				return sfi.UnlockConditions.UnlockHash(), true
+			}
+		}
+		for _, fcr := range txn.FileContractRevisions {
+			if crypto.Hash(fcr.ParentID) == id {
+				return fcr.UnlockConditions.UnlockHash(), true
+			}
+		}
+		return types.UnlockHash{}, false
+	}
+	sign := func(i int) error {
+		addr, ok := sigAddr(txn.TransactionSignatures[i].ParentID)
+		if !ok {
+			return errors.New("invalid id")
+		}
+		info, ok, err := w.store.AddressInfo(addr)
+		if !ok {
+			return errors.New("can't sign")
+		}
+		if err != nil {
+			return err
+		}
+		sk := w.seed.SecretKey(info.KeyIndex)
+		txn.TransactionSignatures[i].Signature = ed25519Sign(sk, txn.SigHash(i, types.FoundationHardforkHeight+1))
+		return nil
+	}
+
+outer:
+	for _, parent := range toSign {
+		for sigIndex, sig := range txn.TransactionSignatures {
+			if sig.ParentID == parent {
+				if err := sign(sigIndex); err != nil {
+					return err
+				}
+				continue outer
+			}
+		}
+		return errors.New("sighash not found in transaction")
+	}
+	return nil
 }
 
 // New returns a new Wallet.
