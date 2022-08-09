@@ -2,14 +2,11 @@ package wallet
 
 import (
 	"crypto/ed25519"
-	"crypto/sha512"
 	"errors"
 	"reflect"
-	"strconv"
 	"sync"
 	"time"
 
-	"filippo.io/edwards25519"
 	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/types"
@@ -76,36 +73,6 @@ type Wallet struct {
 	used  map[types.SiacoinOutputID]struct{}
 }
 
-func ed25519Sign(priv ed25519.PrivateKey, hash crypto.Hash) []byte {
-	if l := len(priv); l != ed25519.PrivateKeySize {
-		panic("ed25519: bad private key length: " + strconv.Itoa(l))
-	}
-
-	keyDigest := sha512.Sum512(priv[:32])
-	expandedSecretKey := new(edwards25519.Scalar).SetBytesWithClamping(keyDigest[:32])
-
-	buf := make([]byte, 96)
-	copy(buf[:32], keyDigest[32:])
-	copy(buf[32:], hash[:])
-	messageDigest := sha512.Sum512(buf[:64])
-
-	messageDigestReduced := new(edwards25519.Scalar).SetUniformBytes(messageDigest[:])
-	encodedR := new(edwards25519.Point).ScalarBaseMult(messageDigestReduced).Bytes()
-
-	copy(buf[:32], encodedR[:])
-	copy(buf[32:], priv[32:])
-	copy(buf[64:], hash[:])
-	hramDigest := sha512.Sum512(buf[:96])
-	hramDigestReduced := new(edwards25519.Scalar).SetUniformBytes(hramDigest[:])
-
-	s := hramDigestReduced.MultiplyAdd(hramDigestReduced, expandedSecretKey, messageDigestReduced)
-
-	signature := make([]byte, ed25519.SignatureSize)
-	copy(signature[:32], encodedR)
-	copy(signature[32:], s.Bytes())
-	return signature
-}
-
 // StandardUnlockConditions returns the standard unlock conditions for a single
 // Ed25519 key.
 func StandardUnlockConditions(priv ed25519.PublicKey) types.UnlockConditions {
@@ -139,7 +106,8 @@ func StandardTransactionSignature(id crypto.Hash) types.TransactionSignature {
 func AppendTransactionSignature(txn *types.Transaction, txnSig types.TransactionSignature, key ed25519.PrivateKey) {
 	txn.TransactionSignatures = append(txn.TransactionSignatures, txnSig)
 	sigIndex := len(txn.TransactionSignatures) - 1
-	txn.TransactionSignatures[sigIndex].Signature = ed25519Sign(key, txn.SigHash(sigIndex, types.FoundationHardforkHeight+1))
+	hash := txn.SigHash(sigIndex, types.FoundationHardforkHeight+1)
+	txn.TransactionSignatures[sigIndex].Signature = ed25519.Sign(key, hash[:])
 }
 
 // Balance returns the total value of the unspent outputs owned by the wallet.
@@ -322,7 +290,8 @@ func (w *Wallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash) e
 			return err
 		}
 		sk := w.seed.SecretKey(info.KeyIndex)
-		txn.TransactionSignatures[i].Signature = ed25519Sign(sk, txn.SigHash(i, types.FoundationHardforkHeight+1))
+		hash := txn.SigHash(i, types.FoundationHardforkHeight+1)
+		txn.TransactionSignatures[i].Signature = ed25519.Sign(sk, hash[:])
 		return nil
 	}
 

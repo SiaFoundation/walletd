@@ -3,7 +3,6 @@ module go.sia.tech/walletd
 go 1.17
 
 require (
-	filippo.io/edwards25519 v1.0.0-beta.2
 	github.com/julienschmidt/httprouter v1.3.0
 	gitlab.com/NebulousLabs/entropy-mnemonics v0.0.0-20181018051301-7532f67e3500
 	go.sia.tech/siad v1.5.9
