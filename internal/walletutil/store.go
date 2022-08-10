@@ -255,6 +255,16 @@ func (s *EphemeralStore) AddAddress(info wallet.SeedAddressInfo) error {
 	return nil
 }
 
+func (s *EphemeralStore) Addresses() (addrs []types.UnlockHash, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for addr := range s.addrs {
+		addrs = append(addrs, addr)
+	}
+	return
+}
+
 func NewEphemeralStore() *EphemeralStore {
 	return &EphemeralStore{
 		addrs:     make(map[types.UnlockHash]wallet.SeedAddressInfo),

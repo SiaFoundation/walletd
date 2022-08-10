@@ -17,7 +17,7 @@ type node struct {
 	g  modules.Gateway
 	cm modules.ConsensusSet
 	tp modules.TransactionPool
-	w  *wallet.Wallet
+	w  *wallet.HotWallet
 }
 
 func (n *node) Close() error {
@@ -69,7 +69,7 @@ func newNode(addr, dir string) (*node, error) {
 
 	// TODO: persist
 	store := walletutil.NewEphemeralStore()
-	w := wallet.New(wallet.NewSeed(), store)
+	w := wallet.NewHotWallet(wallet.NewSeed(), store)
 
 	ccid, err := store.ConsensusChangeID()
 	if err != nil {

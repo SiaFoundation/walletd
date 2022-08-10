@@ -8,64 +8,12 @@ import (
 	"time"
 
 	"go.sia.tech/siad/crypto"
-	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/types"
 	"lukechampine.com/frand"
 )
 
-// A SiacoinElement is a SiacoinOutput along with its ID.
-type SiacoinElement struct {
-	types.SiacoinOutput
-	ID             types.SiacoinOutputID
-	MaturityHeight types.BlockHeight
-}
-
-// A SiafundElement is a SiafundOutput along with its ID.
-type SiafundElement struct {
-	types.SiafundOutput
-	ID types.SiafundOutputID
-}
-
-// A FileContractElement is a FileContract along with its ID.
-type FileContractElement struct {
-	types.FileContract
-	ID types.FileContractID
-}
-
-type ChainIndex struct {
-	ID     types.BlockID
-	Height types.BlockHeight
-}
-
-// A Transaction is an on-chain transaction relevant to a particular wallet,
-// paired with useful metadata.
-type Transaction struct {
-	Raw       types.Transaction
-	Index     ChainIndex
-	ID        types.TransactionID
-	Inflow    types.Currency
-	Outflow   types.Currency
-	Timestamp time.Time
-}
-
-// A Store stores information needed by a wallet.
-type Store interface {
-	modules.ConsensusSetSubscriber
-	ConsensusChangeID() (modules.ConsensusChangeID, error)
-
-	Transaction(id types.TransactionID) (Transaction, bool, error)
-	Transactions(since time.Time, max int) ([]Transaction, error)
-	UnspentOutputs() ([]SiacoinElement, error)
-
-	SeedIndex() (uint64, error)
-	SetSeedIndex(index uint64) error
-	AddressInfo(addr types.UnlockHash) (SeedAddressInfo, bool, error)
-	AddAddress(info SeedAddressInfo) error
-}
-
-// A Wallet contains a seed for generating addresses and a store for storing
-// information relevant to addresses owned by the wallet.
-type Wallet struct {
+// A HotWallet is a wallet that allows funding and signing transactions.
+type HotWallet struct {
 	mu sync.Mutex
 
 	seed  Seed
@@ -73,45 +21,8 @@ type Wallet struct {
 	used  map[types.SiacoinOutputID]struct{}
 }
 
-// StandardUnlockConditions returns the standard unlock conditions for a single
-// Ed25519 key.
-func StandardUnlockConditions(priv ed25519.PublicKey) types.UnlockConditions {
-	return types.UnlockConditions{
-		PublicKeys: []types.SiaPublicKey{{
-			Algorithm: types.SignatureEd25519,
-			Key:       priv[32:],
-		}},
-		SignaturesRequired: 1,
-	}
-}
-
-// StandardAddress returns the standard address for an Ed25519 key.
-func StandardAddress(priv ed25519.PublicKey) types.UnlockHash {
-	return StandardUnlockConditions(priv).UnlockHash()
-}
-
-// StandardTransactionSignature is the most common form of TransactionSignature.
-// It covers the entire transaction and references the first (typically the
-// only) public key.
-func StandardTransactionSignature(id crypto.Hash) types.TransactionSignature {
-	return types.TransactionSignature{
-		ParentID:       id,
-		CoveredFields:  types.FullCoveredFields,
-		PublicKeyIndex: 0,
-	}
-}
-
-// AppendTransactionSignature appends a TransactionSignature to txn and signs it
-// with key.
-func AppendTransactionSignature(txn *types.Transaction, txnSig types.TransactionSignature, key ed25519.PrivateKey) {
-	txn.TransactionSignatures = append(txn.TransactionSignatures, txnSig)
-	sigIndex := len(txn.TransactionSignatures) - 1
-	hash := txn.SigHash(sigIndex, types.FoundationHardforkHeight+1)
-	txn.TransactionSignatures[sigIndex].Signature = ed25519.Sign(key, hash[:])
-}
-
 // Balance returns the total value of the unspent outputs owned by the wallet.
-func (w *Wallet) Balance() (types.Currency, error) {
+func (w *HotWallet) Balance() (types.Currency, error) {
 	outputs, err := w.store.UnspentOutputs()
 	if err != nil {
 		return types.Currency{}, err
@@ -125,7 +36,7 @@ func (w *Wallet) Balance() (types.Currency, error) {
 }
 
 // Address returns an address owned by the wallet.
-func (w *Wallet) Address() (types.UnlockHash, error) {
+func (w *HotWallet) Address() (types.UnlockHash, error) {
 	index, err := w.store.SeedIndex()
 	if err != nil {
 		return types.UnlockHash{}, err
@@ -140,12 +51,12 @@ func (w *Wallet) Address() (types.UnlockHash, error) {
 }
 
 // UnspentOutputs returns the unspent outputs owned by the wallet.
-func (w *Wallet) UnspentOutputs() ([]SiacoinElement, error) {
+func (w *HotWallet) UnspentOutputs() ([]SiacoinElement, error) {
 	return w.store.UnspentOutputs()
 }
 
 // Transactions returns transactions relevant to the wallet.
-func (w *Wallet) Transactions(since time.Time, max int) ([]Transaction, error) {
+func (w *HotWallet) Transactions(since time.Time, max int) ([]Transaction, error) {
 	return w.store.Transactions(since, max)
 }
 
@@ -154,7 +65,7 @@ func (w *Wallet) Transactions(since time.Time, max int) ([]Transaction, error) {
 // SignTransaction. It also returns a function that will "unclaim" the inputs;
 // this function must be called once the transaction has been broadcast or
 // discarded.
-func (w *Wallet) FundTransaction(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error) {
+func (w *HotWallet) FundTransaction(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error) {
 	if amount.IsZero() {
 		return nil, func() {}, nil
 	}
@@ -241,7 +152,7 @@ func (w *Wallet) FundTransaction(txn *types.Transaction, amount types.Currency) 
 // TransactionSignatures for each input owned by the seed. If toSign is not nil,
 // it a list of indices of TransactionSignatures already present in txn;
 // SignTransaction will fill in the Signature field of each.
-func (w *Wallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error {
+func (w *HotWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error {
 	if len(toSign) == 0 {
 		// lazy mode: add standard sigs for every input we own
 		for _, input := range txn.SiacoinInputs {
@@ -310,9 +221,9 @@ outer:
 	return nil
 }
 
-// New returns a new Wallet.
-func New(seed Seed, store Store) *Wallet {
-	return &Wallet{
+// NewHotWallet returns a new HotWallet.
+func NewHotWallet(seed Seed, store Store) *HotWallet {
+	return &HotWallet{
 		store: store,
 
 		seed: seed,
