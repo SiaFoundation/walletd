@@ -56,8 +56,10 @@ type Store interface {
 	SeedIndex() (uint64, error)
 	SetSeedIndex(index uint64) error
 	AddressInfo(addr types.UnlockHash) (SeedAddressInfo, bool, error)
+
 	AddAddress(info SeedAddressInfo) error
 	Addresses() ([]types.UnlockHash, error)
+	TransactionsByAddress(addr types.UnlockHash) ([]Transaction, error)
 }
 
 // StandardUnlockConditions returns the standard unlock conditions for a single

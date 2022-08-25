@@ -59,6 +59,16 @@ func (w *WatchWallet) UnspentOutputs() ([]SiacoinElement, error) {
 	return w.store.UnspentOutputs()
 }
 
+// Transaction returns a transaction with the given ID.
+func (w *WatchWallet) Transaction(id types.TransactionID) (Transaction, bool, error) {
+	return w.store.Transaction(id)
+}
+
+// TransactionsByAddress returns all transactions involving the address.
+func (w *WatchWallet) TransactionsByAddress(addr types.UnlockHash) ([]Transaction, error) {
+	return w.store.TransactionsByAddress(addr)
+}
+
 // Transactions returns transactions relevant to the wallet.
 func (w *WatchWallet) Transactions(since time.Time, max int) ([]Transaction, error) {
 	return w.store.Transactions(since, max)

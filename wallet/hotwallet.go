@@ -50,14 +50,29 @@ func (w *HotWallet) Address() (types.UnlockHash, error) {
 	return info.UnlockConditions.UnlockHash(), nil
 }
 
+// Addresses returns the addresses owned by the wallet.
+func (w *HotWallet) Addresses() ([]types.UnlockHash, error) {
+	return w.store.Addresses()
+}
+
 // UnspentOutputs returns the unspent outputs owned by the wallet.
 func (w *HotWallet) UnspentOutputs() ([]SiacoinElement, error) {
 	return w.store.UnspentOutputs()
 }
 
+// Transaction returns a transaction with the given ID.
+func (w *HotWallet) Transaction(id types.TransactionID) (Transaction, bool, error) {
+	return w.store.Transaction(id)
+}
+
 // Transactions returns transactions relevant to the wallet.
 func (w *HotWallet) Transactions(since time.Time, max int) ([]Transaction, error) {
 	return w.store.Transactions(since, max)
+}
+
+// TransactionsByAddress returns all transactions involving the address.
+func (w *HotWallet) TransactionsByAddress(addr types.UnlockHash) ([]Transaction, error) {
+	return w.store.TransactionsByAddress(addr)
 }
 
 // FundTransaction adds inputs to txn worth at least amount, adding a change

@@ -83,15 +83,33 @@ func (c *Client) WalletAddress() (resp types.UnlockHash, err error) {
 	return
 }
 
+// WalletAddresses the addresses controlled by the wallet.
+func (c *Client) WalletAddresses() (resp []types.UnlockHash, err error) {
+	err = c.get("/wallet/addresses", &resp)
+	return
+}
+
 // WalletOutputs returns the set of unspent outputs controlled by the wallet.
 func (c *Client) WalletOutputs() (resp []wallet.SiacoinElement, err error) {
 	err = c.get("/wallet/outputs", &resp)
 	return
 }
 
+// WalletTransaction returns the transaction with the given ID.
+func (c *Client) WalletTransaction(id types.TransactionID) (resp wallet.Transaction, err error) {
+	err = c.get(fmt.Sprintf("/wallet/transaction/"+id.String()), &resp)
+	return
+}
+
 // WalletTransactions returns all transactions relevant to the wallet.
 func (c *Client) WalletTransactions(since time.Time, max int) (resp []wallet.Transaction, err error) {
 	err = c.get(fmt.Sprintf("/wallet/transactions?since=%s&max=%d", since.Format(time.RFC3339), max), &resp)
+	return
+}
+
+// WalletTransactionsAddress returns all transactions relevant to the wallet.
+func (c *Client) WalletTransactionsAddress(addr types.UnlockHash) (resp []wallet.Transaction, err error) {
+	err = c.get("/wallet/transactions/"+addr.String(), &resp)
 	return
 }
 

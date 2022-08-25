@@ -25,6 +25,46 @@ type EphemeralStore struct {
 	seedIndex uint64
 }
 
+func relevantFileContract(fc types.FileContract, ownsAddress func(types.UnlockHash) bool) bool {
+	relevant := false
+	for _, sco := range fc.ValidProofOutputs {
+		relevant = relevant || ownsAddress(sco.UnlockHash)
+	}
+	for _, sco := range fc.MissedProofOutputs {
+		relevant = relevant || ownsAddress(sco.UnlockHash)
+	}
+	return relevant
+}
+
+func relevantTransaction(txn types.Transaction, ownsAddress func(types.UnlockHash) bool) bool {
+	relevant := false
+	for i := range txn.SiacoinInputs {
+		relevant = relevant || ownsAddress(txn.SiacoinInputs[i].UnlockConditions.UnlockHash())
+	}
+	for i := range txn.SiacoinOutputs {
+		relevant = relevant || ownsAddress(txn.SiacoinOutputs[i].UnlockHash)
+	}
+	for i := range txn.SiafundInputs {
+		relevant = relevant || ownsAddress(txn.SiafundInputs[i].UnlockConditions.UnlockHash())
+		relevant = relevant || ownsAddress(txn.SiafundInputs[i].ClaimUnlockHash)
+	}
+	for i := range txn.SiafundOutputs {
+		relevant = relevant || ownsAddress(txn.SiafundOutputs[i].UnlockHash)
+	}
+	for i := range txn.FileContracts {
+		relevant = relevant || relevantFileContract(txn.FileContracts[i], ownsAddress)
+	}
+	for i := range txn.FileContractRevisions {
+		for _, sco := range txn.FileContractRevisions[i].NewValidProofOutputs {
+			relevant = relevant || ownsAddress(sco.UnlockHash)
+		}
+		for _, sco := range txn.FileContractRevisions[i].NewMissedProofOutputs {
+			relevant = relevant || ownsAddress(sco.UnlockHash)
+		}
+	}
+	return relevant
+}
+
 func (s *EphemeralStore) ownsAddress(addr types.UnlockHash) bool {
 	_, ok := s.addrs[addr]
 	return ok
@@ -81,47 +121,8 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 		}
 	}
 
-	relevantFileContract := func(fc types.FileContract) bool {
-		relevant := false
-		for _, sco := range fc.ValidProofOutputs {
-			relevant = relevant || s.ownsAddress(sco.UnlockHash)
-		}
-		for _, sco := range fc.MissedProofOutputs {
-			relevant = relevant || s.ownsAddress(sco.UnlockHash)
-		}
-		return relevant
-	}
-	relevantTransaction := func(txn types.Transaction) bool {
-		relevant := false
-		for i := range txn.SiacoinInputs {
-			relevant = relevant || s.ownsAddress(txn.SiacoinInputs[i].UnlockConditions.UnlockHash())
-		}
-		for i := range txn.SiacoinOutputs {
-			relevant = relevant || s.ownsAddress(txn.SiacoinOutputs[i].UnlockHash)
-		}
-		for i := range txn.SiafundInputs {
-			relevant = relevant || s.ownsAddress(txn.SiafundInputs[i].UnlockConditions.UnlockHash())
-			relevant = relevant || s.ownsAddress(txn.SiafundInputs[i].ClaimUnlockHash)
-		}
-		for i := range txn.SiafundOutputs {
-			relevant = relevant || s.ownsAddress(txn.SiafundOutputs[i].UnlockHash)
-		}
-		for i := range txn.FileContracts {
-			relevant = relevant || relevantFileContract(txn.FileContracts[i])
-		}
-		for i := range txn.FileContractRevisions {
-			for _, sco := range txn.FileContractRevisions[i].NewValidProofOutputs {
-				relevant = relevant || s.ownsAddress(sco.UnlockHash)
-			}
-			for _, sco := range txn.FileContractRevisions[i].NewMissedProofOutputs {
-				relevant = relevant || s.ownsAddress(sco.UnlockHash)
-			}
-		}
-		return relevant
-	}
-
 	for _, fco := range cc.FileContractDiffs {
-		if !relevantFileContract(fco.FileContract) {
+		if !relevantFileContract(fco.FileContract, s.ownsAddress) {
 			continue
 		}
 		if fco.Direction == modules.DiffApply {
@@ -139,7 +140,7 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 	for _, block := range cc.RevertedBlocks {
 		height--
 		for _, txn := range block.Transactions {
-			if !relevantTransaction(txn) {
+			if !relevantTransaction(txn, s.ownsAddress) {
 				continue
 			}
 			delete(s.txns, txn.ID())
@@ -149,7 +150,7 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 	for _, block := range cc.AppliedBlocks {
 		height++
 		for _, txn := range block.Transactions {
-			if !relevantTransaction(txn) {
+			if !relevantTransaction(txn, s.ownsAddress) {
 				continue
 			}
 
@@ -208,6 +209,22 @@ func (s *EphemeralStore) Transactions(since time.Time, max int) (txns []wallet.T
 		txns = append(txns, txn)
 		max--
 	}
+	return
+}
+
+func (s *EphemeralStore) TransactionsByAddress(addr types.UnlockHash) (txns []wallet.Transaction, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ownsAddress := func(a types.UnlockHash) bool {
+		return a == addr
+	}
+	for _, txn := range s.txns {
+		if relevantTransaction(txn.Raw, ownsAddress) {
+			txns = append(txns, txn)
+		}
+	}
+
 	return
 }
 
