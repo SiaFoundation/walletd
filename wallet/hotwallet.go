@@ -61,7 +61,7 @@ func (w *HotWallet) UnspentOutputs() ([]SiacoinElement, error) {
 }
 
 // Transaction returns a transaction with the given ID.
-func (w *HotWallet) Transaction(id types.TransactionID) (Transaction, bool, error) {
+func (w *HotWallet) Transaction(id types.TransactionID) (Transaction, error) {
 	return w.store.Transaction(id)
 }
 

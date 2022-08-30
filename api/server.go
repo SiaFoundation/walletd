@@ -39,7 +39,7 @@ type (
 		Address() (types.UnlockHash, error)
 		Addresses() ([]types.UnlockHash, error)
 		UnspentOutputs() ([]wallet.SiacoinElement, error)
-		Transaction(id types.TransactionID) (wallet.Transaction, bool, error)
+		Transaction(id types.TransactionID) (wallet.Transaction, error)
 		Transactions(since time.Time, max int) ([]wallet.Transaction, error)
 		TransactionsByAddress(addr types.UnlockHash) ([]wallet.Transaction, error)
 	}
@@ -118,6 +118,7 @@ func (s *server) walletBalanceHandler(w http.ResponseWriter, req *http.Request, 
 	balance, err := s.w.Balance()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	WriteJSON(w, WalletBalanceResponse{
@@ -129,6 +130,7 @@ func (s *server) walletAddressHandler(w http.ResponseWriter, req *http.Request, 
 	address, err := s.w.Address()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	WriteJSON(w, address)
@@ -138,6 +140,7 @@ func (s *server) walletAddressesHandler(w http.ResponseWriter, req *http.Request
 	addresses, err := s.w.Addresses()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	WriteJSON(w, addresses)
@@ -177,12 +180,9 @@ func (s *server) walletTransactionHandler(w http.ResponseWriter, req *http.Reque
 		return
 	}
 
-	txn, ok, err := s.w.Transaction(id)
+	txn, err := s.w.Transaction(id)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	} else if !ok {
-		http.Error(w, "no such transaction", http.StatusInternalServerError)
 		return
 	}
 	WriteJSON(w, txn)
@@ -198,6 +198,7 @@ func (s *server) walletTransactionsAddressHandler(w http.ResponseWriter, req *ht
 	txns, err := s.w.TransactionsByAddress(addr)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	WriteJSON(w, txns)
 }

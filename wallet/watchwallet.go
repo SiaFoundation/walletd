@@ -60,7 +60,7 @@ func (w *WatchWallet) UnspentOutputs() ([]SiacoinElement, error) {
 }
 
 // Transaction returns a transaction with the given ID.
-func (w *WatchWallet) Transaction(id types.TransactionID) (Transaction, bool, error) {
+func (w *WatchWallet) Transaction(id types.TransactionID) (Transaction, error) {
 	return w.store.Transaction(id)
 }
 

@@ -49,7 +49,7 @@ type Store interface {
 	modules.ConsensusSetSubscriber
 	ConsensusChangeID() (modules.ConsensusChangeID, error)
 
-	Transaction(id types.TransactionID) (Transaction, bool, error)
+	Transaction(id types.TransactionID) (Transaction, error)
 	Transactions(since time.Time, max int) ([]Transaction, error)
 	UnspentOutputs() ([]SiacoinElement, error)
 

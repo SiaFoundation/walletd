@@ -1,6 +1,7 @@
 package walletutil
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -10,19 +11,16 @@ import (
 )
 
 type EphemeralStore struct {
-	mu sync.Mutex
+	seedIndex uint64
+	ccid      modules.ConsensusChangeID
 
-	ccid modules.ConsensusChangeID
-
-	addrs map[types.UnlockHash]wallet.SeedAddressInfo
-
+	addrs     map[types.UnlockHash]wallet.SeedAddressInfo
+	txns      map[types.TransactionID]wallet.Transaction
 	scOutputs map[types.SiacoinOutputID]wallet.SiacoinElement
 	sfOutputs map[types.SiafundOutputID]wallet.SiafundElement
 	contracts map[types.FileContractID]wallet.FileContractElement
 
-	txns map[types.TransactionID]wallet.Transaction
-
-	seedIndex uint64
+	mu sync.Mutex
 }
 
 func relevantFileContract(fc types.FileContract, ownsAddress func(types.UnlockHash) bool) bool {
@@ -187,12 +185,15 @@ func (s *EphemeralStore) ConsensusChangeID() (modules.ConsensusChangeID, error) 
 	return s.ccid, nil
 }
 
-func (s *EphemeralStore) Transaction(id types.TransactionID) (wallet.Transaction, bool, error) {
+func (s *EphemeralStore) Transaction(id types.TransactionID) (wallet.Transaction, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	txn, ok := s.txns[id]
-	return txn, ok, nil
+	if !ok {
+		return wallet.Transaction{}, errors.New("no such transaction")
+	}
+	return txn, nil
 }
 
 func (s *EphemeralStore) Transactions(since time.Time, max int) (txns []wallet.Transaction, err error) {
