@@ -35,9 +35,13 @@ type (
 
 	// A Wallet can spend and receive siacoins.
 	Wallet interface {
-		Balance() types.Currency
+		Balance() (types.Currency, error)
+		Address() (types.UnlockHash, error)
+		Addresses() ([]types.UnlockHash, error)
 		UnspentOutputs() ([]wallet.SiacoinElement, error)
+		Transaction(id types.TransactionID) (wallet.Transaction, error)
 		Transactions(since time.Time, max int) ([]wallet.Transaction, error)
+		TransactionsByAddress(addr types.UnlockHash) ([]wallet.Transaction, error)
 	}
 )
 
@@ -111,9 +115,35 @@ func (s *server) txpoolBroadcastHandler(w http.ResponseWriter, req *http.Request
 }
 
 func (s *server) walletBalanceHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	balance, err := s.w.Balance()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	WriteJSON(w, WalletBalanceResponse{
-		Siacoins: s.w.Balance(),
+		Siacoins: balance,
 	})
+}
+
+func (s *server) walletAddressHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	address, err := s.w.Address()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	WriteJSON(w, address)
+}
+
+func (s *server) walletAddressesHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	addresses, err := s.w.Addresses()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	WriteJSON(w, addresses)
 }
 
 func (s *server) walletTransactionsHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
@@ -136,6 +166,36 @@ func (s *server) walletTransactionsHandler(w http.ResponseWriter, req *http.Requ
 		max = t
 	}
 	txns, err := s.w.Transactions(since, max)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	WriteJSON(w, txns)
+}
+
+func (s *server) walletTransactionHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+	var id types.TransactionID
+	if err := json.Unmarshal([]byte(`"`+p.ByName("id")+`"`), &id); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	txn, err := s.w.Transaction(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	WriteJSON(w, txn)
+}
+
+func (s *server) walletTransactionsAddressHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+	var addr types.UnlockHash
+	if err := json.Unmarshal([]byte(`"`+p.ByName("id")+`"`), &addr); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	txns, err := s.w.TransactionsByAddress(addr)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -171,7 +231,11 @@ func NewServer(cm ChainManager, s Syncer, tp TransactionPool, w Wallet) http.Han
 	mux.POST("/txpool/broadcast", srv.txpoolBroadcastHandler)
 
 	mux.GET("/wallet/balance", srv.walletBalanceHandler)
+	mux.GET("/wallet/address", srv.walletAddressHandler)
+	mux.GET("/wallet/addresses", srv.walletAddressesHandler)
+	mux.GET("/wallet/transaction/:id", srv.walletTransactionHandler)
 	mux.GET("/wallet/transactions", srv.walletTransactionsHandler)
+	mux.GET("/wallet/transactions/:address", srv.walletTransactionsAddressHandler)
 	mux.GET("/wallet/outputs", srv.walletOutputsHandler)
 
 	return mux
