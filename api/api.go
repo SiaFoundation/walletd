@@ -1,6 +1,8 @@
 package api
 
 import (
+	"go.sia.tech/siad/crypto"
+
 	"go.sia.tech/siad/types"
 )
 
@@ -26,4 +28,16 @@ type SyncerConnectRequest struct {
 // WalletBalanceResponse is the response to /wallet/balance.
 type WalletBalanceResponse struct {
 	Siacoins types.Currency `json:"siacoins"`
+}
+
+// WalletSignRequest requests that a transaction be signed.
+type WalletSignRequest struct {
+	Transaction types.Transaction `json:"transaction"`
+	ToSign      []crypto.Hash     `json:"toSign"`
+}
+
+// WalletSiacoinsResponse is the response to /wallet/siacoins.
+type WalletSiacoinsResponse struct {
+	Transactions   []types.Transaction `json:"transactions"`
+	TransactionIDs []crypto.Hash       `json:"transactionids"`
 }
