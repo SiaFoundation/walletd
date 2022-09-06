@@ -41,3 +41,16 @@ type WalletSiacoinsResponse struct {
 	Transactions   []types.Transaction `json:"transactions"`
 	TransactionIDs []crypto.Hash       `json:"transactionids"`
 }
+
+// WalletFundRequest is the request type for /wallet/fund.
+type WalletFundRequest struct {
+	Transaction types.Transaction `json:"transaction"`
+	Amount      types.Currency    `json:"amount"`
+}
+
+// WalletFundResponse is the response type for /wallet/fund.
+type WalletFundResponse struct {
+	Transaction types.Transaction   `json:"transaction"`
+	ToSign      []types.OutputID    `json:"toSign"`
+	DependsOn   []types.Transaction `json:"dependsOn"`
+}

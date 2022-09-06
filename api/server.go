@@ -2,11 +2,11 @@ package api
 
 import (
 	"encoding/json"
-	"math/big"
 	"net/http"
 	"strconv"
 	"time"
 
+	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/siad/crypto"
 
 	"github.com/julienschmidt/httprouter"
@@ -46,7 +46,7 @@ type (
 		Transactions(since time.Time, max int) ([]wallet.Transaction, error)
 		TransactionsByAddress(addr types.UnlockHash) ([]wallet.Transaction, error)
 		SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error
-		FundTransaction(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error)
+		FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.OutputID, func(), error)
 	}
 )
 
@@ -231,53 +231,31 @@ func (s *server) walletSignHandler(w http.ResponseWriter, req *http.Request, _ h
 	WriteJSON(w, wtsr.Transaction)
 }
 
-func (s *server) walletSiacoinsHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	var amount types.Currency
-	var txn types.Transaction
-	if req.URL.Query().Get("amount") != "" && req.URL.Query().Get("destination") != "" {
-		b, ok := new(big.Int).SetString(req.URL.Query().Get("amount"), 10)
-		if !ok {
-			http.Error(w, "invalid amount string", http.StatusBadRequest)
-			return
-		}
-		amount = types.NewCurrency(b)
-
-		var destination types.UnlockHash
-		if err := destination.LoadString(req.URL.Query().Get("destination")); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		txn = types.Transaction{SiacoinOutputs: []types.SiacoinOutput{{amount, destination}}}
-	} else if v := req.URL.Query().Get("outputs"); v != "" {
-		var outputs []types.SiacoinOutput
-		if err := json.Unmarshal([]byte(v), &outputs); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		txn = types.Transaction{SiacoinOutputs: outputs}
-		for _, output := range outputs {
-			amount = amount.Add(output.Value)
-		}
+func (s *server) walletFundHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	var wfr WalletFundRequest
+	if err := json.NewDecoder(req.Body).Decode(&wfr); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-
-	ids, unclaim, err := s.w.FundTransaction(&txn, amount)
+	txn := wfr.Transaction
+	fee := s.tp.RecommendedFee().Mul64(uint64(len(encoding.Marshal(txn))))
+	txn.MinerFees = []types.Currency{fee}
+	toSign, unclaim, err := s.w.FundTransaction(&wfr.Transaction, wfr.Amount.Add(txn.MinerFees[0]))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := s.w.SignTransaction(&txn, ids); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	parents, err := s.tp.UnconfirmedParents(txn)
+	if err != nil {
+		unclaim()
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	txns := []types.Transaction{txn}
-	if err := s.tp.AddTransactionSet(txns); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	unclaim()
-
-	WriteJSON(w, WalletSiacoinsResponse{txns, ids})
+	WriteJSON(w, WalletFundResponse{
+		Transaction: txn,
+		ToSign:      toSign,
+		DependsOn:   parents,
+	})
 }
 
 // NewServer returns an HTTP handler that serves the walletd API.
@@ -303,10 +281,10 @@ func NewServer(cm ChainManager, s Syncer, tp TransactionPool, w Wallet) http.Han
 	mux.GET("/wallet/addresses", srv.walletAddressesHandler)
 	mux.GET("/wallet/transaction/:id", srv.walletTransactionHandler)
 	mux.POST("/wallet/sign", srv.walletSignHandler)
+	mux.POST("/wallet/fund", srv.walletFundHandler)
 	mux.GET("/wallet/transactions", srv.walletTransactionsHandler)
 	mux.GET("/wallet/transactions/:address", srv.walletTransactionsAddressHandler)
 	mux.GET("/wallet/outputs", srv.walletOutputsHandler)
-	mux.POST("/wallet/siacoins", srv.walletSiacoinsHandler)
 
 	return mux
 }

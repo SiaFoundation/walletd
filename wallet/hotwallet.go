@@ -80,7 +80,7 @@ func (w *HotWallet) TransactionsByAddress(addr types.UnlockHash) ([]Transaction,
 // SignTransaction. It also returns a function that will "unclaim" the inputs;
 // this function must be called once the transaction has been broadcast or
 // discarded.
-func (w *HotWallet) FundTransaction(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error) {
+func (w *HotWallet) FundTransaction(txn *types.Transaction, amount types.Currency) ([]types.OutputID, func(), error) {
 	if amount.IsZero() {
 		return nil, func() {}, nil
 	}
@@ -114,7 +114,7 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amount types.Currenc
 		}
 	}
 
-	var toSign []crypto.Hash
+	var toSign []types.OutputID
 	for _, o := range unused {
 		info, ok, err := w.store.AddressInfo(o.UnlockHash)
 		if err != nil {
@@ -127,7 +127,7 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amount types.Currenc
 			UnlockConditions: info.UnlockConditions,
 		})
 		txn.TransactionSignatures = append(txn.TransactionSignatures, StandardTransactionSignature(crypto.Hash(o.ID)))
-		toSign = append(toSign, crypto.Hash(o.ID))
+		toSign = append(toSign, types.OutputID(o.ID))
 	}
 	// add change output, if needed
 	if change := outputSum.Sub(amount); !change.IsZero() {
