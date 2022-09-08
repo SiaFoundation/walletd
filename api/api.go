@@ -28,6 +28,7 @@ type SyncerConnectRequest struct {
 // WalletBalanceResponse is the response to /wallet/balance.
 type WalletBalanceResponse struct {
 	Siacoins types.Currency `json:"siacoins"`
+	Siafunds types.Currency `json:"siafunds"`
 }
 
 // WalletSignRequest requests that a transaction be signed.
@@ -48,9 +49,15 @@ type WalletFundRequest struct {
 	Amount      types.Currency    `json:"amount"`
 }
 
-// WalletFundResponse is the response type for /wallet/fund.
+// WalletFundResponse is the response to /wallet/fund.
 type WalletFundResponse struct {
 	Transaction types.Transaction   `json:"transaction"`
-	ToSign      []types.OutputID    `json:"toSign"`
+	ToSign      []crypto.Hash       `json:"toSign"`
 	DependsOn   []types.Transaction `json:"dependsOn"`
+}
+
+// WalletSendResponse is the response to /wallet/send
+type WalletSendResponse struct {
+	ID          types.TransactionID
+	Transaction types.Transaction
 }

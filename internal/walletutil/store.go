@@ -229,11 +229,21 @@ func (s *EphemeralStore) TransactionsByAddress(addr types.UnlockHash) (txns []wa
 	return
 }
 
-func (s *EphemeralStore) UnspentOutputs() (outputs []wallet.SiacoinElement, err error) {
+func (s *EphemeralStore) UnspentSiacoinOutputs() (outputs []wallet.SiacoinElement, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for _, output := range s.scOutputs {
+		outputs = append(outputs, output)
+	}
+	return
+}
+
+func (s *EphemeralStore) UnspentSiafundOutputs() (outputs []wallet.SiafundElement, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, output := range s.sfOutputs {
 		outputs = append(outputs, output)
 	}
 	return

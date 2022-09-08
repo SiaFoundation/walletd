@@ -120,9 +120,15 @@ func (c *Client) WalletSign(txn types.Transaction, toSign []crypto.Hash) (resp t
 	return
 }
 
-// WalletSiacoins sends the given amount of siacoins to the destination.
-func (c *Client) WalletSiacoins(amount types.Currency, destination types.UnlockHash) (resp WalletSiacoinsResponse, err error) {
-	err = c.post(fmt.Sprintf("/wallet/siacoins?amount=%s&desination=%s", amount, destination), nil, &resp)
+// WalletFund funds a transaction.
+func (c *Client) WalletFund(txn types.Transaction, amount types.Currency) (resp WalletFundResponse, err error) {
+	err = c.post("/wallet/fund", WalletFundRequest{txn, amount}, &resp)
+	return
+}
+
+// WalletSendSiacoins sends a given amount of siacoins to the destination address.
+func (c *Client) WalletSendSiacoins(amount types.Currency, destination types.UnlockHash) (resp WalletSendResponse, err error) {
+	err = c.post(fmt.Sprintf("/wallet/send?type=siacoins&amount=%s&destination=%s", amount, destination), nil, &resp)
 	return
 }
 

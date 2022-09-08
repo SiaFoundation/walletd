@@ -51,7 +51,8 @@ type Store interface {
 
 	Transaction(id types.TransactionID) (Transaction, error)
 	Transactions(since time.Time, max int) ([]Transaction, error)
-	UnspentOutputs() ([]SiacoinElement, error)
+	UnspentSiacoinOutputs() ([]SiacoinElement, error)
+	UnspentSiafundOutputs() ([]SiafundElement, error)
 
 	SeedIndex() (uint64, error)
 	SetSeedIndex(index uint64) error
