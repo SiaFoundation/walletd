@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/types"
 )
 
@@ -13,18 +14,30 @@ type WatchWallet struct {
 	store Store
 }
 
-// Balance returns the total value of the unspent outputs owned by the wallet.
-func (w *WatchWallet) Balance() (types.Currency, error) {
-	outputs, err := w.store.UnspentOutputs()
+// Balance returns the total value of the unspent siacoin and siafund outputs
+// owned by the wallet.
+func (w *WatchWallet) Balance() (types.Currency, types.Currency, error) {
+	scOutputs, err := w.store.UnspentSiacoinOutputs()
 	if err != nil {
-		return types.Currency{}, err
+		return types.Currency{}, types.Currency{}, err
 	}
 
-	var sum types.Currency
-	for _, out := range outputs {
-		sum = sum.Add(out.Value)
+	var sc types.Currency
+	for _, out := range scOutputs {
+		sc = sc.Add(out.Value)
 	}
-	return sum, nil
+
+	sfOutputs, err := w.store.UnspentSiafundOutputs()
+	if err != nil {
+		return types.Currency{}, types.Currency{}, err
+	}
+
+	var sf types.Currency
+	for _, out := range sfOutputs {
+		sf = sf.Add(out.Value)
+	}
+
+	return sc, sf, nil
 }
 
 func (w *WatchWallet) AddAddress(uc types.UnlockConditions) error {
@@ -54,9 +67,14 @@ func (w *WatchWallet) Addresses() ([]types.UnlockHash, error) {
 	return w.store.Addresses()
 }
 
-// UnspentOutputs returns the unspent outputs owned by the wallet.
-func (w *WatchWallet) UnspentOutputs() ([]SiacoinElement, error) {
-	return w.store.UnspentOutputs()
+// UnspentSiacoinOutputs returns the unspent outputs owned by the wallet.
+func (w *WatchWallet) UnspentSiacoinOutputs() ([]SiacoinElement, error) {
+	return w.store.UnspentSiacoinOutputs()
+}
+
+// UnspentSiafundOutputs returns the unspent siafund outputs owned by the wallet.
+func (w *WatchWallet) UnspentSiafundOutputs() ([]SiafundElement, error) {
+	return w.store.UnspentSiafundOutputs()
 }
 
 // Transaction returns a transaction with the given ID.
@@ -72,6 +90,14 @@ func (w *WatchWallet) TransactionsByAddress(addr types.UnlockHash) ([]Transactio
 // Transactions returns transactions relevant to the wallet.
 func (w *WatchWallet) Transactions(since time.Time, max int) ([]Transaction, error) {
 	return w.store.Transactions(since, max)
+}
+
+func (w *WatchWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error {
+	return nil
+}
+
+func (w *WatchWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error) {
+	return nil, nil, nil
 }
 
 // NewWatchWallet returns a new WatchWallet.

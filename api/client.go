@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/types"
 	"go.sia.tech/walletd/wallet"
 )
@@ -67,7 +68,7 @@ func (c *Client) SyncerPeers() (resp []SyncerPeerResponse, err error) {
 
 // SyncerConnect adds the address as a peer of the syncer.
 func (c *Client) SyncerConnect(addr string) (err error) {
-	err = c.post("/syncer/connect", addr, nil)
+	err = c.post("/syncer/connect", SyncerConnectRequest{addr}, nil)
 	return
 }
 
@@ -110,6 +111,24 @@ func (c *Client) WalletTransactions(since time.Time, max int) (resp []wallet.Tra
 // WalletTransactionsAddress returns all transactions relevant to the wallet.
 func (c *Client) WalletTransactionsAddress(addr types.UnlockHash) (resp []wallet.Transaction, err error) {
 	err = c.get("/wallet/transactions/"+addr.String(), &resp)
+	return
+}
+
+// WalletSign signs a transaction.
+func (c *Client) WalletSign(txn types.Transaction, toSign []crypto.Hash) (resp types.Transaction, err error) {
+	err = c.post("/wallet/sign", WalletSignRequest{txn, toSign}, &resp)
+	return
+}
+
+// WalletFund funds a transaction.
+func (c *Client) WalletFund(txn types.Transaction, amountSC, amountSF types.Currency) (resp WalletFundResponse, err error) {
+	err = c.post("/wallet/fund", WalletFundRequest{txn, amountSC, amountSF}, &resp)
+	return
+}
+
+// WalletSendSiacoins sends a given amount of siacoins to the destination address.
+func (c *Client) WalletSendSiacoins(amount types.Currency, destination types.UnlockHash) (resp WalletSendResponse, err error) {
+	err = c.post(fmt.Sprintf("/wallet/send?type=siacoins&amount=%s&destination=%s", amount, destination), nil, &resp)
 	return
 }
 
