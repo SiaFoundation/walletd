@@ -22,19 +22,30 @@ type HotWallet struct {
 	usedSF map[types.SiafundOutputID]struct{}
 }
 
-// BalanceSiacoin returns the total value of the unspent siacoin outputs owned
-// by the wallet.
-func (w *HotWallet) BalanceSiacoin() (types.Currency, error) {
-	outputs, err := w.store.UnspentSiacoinOutputs()
+// Balance returns the total value of the unspent siacoin and siafund outputs
+// owned by the wallet.
+func (w *HotWallet) Balance() (types.Currency, types.Currency, error) {
+	scOutputs, err := w.store.UnspentSiacoinOutputs()
 	if err != nil {
-		return types.Currency{}, err
+		return types.Currency{}, types.Currency{}, err
 	}
 
-	var sum types.Currency
-	for _, out := range outputs {
-		sum = sum.Add(out.Value)
+	var sc types.Currency
+	for _, out := range scOutputs {
+		sc = sc.Add(out.Value)
 	}
-	return sum, nil
+
+	sfOutputs, err := w.store.UnspentSiafundOutputs()
+	if err != nil {
+		return types.Currency{}, types.Currency{}, err
+	}
+
+	var sf types.Currency
+	for _, out := range sfOutputs {
+		sf = sf.Add(out.Value)
+	}
+
+	return sc, sf, nil
 }
 
 // BalanceSiafund returns the total value of the unspent siafund outputs owned
@@ -102,42 +113,42 @@ func (w *HotWallet) TransactionsByAddress(addr types.UnlockHash) ([]Transaction,
 // with SignTransaction. It also returns a function that will "unclaim" the
 // inputs; this function must be called once the transaction has been broadcast
 // or discarded.
-func (w *HotWallet) FundTransactionSiacoin(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error) {
-	if amount.IsZero() {
+func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error) {
+	if amountSC.IsZero() && amountSF.IsZero() {
 		return nil, func() {}, nil
 	}
 
-	outputs, err := w.store.UnspentSiacoinOutputs()
+	outputsSC, err := w.store.UnspentSiacoinOutputs()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	var unused []SiacoinElement
-	for _, out := range outputs {
+	var unusedSC []SiacoinElement
+	for _, out := range outputsSC {
 		if _, ok := w.usedSC[out.ID]; !ok {
-			unused = append(unused, out)
+			unusedSC = append(unusedSC, out)
 		}
 	}
 
-	var balance types.Currency
-	for _, o := range unused {
-		balance = balance.Add(o.Value)
+	var balanceSC types.Currency
+	for _, o := range unusedSC {
+		balanceSC = balanceSC.Add(o.Value)
 	}
 
 	// choose outputs randomly
-	frand.Shuffle(len(unused), reflect.Swapper(unused))
+	frand.Shuffle(len(unusedSC), reflect.Swapper(unusedSC))
 
 	// keep adding outputs until we have enough
-	var outputSum types.Currency
-	for i, o := range unused {
-		if outputSum = outputSum.Add(o.Value); outputSum.Cmp(amount) >= 0 {
-			unused = unused[:i+1]
+	var outputSumSC types.Currency
+	for i, o := range unusedSC {
+		if outputSumSC = outputSumSC.Add(o.Value); outputSumSC.Cmp(amountSC) >= 0 {
+			unusedSC = unusedSC[:i+1]
 			break
 		}
 	}
 
-	var toSign []crypto.Hash
-	for _, o := range unused {
+	var toSignSC []crypto.Hash
+	for _, o := range unusedSC {
 		info, ok, err := w.store.AddressInfo(o.UnlockHash)
 		if err != nil {
 			return nil, nil, err
@@ -149,10 +160,10 @@ func (w *HotWallet) FundTransactionSiacoin(txn *types.Transaction, amount types.
 			UnlockConditions: info.UnlockConditions,
 		})
 		txn.TransactionSignatures = append(txn.TransactionSignatures, StandardTransactionSignature(crypto.Hash(o.ID)))
-		toSign = append(toSign, crypto.Hash(o.ID))
+		toSignSC = append(toSignSC, crypto.Hash(o.ID))
 	}
 	// add change output, if needed
-	if change := outputSum.Sub(amount); !change.IsZero() {
+	if change := outputSumSC.Sub(amountSC); !change.IsZero() {
 		index, err := w.store.SeedIndex()
 		if err != nil {
 			return nil, nil, err
@@ -169,62 +180,42 @@ func (w *HotWallet) FundTransactionSiacoin(txn *types.Transaction, amount types.
 	}
 
 	w.mu.Lock()
-	for _, o := range unused {
+	for _, o := range unusedSC {
 		w.usedSC[o.ID] = struct{}{}
 	}
 	w.mu.Unlock()
 
-	discard := func() {
-		w.mu.Lock()
-		for _, o := range unused {
-			delete(w.usedSC, o.ID)
-		}
-		w.mu.Unlock()
-	}
-	return toSign, discard, nil
-}
-
-// FundTransactionSiafund adds siafund inputs to txn worth at least amount,
-// adding a change output if needed. It returns the added input IDs, for use
-// with SignTransaction. It also returns a function that will "unclaim" the
-// inputs; this function must be called once the transaction has been broadcast
-// or discarded.
-func (w *HotWallet) FundTransactionSiafund(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error) {
-	if amount.IsZero() {
-		return nil, func() {}, nil
-	}
-
-	outputs, err := w.store.UnspentSiafundOutputs()
+	outputsSF, err := w.store.UnspentSiafundOutputs()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	var unused []SiafundElement
-	for _, out := range outputs {
+	var unusedSF []SiafundElement
+	for _, out := range outputsSF {
 		if _, ok := w.usedSF[out.ID]; !ok {
-			unused = append(unused, out)
+			unusedSF = append(unusedSF, out)
 		}
 	}
 
-	var balance types.Currency
-	for _, o := range unused {
-		balance = balance.Add(o.Value)
+	var balanceSF types.Currency
+	for _, o := range unusedSF {
+		balanceSF = balanceSF.Add(o.Value)
 	}
 
 	// choose outputs randomly
-	frand.Shuffle(len(unused), reflect.Swapper(unused))
+	frand.Shuffle(len(unusedSF), reflect.Swapper(unusedSF))
 
 	// keep adding outputs until we have enough
-	var outputSum types.Currency
-	for i, o := range unused {
-		if outputSum = outputSum.Add(o.Value); outputSum.Cmp(amount) >= 0 {
-			unused = unused[:i+1]
+	var outputSumSF types.Currency
+	for i, o := range unusedSF {
+		if outputSumSF = outputSumSF.Add(o.Value); outputSumSF.Cmp(amountSF) >= 0 {
+			unusedSF = unusedSF[:i+1]
 			break
 		}
 	}
 
-	var toSign []crypto.Hash
-	for _, o := range unused {
+	var toSignSF []crypto.Hash
+	for _, o := range unusedSF {
 		info, ok, err := w.store.AddressInfo(o.UnlockHash)
 		if err != nil {
 			return nil, nil, err
@@ -236,10 +227,10 @@ func (w *HotWallet) FundTransactionSiafund(txn *types.Transaction, amount types.
 			UnlockConditions: info.UnlockConditions,
 		})
 		txn.TransactionSignatures = append(txn.TransactionSignatures, StandardTransactionSignature(crypto.Hash(o.ID)))
-		toSign = append(toSign, crypto.Hash(o.ID))
+		toSignSF = append(toSignSF, crypto.Hash(o.ID))
 	}
 	// add change output, if needed
-	if change := outputSum.Sub(amount); !change.IsZero() {
+	if change := outputSumSF.Sub(amountSF); !change.IsZero() {
 		index, err := w.store.SeedIndex()
 		if err != nil {
 			return nil, nil, err
@@ -256,18 +247,27 @@ func (w *HotWallet) FundTransactionSiafund(txn *types.Transaction, amount types.
 	}
 
 	w.mu.Lock()
-	for _, o := range unused {
+	for _, o := range unusedSF {
 		w.usedSF[o.ID] = struct{}{}
 	}
 	w.mu.Unlock()
 
 	discard := func() {
 		w.mu.Lock()
-		for _, o := range unused {
-			delete(w.usedSF, o.ID)
+		if !amountSC.IsZero() {
+			for _, o := range unusedSC {
+				delete(w.usedSC, o.ID)
+			}
+		}
+		if !amountSF.IsZero() {
+			for _, o := range unusedSF {
+				delete(w.usedSF, o.ID)
+			}
 		}
 		w.mu.Unlock()
 	}
+
+	toSign := append(toSignSC, toSignSF...)
 	return toSign, discard, nil
 }
 
@@ -280,6 +280,18 @@ func (w *HotWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash
 	if len(toSign) == 0 {
 		// lazy mode: add standard sigs for every input we own
 		for _, input := range txn.SiacoinInputs {
+			info, ok, err := w.store.AddressInfo(input.UnlockConditions.UnlockHash())
+			if !ok {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			sk := w.seed.SecretKey(info.KeyIndex)
+			txnSig := StandardTransactionSignature(crypto.Hash(input.ParentID))
+			AppendTransactionSignature(txn, txnSig, sk)
+		}
+		for _, input := range txn.SiafundInputs {
 			info, ok, err := w.store.AddressInfo(input.UnlockConditions.UnlockHash())
 			if !ok {
 				continue

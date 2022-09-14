@@ -46,7 +46,8 @@ type WalletSiacoinsResponse struct {
 // WalletFundRequest is the request type for /wallet/fund.
 type WalletFundRequest struct {
 	Transaction types.Transaction `json:"transaction"`
-	Amount      types.Currency    `json:"amount"`
+	Siacoins    types.Currency    `json:"siacoins"`
+	Siafunds    types.Currency    `json:"siafunds"`
 }
 
 // WalletFundResponse is the response to /wallet/fund.

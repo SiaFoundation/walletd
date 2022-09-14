@@ -14,34 +14,30 @@ type WatchWallet struct {
 	store Store
 }
 
-// BalanceSiacoin returns the total value of the unspent siacoin outputs owned
-// by the wallet.
-func (w *WatchWallet) BalanceSiacoin() (types.Currency, error) {
-	outputs, err := w.store.UnspentSiacoinOutputs()
+// Balance returns the total value of the unspent siacoin and siafund outputs
+// owned by the wallet.
+func (w *WatchWallet) Balance() (types.Currency, types.Currency, error) {
+	scOutputs, err := w.store.UnspentSiacoinOutputs()
 	if err != nil {
-		return types.Currency{}, err
+		return types.Currency{}, types.Currency{}, err
 	}
 
-	var sum types.Currency
-	for _, out := range outputs {
-		sum = sum.Add(out.Value)
+	var sc types.Currency
+	for _, out := range scOutputs {
+		sc = sc.Add(out.Value)
 	}
-	return sum, nil
-}
 
-// BalanceSiafund returns the total value of the unspent siafund outputs owned
-// by the wallet.
-func (w *WatchWallet) BalanceSiafund() (types.Currency, error) {
-	outputs, err := w.store.UnspentSiafundOutputs()
+	sfOutputs, err := w.store.UnspentSiafundOutputs()
 	if err != nil {
-		return types.Currency{}, err
+		return types.Currency{}, types.Currency{}, err
 	}
 
-	var sum types.Currency
-	for _, out := range outputs {
-		sum = sum.Add(out.Value)
+	var sf types.Currency
+	for _, out := range sfOutputs {
+		sf = sf.Add(out.Value)
 	}
-	return sum, nil
+
+	return sc, sf, nil
 }
 
 func (w *WatchWallet) AddAddress(uc types.UnlockConditions) error {
@@ -100,11 +96,7 @@ func (w *WatchWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Ha
 	return nil
 }
 
-func (w *WatchWallet) FundTransactionSiacoin(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error) {
-	return nil, nil, nil
-}
-
-func (w *WatchWallet) FundTransactionSiafund(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error) {
+func (w *WatchWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error) {
 	return nil, nil, nil
 }
 

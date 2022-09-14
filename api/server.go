@@ -39,8 +39,7 @@ type (
 
 	// A Wallet can spend and receive siacoins.
 	Wallet interface {
-		BalanceSiacoin() (types.Currency, error)
-		BalanceSiafund() (types.Currency, error)
+		Balance() (types.Currency, types.Currency, error)
 		Address() (types.UnlockHash, error)
 		Addresses() ([]types.UnlockHash, error)
 		UnspentSiacoinOutputs() ([]wallet.SiacoinElement, error)
@@ -49,8 +48,7 @@ type (
 		Transactions(since time.Time, max int) ([]wallet.Transaction, error)
 		TransactionsByAddress(addr types.UnlockHash) ([]wallet.Transaction, error)
 		SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error
-		FundTransactionSiacoin(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error)
-		FundTransactionSiafund(txn *types.Transaction, amount types.Currency) ([]crypto.Hash, func(), error)
+		FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error)
 	}
 )
 
@@ -124,13 +122,7 @@ func (s *server) txpoolBroadcastHandler(w http.ResponseWriter, req *http.Request
 }
 
 func (s *server) walletBalanceHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	siacoins, err := s.w.BalanceSiacoin()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	siafunds, err := s.w.BalanceSiafund()
+	siacoins, siafunds, err := s.w.Balance()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -251,7 +243,7 @@ func (s *server) walletFundHandler(w http.ResponseWriter, req *http.Request, _ h
 	txn := wfr.Transaction
 	fee := s.tp.RecommendedFee().Mul64(uint64(len(encoding.Marshal(txn))))
 	txn.MinerFees = []types.Currency{fee}
-	toSign, unclaim, err := s.w.FundTransactionSiacoin(&wfr.Transaction, wfr.Amount.Add(txn.MinerFees[0]))
+	toSign, unclaim, err := s.w.FundTransaction(&wfr.Transaction, wfr.Siacoins.Add(txn.MinerFees[0]), wfr.Siafunds)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -298,7 +290,7 @@ func (s *server) walletSendHandler(w http.ResponseWriter, req *http.Request, _ h
 	txn.MinerFees = []types.Currency{fee}
 	amountSC = amountSC.Add(fee)
 
-	toSign, unclaim, err := s.w.FundTransactionSiacoin(&txn, amountSC)
+	toSign, unclaim, err := s.w.FundTransaction(&txn, amountSC, amountSF)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -310,21 +302,7 @@ func (s *server) walletSendHandler(w http.ResponseWriter, req *http.Request, _ h
 		return
 	}
 
-	if req.FormValue("type") == "siafund" {
-		toSign, unclaim, err := s.w.FundTransactionSiafund(&txn, amountSF)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer unclaim()
-		if err := s.w.SignTransaction(&txn, toSign); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
-
-	txns := []types.Transaction{txn}
-	if err := s.tp.AddTransactionSet(txns); err != nil {
+	if err := s.tp.AddTransactionSet([]types.Transaction{txn}); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

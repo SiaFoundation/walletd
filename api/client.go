@@ -121,8 +121,8 @@ func (c *Client) WalletSign(txn types.Transaction, toSign []crypto.Hash) (resp t
 }
 
 // WalletFund funds a transaction.
-func (c *Client) WalletFund(txn types.Transaction, amount types.Currency) (resp WalletFundResponse, err error) {
-	err = c.post("/wallet/fund", WalletFundRequest{txn, amount}, &resp)
+func (c *Client) WalletFund(txn types.Transaction, amountSC, amountSF types.Currency) (resp WalletFundResponse, err error) {
+	err = c.post("/wallet/fund", WalletFundRequest{txn, amountSC, amountSF}, &resp)
 	return
 }
 
