@@ -16,8 +16,8 @@ type EphemeralStore struct {
 
 	addrs     map[types.UnlockHash]wallet.SeedAddressInfo
 	txns      map[types.TransactionID]wallet.Transaction
-	scOutputs map[types.SiacoinOutputID]wallet.SiacoinElement
-	sfOutputs map[types.SiafundOutputID]wallet.SiafundElement
+	outputsSC map[types.SiacoinOutputID]wallet.SiacoinElement
+	outputsSF map[types.SiafundOutputID]wallet.SiafundElement
 	contracts map[types.FileContractID]wallet.FileContractElement
 
 	mu sync.Mutex
@@ -78,13 +78,13 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 		}
 
 		if sco.Direction == modules.DiffApply {
-			s.scOutputs[sco.ID] = wallet.SiacoinElement{
+			s.outputsSC[sco.ID] = wallet.SiacoinElement{
 				ID:             sco.ID,
 				SiacoinOutput:  sco.SiacoinOutput,
 				MaturityHeight: cc.BlockHeight,
 			}
 		} else {
-			delete(s.scOutputs, sco.ID)
+			delete(s.outputsSC, sco.ID)
 		}
 	}
 
@@ -94,13 +94,13 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 		}
 
 		if sco.Direction == modules.DiffApply {
-			s.scOutputs[sco.ID] = wallet.SiacoinElement{
+			s.outputsSC[sco.ID] = wallet.SiacoinElement{
 				ID:             sco.ID,
 				SiacoinOutput:  sco.SiacoinOutput,
 				MaturityHeight: sco.MaturityHeight,
 			}
 		} else {
-			delete(s.scOutputs, sco.ID)
+			delete(s.outputsSC, sco.ID)
 		}
 	}
 
@@ -110,12 +110,12 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 		}
 
 		if sfo.Direction == modules.DiffApply {
-			s.sfOutputs[sfo.ID] = wallet.SiafundElement{
+			s.outputsSF[sfo.ID] = wallet.SiafundElement{
 				ID:            sfo.ID,
 				SiafundOutput: sfo.SiafundOutput,
 			}
 		} else {
-			delete(s.sfOutputs, sfo.ID)
+			delete(s.outputsSF, sfo.ID)
 		}
 	}
 
@@ -160,7 +160,7 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 			}
 			for _, in := range txn.SiacoinInputs {
 				if _, ok := s.addrs[in.UnlockConditions.UnlockHash()]; ok {
-					outflow = outflow.Add(s.scOutputs[in.ParentID].Value)
+					outflow = outflow.Add(s.outputsSC[in.ParentID].Value)
 				}
 			}
 			s.txns[txn.ID()] = wallet.Transaction{
@@ -233,7 +233,7 @@ func (s *EphemeralStore) UnspentSiacoinOutputs() (outputs []wallet.SiacoinElemen
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, output := range s.scOutputs {
+	for _, output := range s.outputsSC {
 		outputs = append(outputs, output)
 	}
 	return
@@ -243,7 +243,7 @@ func (s *EphemeralStore) UnspentSiafundOutputs() (outputs []wallet.SiafundElemen
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, output := range s.sfOutputs {
+	for _, output := range s.outputsSF {
 		outputs = append(outputs, output)
 	}
 	return
@@ -264,12 +264,15 @@ func (s *EphemeralStore) SetSeedIndex(index uint64) error {
 	return nil
 }
 
-func (s *EphemeralStore) AddressInfo(addr types.UnlockHash) (wallet.SeedAddressInfo, bool, error) {
+func (s *EphemeralStore) AddressInfo(addr types.UnlockHash) (wallet.SeedAddressInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	info, ok := s.addrs[addr]
-	return info, ok, nil
+	if !ok {
+		return wallet.SeedAddressInfo{}, errors.New("address does not exist")
+	}
+	return info, nil
 }
 
 func (s *EphemeralStore) AddAddress(info wallet.SeedAddressInfo) error {
@@ -296,8 +299,8 @@ func (s *EphemeralStore) Addresses() (addrs []types.UnlockHash, err error) {
 func NewEphemeralStore() *EphemeralStore {
 	return &EphemeralStore{
 		addrs:     make(map[types.UnlockHash]wallet.SeedAddressInfo),
-		scOutputs: make(map[types.SiacoinOutputID]wallet.SiacoinElement),
-		sfOutputs: make(map[types.SiafundOutputID]wallet.SiafundElement),
+		outputsSC: make(map[types.SiacoinOutputID]wallet.SiacoinElement),
+		outputsSF: make(map[types.SiafundOutputID]wallet.SiafundElement),
 		contracts: make(map[types.FileContractID]wallet.FileContractElement),
 		txns:      make(map[types.TransactionID]wallet.Transaction),
 	}
