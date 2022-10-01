@@ -56,7 +56,7 @@ type Store interface {
 
 	SeedIndex() (uint64, error)
 	SetSeedIndex(index uint64) error
-	AddressInfo(addr types.UnlockHash) (SeedAddressInfo, bool, error)
+	AddressInfo(addr types.UnlockHash) (SeedAddressInfo, error)
 
 	AddAddress(info SeedAddressInfo) error
 	Addresses() ([]types.UnlockHash, error)

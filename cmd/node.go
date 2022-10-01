@@ -69,7 +69,7 @@ func newNode(addr, dir string) (*node, error) {
 
 	// TODO: persist
 	store := walletutil.NewEphemeralStore()
-	w := wallet.NewHotWallet(wallet.NewSeed(), store)
+	w := wallet.NewHotWallet(store, wallet.NewSeed())
 
 	ccid, err := store.ConsensusChangeID()
 	if err != nil {
