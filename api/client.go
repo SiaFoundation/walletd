@@ -1,15 +1,10 @@
 package api
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"net/http"
 	"time"
 
+	"go.sia.tech/jape"
 	"go.sia.tech/siad/crypto"
 	"go.sia.tech/siad/types"
 	"go.sia.tech/walletd/wallet"
@@ -17,126 +12,92 @@ import (
 
 // A Client provides methods for interacting with a walletd API server.
 type Client struct {
-	BaseURL      string
-	AuthPassword string
+	c jape.Client
 }
-
-func (c *Client) req(method string, route string, data, resp interface{}) error {
-	var body io.Reader
-	if data != nil {
-		js, _ := json.Marshal(data)
-		body = bytes.NewReader(js)
-	}
-	req, err := http.NewRequest(method, fmt.Sprintf("%v%v", c.BaseURL, route), body)
-	if err != nil {
-		panic(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth("", c.AuthPassword)
-	r, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer io.Copy(ioutil.Discard, r.Body)
-	defer r.Body.Close()
-	if r.StatusCode != 200 {
-		err, _ := ioutil.ReadAll(r.Body)
-		return errors.New(string(err))
-	}
-	if resp == nil {
-		return nil
-	}
-	return json.NewDecoder(r.Body).Decode(resp)
-}
-
-func (c *Client) get(route string, r interface{}) error     { return c.req("GET", route, nil, r) }
-func (c *Client) post(route string, d, r interface{}) error { return c.req("POST", route, d, r) }
-func (c *Client) put(route string, d interface{}) error     { return c.req("PUT", route, d, nil) }
-func (c *Client) delete(route string) error                 { return c.req("DELETE", route, nil, nil) }
 
 // ConsensusTip returns the current tip index.
 func (c *Client) ConsensusTip() (resp ChainIndex, err error) {
-	err = c.get("/consensus/tip", &resp)
+	err = c.c.GET("/consensus/tip", &resp)
 	return
 }
 
 // SyncerPeers returns the current peers of the syncer.
-func (c *Client) SyncerPeers() (resp []SyncerPeerResponse, err error) {
-	err = c.get("/syncer/peers", &resp)
+func (c *Client) SyncerPeers() (resp []string, err error) {
+	err = c.c.GET("/syncer/peers", &resp)
 	return
 }
 
 // SyncerConnect adds the address as a peer of the syncer.
 func (c *Client) SyncerConnect(addr string) (err error) {
-	err = c.post("/syncer/connect", SyncerConnectRequest{addr}, nil)
+	err = c.c.POST("/syncer/connect", addr, nil)
 	return
 }
 
 // WalletBalance returns the current wallet balance.
 func (c *Client) WalletBalance() (resp WalletBalanceResponse, err error) {
-	err = c.get("/wallet/balance", &resp)
+	err = c.c.GET("/wallet/balance", &resp)
 	return
 }
 
 // WalletAddress returns an address controlled by the wallet.
 func (c *Client) WalletAddress() (resp types.UnlockHash, err error) {
-	err = c.get("/wallet/address", &resp)
+	err = c.c.GET("/wallet/address", &resp)
 	return
 }
 
 // WalletAddresses the addresses controlled by the wallet.
 func (c *Client) WalletAddresses() (resp []types.UnlockHash, err error) {
-	err = c.get("/wallet/addresses", &resp)
+	err = c.c.GET("/wallet/addresses", &resp)
 	return
 }
 
 // WalletOutputs returns the set of unspent outputs controlled by the wallet.
 func (c *Client) WalletOutputs() (resp []wallet.SiacoinElement, err error) {
-	err = c.get("/wallet/outputs", &resp)
+	err = c.c.GET("/wallet/outputs", &resp)
 	return
 }
 
 // WalletTransaction returns the transaction with the given ID.
 func (c *Client) WalletTransaction(id types.TransactionID) (resp wallet.Transaction, err error) {
-	err = c.get(fmt.Sprintf("/wallet/transaction/"+id.String()), &resp)
+	err = c.c.GET(fmt.Sprintf("/wallet/transaction/%s", id), &resp)
 	return
 }
 
 // WalletTransactions returns all transactions relevant to the wallet.
 func (c *Client) WalletTransactions(since time.Time, max int) (resp []wallet.Transaction, err error) {
-	err = c.get(fmt.Sprintf("/wallet/transactions?since=%s&max=%d", since.Format(time.RFC3339), max), &resp)
+	err = c.c.GET(fmt.Sprintf("/wallet/transactions?since=%s&max=%d", paramTime(since), max), &resp)
 	return
 }
 
 // WalletTransactionsAddress returns all transactions relevant to the wallet.
 func (c *Client) WalletTransactionsAddress(addr types.UnlockHash) (resp []wallet.Transaction, err error) {
-	err = c.get("/wallet/transactions/"+addr.String(), &resp)
+	err = c.c.GET(fmt.Sprintf("/wallet/transactions/%s", addr), &resp)
 	return
 }
 
 // WalletSign signs a transaction.
 func (c *Client) WalletSign(txn types.Transaction, toSign []crypto.Hash) (resp types.Transaction, err error) {
-	err = c.post("/wallet/sign", WalletSignRequest{txn, toSign}, &resp)
+	err = c.c.POST("/wallet/sign", WalletSignRequest{txn, toSign}, &resp)
 	return
 }
 
 // WalletFund funds a transaction.
 func (c *Client) WalletFund(txn types.Transaction, amountSC, amountSF types.Currency) (resp WalletFundResponse, err error) {
-	err = c.post("/wallet/fund", WalletFundRequest{txn, amountSC, amountSF}, &resp)
+	err = c.c.POST("/wallet/fund", WalletFundRequest{txn, amountSC, amountSF}, &resp)
 	return
 }
 
 // WalletSendSiacoins sends a given amount of siacoins to the destination address.
 func (c *Client) WalletSendSiacoins(amount types.Currency, destination types.UnlockHash) (resp WalletSendResponse, err error) {
-	err = c.post(fmt.Sprintf("/wallet/send?type=siacoins&amount=%s&destination=%s", amount, destination), nil, &resp)
+	err = c.c.POST(fmt.Sprintf("/wallet/send?type=siacoins&amount=%s&destination=%s", amount, destination), nil, &resp)
 	return
 }
 
 // NewClient returns a client that communicates with a walletd server listening
 // on the specified address.
 func NewClient(addr, password string) *Client {
-	return &Client{
-		BaseURL:      addr,
-		AuthPassword: password,
-	}
+	return &Client{jape.Client{
+		BaseURL:  addr,
+		Password: password,
+	}}
 }

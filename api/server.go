@@ -1,16 +1,15 @@
 package api
 
 import (
-	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
-	"strconv"
 	"time"
 
 	"gitlab.com/NebulousLabs/encoding"
+	"go.sia.tech/jape"
 	"go.sia.tech/siad/crypto"
 
-	"github.com/julienschmidt/httprouter"
 	"go.sia.tech/siad/types"
 	"go.sia.tech/walletd/wallet"
 )
@@ -52,13 +51,6 @@ type (
 	}
 )
 
-// WriteJSON writes the JSON encoded object to the http response.
-func WriteJSON(w http.ResponseWriter, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	enc := json.NewEncoder(w)
-	enc.Encode(v)
-}
-
 // AuthMiddleware enforces HTTP Basic Authentication on the provided handler.
 func AuthMiddleware(handler http.Handler, requiredPass string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -77,213 +69,157 @@ type server struct {
 	w  Wallet
 }
 
-func (s *server) consensusTipHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	WriteJSON(w, s.cm.TipState().Index)
+func (s *server) consensusTipHandler(jc jape.Context) {
+	jc.Encode(s.cm.TipState().Index)
 }
 
-func (s *server) syncerPeersHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	ps := s.s.Peers()
-	sps := make([]SyncerPeerResponse, len(ps))
-	for i, peer := range ps {
-		sps[i] = SyncerPeerResponse{
-			NetAddress: peer,
-		}
-	}
-	WriteJSON(w, sps)
+func (s *server) syncerPeersHandler(jc jape.Context) {
+	jc.Encode(s.s.Peers())
 }
 
-func (s *server) syncerConnectHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	var scr SyncerConnectRequest
-	if err := json.NewDecoder(req.Body).Decode(&scr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if err := s.s.Connect(scr.NetAddress); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+func (s *server) syncerConnectHandler(jc jape.Context) {
+	var addr string
+	if jc.Decode(&addr) == nil {
+		jc.Check("couldn't connect to peer", s.s.Connect(addr))
 	}
 }
 
-func (s *server) txpoolTransactionsHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	WriteJSON(w, s.tp.Transactions())
+func (s *server) txpoolTransactionsHandler(jc jape.Context) {
+	jc.Encode(s.tp.Transactions())
 }
 
-func (s *server) txpoolBroadcastHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	var txnSet []types.Transaction
-	if err := json.NewDecoder(req.Body).Decode(&txnSet); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err := s.tp.AddTransactionSet(txnSet); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	if jc.Decode(&txnSet) == nil {
+		jc.Check("couldn't broadcast transaction set", s.tp.AddTransactionSet(txnSet))
 	}
 }
 
-func (s *server) walletBalanceHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) walletBalanceHandler(jc jape.Context) {
 	siacoins, siafunds, err := s.w.Balance()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if jc.Check("couldn't load balance", err) == nil {
+		jc.Encode(WalletBalanceResponse{
+			Siacoins: siacoins,
+			Siafunds: siafunds,
+		})
 	}
-
-	WriteJSON(w, WalletBalanceResponse{
-		Siacoins: siacoins,
-		Siafunds: siafunds,
-	})
 }
 
-func (s *server) walletAddressHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) walletAddressHandler(jc jape.Context) {
 	address, err := s.w.Address()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if jc.Check("couldn't load address", err) == nil {
+		jc.Encode(address)
 	}
-
-	WriteJSON(w, address)
 }
 
-func (s *server) walletAddressesHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) walletAddressesHandler(jc jape.Context) {
 	addresses, err := s.w.Addresses()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if jc.Check("couldn't load addresses", err) == nil {
+		jc.Encode(addresses)
 	}
-
-	WriteJSON(w, addresses)
 }
 
-func (s *server) walletTransactionsHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) walletTransactionsHandler(jc jape.Context) {
 	var since time.Time
-	if v := req.FormValue("since"); v != "" {
-		t, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			http.Error(w, "invalid since value: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		since = t
-	}
 	max := -1
-	if v := req.FormValue("max"); v != "" {
-		t, err := strconv.Atoi(v)
-		if err != nil {
-			http.Error(w, "invalid max value: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		max = t
+	if jc.DecodeForm("since", (*paramTime)(&since)) != nil || jc.DecodeForm("max", &max) != nil {
+		return
 	}
 	txns, err := s.w.Transactions(since, max)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if jc.Check("couldn't load transactions", err) == nil {
+		jc.Encode(txns)
 	}
-	WriteJSON(w, txns)
 }
 
-func (s *server) walletTransactionHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *server) walletTransactionHandler(jc jape.Context) {
 	var id types.TransactionID
-	if err := json.Unmarshal([]byte(`"`+p.ByName("id")+`"`), &id); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
 
 	txn, err := s.w.Transaction(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if jc.Check("couldn't load transaction", err) == nil {
+		jc.Encode(txn)
 	}
-	WriteJSON(w, txn)
 }
 
-func (s *server) walletTransactionsAddressHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *server) walletTransactionsAddressHandler(jc jape.Context) {
 	var addr types.UnlockHash
-	if err := json.Unmarshal([]byte(`"`+p.ByName("id")+`"`), &addr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.DecodeParam("address", &addr) != nil {
 		return
 	}
 
 	txns, err := s.w.TransactionsByAddress(addr)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if jc.Check("couldn't load transactions", err) == nil {
+		jc.Encode(txns)
 		return
 	}
-	WriteJSON(w, txns)
 }
 
-func (s *server) walletOutputsHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) walletOutputsHandler(jc jape.Context) {
 	utxos, err := s.w.UnspentSiacoinOutputs()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if jc.Check("couldn't load unspent siacoin outputs", err) == nil {
+		jc.Encode(utxos)
 	}
-	WriteJSON(w, utxos)
 }
 
-func (s *server) walletSignHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) walletSignHandler(jc jape.Context) {
 	var wtsr WalletSignRequest
-	if err := json.NewDecoder(req.Body).Decode(&wtsr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Decode(&wtsr) != nil {
 		return
 	}
-
-	if err := s.w.SignTransaction(&wtsr.Transaction, wtsr.ToSign); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	if jc.Check("failed to sign transaction", s.w.SignTransaction(&wtsr.Transaction, wtsr.ToSign)) == nil {
+		jc.Encode(wtsr.Transaction)
 	}
-	WriteJSON(w, wtsr.Transaction)
 }
 
-func (s *server) walletFundHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) walletFundHandler(jc jape.Context) {
 	var wfr WalletFundRequest
-	if err := json.NewDecoder(req.Body).Decode(&wfr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Decode(&wfr) != nil {
 		return
 	}
 	txn := wfr.Transaction
 	fee := s.tp.RecommendedFee().Mul64(uint64(len(encoding.Marshal(txn))))
 	txn.MinerFees = []types.Currency{fee}
 	toSign, unclaim, err := s.w.FundTransaction(&wfr.Transaction, wfr.Siacoins.Add(txn.MinerFees[0]), wfr.Siafunds)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if jc.Check("failed to fund transaction", err) != err {
 		return
 	}
 	parents, err := s.tp.UnconfirmedParents(txn)
 	if err != nil {
 		unclaim()
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		jc.Check("couldn't load parents", err)
 		return
 	}
-	WriteJSON(w, WalletFundResponse{
+	jc.Encode(WalletFundResponse{
 		Transaction: txn,
 		ToSign:      toSign,
 		DependsOn:   parents,
 	})
 }
 
-func (s *server) walletSendHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	var amountSC, amountSF types.Currency
-	b, ok := new(big.Int).SetString(req.FormValue("amount"), 10)
+func (s *server) walletSendHandler(jc jape.Context) {
+	b, ok := new(big.Int).SetString(jc.Request.FormValue("amount"), 10)
 	if !ok {
-		http.Error(w, "invalid amount string", http.StatusBadRequest)
+		jc.Error(errors.New("invalid amount string"), http.StatusBadRequest)
 		return
 	}
 
 	var destination types.UnlockHash
-	if err := destination.LoadString(req.FormValue("destination")); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to parse destination address", destination.LoadString(jc.Request.FormValue("destination"))) != nil {
 		return
 	}
 
 	var txn types.Transaction
-	if req.FormValue("type") == "siacoin" {
+	var amountSC, amountSF types.Currency
+	if jc.Request.FormValue("type") == "siacoin" {
 		amountSC = types.NewCurrency(b)
 		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{amountSC, destination})
-	} else if req.FormValue("type") == "siafund" {
+	} else if jc.Request.FormValue("type") == "siafund" {
 		amountSF = types.NewCurrency(b)
 		txn.SiafundOutputs = append(txn.SiafundOutputs, types.SiafundOutput{amountSF, destination, types.ZeroCurrency})
 	} else {
-		http.Error(w, "specify either siacoin or siafund as the type", http.StatusBadRequest)
+		jc.Error(errors.New("specify either siacoin or siafund as the type"), http.StatusBadRequest)
 		return
 	}
 	fee := s.tp.RecommendedFee().Mul64(uint64(len(encoding.Marshal(txn))))
@@ -291,23 +227,18 @@ func (s *server) walletSendHandler(w http.ResponseWriter, req *http.Request, _ h
 	amountSC = amountSC.Add(fee)
 
 	toSign, unclaim, err := s.w.FundTransaction(&txn, amountSC, amountSF)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if jc.Check("failed to fund transaction", err) != nil {
 		return
 	}
 	defer unclaim()
 
-	if err := s.w.SignTransaction(&txn, toSign); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if jc.Check("failed to fund transaction", s.w.SignTransaction(&txn, toSign)) != nil {
 		return
 	}
-
-	if err := s.tp.AddTransactionSet([]types.Transaction{txn}); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to add transaction to transaction pool", s.tp.AddTransactionSet([]types.Transaction{txn})) != nil {
 		return
 	}
-
-	WriteJSON(w, WalletSendResponse{txn.ID(), txn})
+	jc.Encode(WalletSendResponse{txn.ID(), txn})
 }
 
 // NewServer returns an HTTP handler that serves the walletd API.
@@ -318,26 +249,24 @@ func NewServer(cm ChainManager, s Syncer, tp TransactionPool, w Wallet) http.Han
 		tp: tp,
 		w:  w,
 	}
-	mux := httprouter.New()
+	return jape.Mux(map[string]jape.Handler{
+		"GET  /consensus/tip": srv.consensusTipHandler,
 
-	mux.GET("/consensus/tip", srv.consensusTipHandler)
+		"GET  /syncer/peers":   srv.syncerPeersHandler,
+		"POST /syncer/connect": srv.syncerConnectHandler,
 
-	mux.GET("/syncer/peers", srv.syncerPeersHandler)
-	mux.POST("/syncer/connect", srv.syncerConnectHandler)
+		"GET  /txpool/transactions": srv.txpoolTransactionsHandler,
+		"POST /txpool/broadcast":    srv.txpoolBroadcastHandler,
 
-	mux.GET("/txpool/transactions", srv.txpoolTransactionsHandler)
-	mux.POST("/txpool/broadcast", srv.txpoolBroadcastHandler)
-
-	mux.GET("/wallet/balance", srv.walletBalanceHandler)
-	mux.GET("/wallet/address", srv.walletAddressHandler)
-	mux.GET("/wallet/addresses", srv.walletAddressesHandler)
-	mux.GET("/wallet/transaction/:id", srv.walletTransactionHandler)
-	mux.POST("/wallet/sign", srv.walletSignHandler)
-	mux.POST("/wallet/fund", srv.walletFundHandler)
-	mux.POST("/wallet/send", srv.walletSendHandler)
-	mux.GET("/wallet/transactions", srv.walletTransactionsHandler)
-	mux.GET("/wallet/transactions/:address", srv.walletTransactionsAddressHandler)
-	mux.GET("/wallet/outputs", srv.walletOutputsHandler)
-
-	return mux
+		"GET  /wallet/balance":               srv.walletBalanceHandler,
+		"GET  /wallet/address":               srv.walletAddressHandler,
+		"GET  /wallet/addresses":             srv.walletAddressesHandler,
+		"GET  /wallet/transaction/:id":       srv.walletTransactionHandler,
+		"POST /wallet/sign":                  srv.walletSignHandler,
+		"POST /wallet/fund":                  srv.walletFundHandler,
+		"POST /wallet/send":                  srv.walletSendHandler,
+		"GET  /wallet/transactions":          srv.walletTransactionsHandler,
+		"GET  /wallet/transactions/:address": srv.walletTransactionsAddressHandler,
+		"GET  /wallet/outputs":               srv.walletOutputsHandler,
+	})
 }

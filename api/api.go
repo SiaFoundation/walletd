@@ -1,10 +1,18 @@
 package api
 
 import (
+	"time"
+
 	"go.sia.tech/siad/crypto"
 
 	"go.sia.tech/siad/types"
 )
+
+// for encoding/decoding time.Time values in API params
+type paramTime time.Time
+
+func (t paramTime) String() string                { return (time.Time)(t).Format(time.RFC3339) }
+func (t *paramTime) UnmarshalText(b []byte) error { return (*time.Time)(t).UnmarshalText(b) }
 
 type ChainIndex struct {
 	Height uint64        `json:"height"`
@@ -13,16 +21,6 @@ type ChainIndex struct {
 
 type ConsensusState struct {
 	Index ChainIndex `json:"index"`
-}
-
-// A SyncerPeerResponse is a unique peer that is being used by the syncer.
-type SyncerPeerResponse struct {
-	NetAddress string `json:"netAddress"`
-}
-
-// A SyncerConnectRequest requests that the syncer connect to a peer.
-type SyncerConnectRequest struct {
-	NetAddress string `json:"netAddress"`
 }
 
 // WalletBalanceResponse is the response to /wallet/balance.
