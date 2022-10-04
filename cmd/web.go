@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/types"
 	"go.sia.tech/walletd/api"
@@ -115,7 +116,7 @@ func (tp txpool) UnconfirmedParents(txn types.Transaction) ([]types.Transaction,
 
 func startWeb(l net.Listener, node *node, password string) error {
 	renter := api.NewServer(&chainManager{node.cm}, &syncer{node.g, node.tp}, txpool{node.tp}, node.w)
-	api := api.AuthMiddleware(renter, password)
+	api := jape.AuthMiddleware(renter, password)
 	web := createUIHandler()
 	return http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api") {

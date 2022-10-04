@@ -3,9 +3,9 @@ module go.sia.tech/walletd
 go 1.17
 
 require (
-	github.com/julienschmidt/httprouter v1.3.0
 	gitlab.com/NebulousLabs/encoding v0.0.0-20200604091946-456c3dc907fe
 	gitlab.com/NebulousLabs/entropy-mnemonics v0.0.0-20181018051301-7532f67e3500
+	go.sia.tech/jape v0.4.0
 	go.sia.tech/siad v1.5.9
 	golang.org/x/crypto v0.0.0-20210322153248-0c34fe9e7dc2
 	golang.org/x/term v0.0.0-20220722155259-a9ba230a4035
@@ -16,6 +16,7 @@ require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/dchest/threefish v0.0.0-20120919164726-3ecf4c494abf // indirect
 	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/klauspost/cpuid v1.2.2 // indirect
 	github.com/klauspost/reedsolomon v1.9.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
