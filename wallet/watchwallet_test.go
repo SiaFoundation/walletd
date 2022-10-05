@@ -88,7 +88,6 @@ func TestWatchWallet(t *testing.T) {
 		t.Fatal("transaction height should be 1")
 	}
 
-	// create an unsigned transaction using available outputs
 	outputs, err := w.UnspentSiacoinOutputs()
 	if err != nil {
 		t.Fatal(err)
