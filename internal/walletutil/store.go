@@ -1,7 +1,10 @@
 package walletutil
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -304,4 +307,80 @@ func NewEphemeralStore() *EphemeralStore {
 		contracts: make(map[types.FileContractID]wallet.FileContractElement),
 		txns:      make(map[types.TransactionID]wallet.Transaction),
 	}
+}
+
+// JSONStore implements wallet.Store in memory, backed by a JSON file.
+type JSONStore struct {
+	*EphemeralStore
+	dir string
+}
+
+// ProcessConsensusChange implements wallet.Store.
+func (s *JSONStore) ProcessConsensusChange(cc modules.ConsensusChange) {
+	s.EphemeralStore.ProcessConsensusChange(cc)
+	s.save()
+}
+
+// SetSetIndex implements wallet.Store.
+func (s *JSONStore) SetSeedIndex(index uint64) error {
+	if err := s.EphemeralStore.SetSeedIndex(index); err != nil {
+		return err
+	}
+	return s.save()
+}
+
+// AddAddress implements wallet.Store.
+func (s *JSONStore) AddAddress(info wallet.SeedAddressInfo) error {
+	if err := s.EphemeralStore.AddAddress(info); err != nil {
+		return err
+	}
+	return s.save()
+}
+
+func (s *JSONStore) load() error {
+	dst := filepath.Join(s.dir, "wallet.json")
+	f, err := os.Open(dst)
+	if os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	defer f.Close()
+	return json.NewDecoder(f).Decode(&s)
+}
+
+func (s *JSONStore) save() error {
+	js, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	dst := filepath.Join(s.dir, "wallet.json")
+	f, err := os.OpenFile(dst+"_tmp", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0660)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err = f.Write(js); err != nil {
+		return err
+	} else if f.Sync(); err != nil {
+		return err
+	} else if f.Close(); err != nil {
+		return err
+	} else if err := os.Rename(dst+"_tmp", dst); err != nil {
+		return err
+	}
+	return nil
+}
+
+// NewJSONStore returns a new JSONStore.
+func NewJSONStore(dir string) (*JSONStore, error) {
+	s := &JSONStore{
+		EphemeralStore: NewEphemeralStore(),
+		dir:            dir,
+	}
+	if err := s.load(); err != nil {
+		return nil, err
+	}
+	return s, nil
 }

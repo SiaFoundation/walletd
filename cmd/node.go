@@ -67,8 +67,15 @@ func newNode(addr, dir string) (*node, error) {
 		return nil, err
 	}
 
-	// TODO: persist
-	store := walletutil.NewEphemeralStore()
+	walletDir := filepath.Join(dir, "wallet")
+	if err := os.MkdirAll(walletDir, 0700); err != nil {
+		return nil, err
+	}
+
+	store, err := walletutil.NewJSONStore(walletDir)
+	if err != nil {
+		return nil, err
+	}
 	w := wallet.NewHotWallet(store, wallet.NewSeed())
 
 	ccid, err := store.ConsensusChangeID()
