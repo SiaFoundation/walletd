@@ -166,139 +166,178 @@ func (m *mockCS) reviseContract(id types.FileContractID) {
 }
 
 func TestHotWallet(t *testing.T) {
-	store := walletutil.NewEphemeralStore()
-	w := wallet.NewHotWallet(store, wallet.NewSeed())
-	cs := new(mockCS)
-	ccid, err := store.ConsensusChangeID()
+	store1 := walletutil.NewEphemeralStore()
+	w1 := wallet.NewHotWallet(store1, wallet.NewSeed())
+	cs1 := new(mockCS)
+	ccid1, err := store1.ConsensusChangeID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs.ConsensusSetSubscribe(store, ccid, nil)
+	cs1.ConsensusSetSubscribe(store1, ccid1, nil)
 
-	// initial balance should be zero
-	sc, _, err := w.Balance()
+	store2, err := walletutil.NewJSONStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sc.IsZero() {
-		t.Fatal("balance should be zero")
+	w2 := wallet.NewHotWallet(store2, wallet.NewSeed())
+	cs2 := new(mockCS)
+	ccid2, err := store2.ConsensusChangeID()
+	if err != nil {
+		t.Fatal(err)
 	}
+	cs2.ConsensusSetSubscribe(store2, ccid2, nil)
 
-	// shouldn't have any transactions yet
-	txnHistory, err := w.Transactions(time.Time{}, math.MaxInt64)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(txnHistory) != 0 {
-		t.Fatal("transaction history should be empty")
-	}
+	for _, s := range []struct {
+		w  *wallet.HotWallet
+		cs *mockCS
+	}{{w1, cs1}, {w2, cs2}} {
+		w := s.w
+		cs := s.cs
+		// initial balance should be zero
+		sc, _, err := w.Balance()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !sc.IsZero() {
+			t.Fatal("balance should be zero")
+		}
 
-	// shouldn't have any addresses yet
-	addresses, err := w.Addresses()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(addresses) != 0 {
-		t.Fatal("address list should be empty")
-	}
+		// shouldn't have any transactions yet
+		txnHistory, err := w.Transactions(time.Time{}, math.MaxInt64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(txnHistory) != 0 {
+			t.Fatal("transaction history should be empty")
+		}
 
-	// create and add an address
-	addr, err := w.Address()
-	if err != nil {
-		t.Fatal(err)
-	}
+		// shouldn't have any addresses yet
+		addresses, err := w.Addresses()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(addresses) != 0 {
+			t.Fatal("address list should be empty")
+		}
 
-	// should have an address now
-	addresses, err = w.Addresses()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(addresses) != 1 || addresses[0] != addr {
-		t.Fatal("bad address list", addresses)
-	}
+		// create and add an address
+		addr, err := w.Address()
+		if err != nil {
+			t.Fatal(err)
+		}
 
-	// simulate a transaction
-	cs.sendTxn(types.Transaction{
-		SiacoinOutputs: []types.SiacoinOutput{
-			{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
-			{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
-		},
-	})
+		// should have an address now
+		addresses, err = w.Addresses()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(addresses) != 1 || addresses[0] != addr {
+			t.Fatal("bad address list", addresses)
+		}
 
-	// get new balance
-	sc, _, err = w.Balance()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !sc.Equals(types.SiacoinPrecision) {
-		t.Fatal("balance should be 1 SC")
-	}
+		// simulate a transaction
+		cs.sendTxn(types.Transaction{
+			SiacoinOutputs: []types.SiacoinOutput{
+				{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
+				{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
+			},
+		})
 
-	// transaction should appear in history
-	txnHistory, err = w.TransactionsByAddress(addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(txnHistory) != 1 {
-		t.Fatal("transaction should appear in history")
-	}
-	htx, err := w.Transaction(txnHistory[0].ID)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(htx.Raw.SiacoinOutputs) != 2 {
-		t.Fatal("transaction should have two outputs")
-	} else if htx.Index.Height != 1 {
-		t.Fatal("transaction height should be 1")
-	}
+		// get new balance
+		sc, _, err = w.Balance()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !sc.Equals(types.SiacoinPrecision) {
+			t.Fatal("balance should be 1 SC")
+		}
 
-	outputs, err := w.UnspentSiacoinOutputs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(outputs) != 2 {
-		t.Fatal("should have two UTXOs")
+		// transaction should appear in history
+		txnHistory, err = w.TransactionsByAddress(addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(txnHistory) != 1 {
+			t.Fatal("transaction should appear in history")
+		}
+		htx, err := w.Transaction(txnHistory[0].ID)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(htx.Raw.SiacoinOutputs) != 2 {
+			t.Fatal("transaction should have two outputs")
+		} else if htx.Index.Height != 1 {
+			t.Fatal("transaction height should be 1")
+		}
+
+		outputs, err := w.UnspentSiacoinOutputs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(outputs) != 2 {
+			t.Fatal("should have two UTXOs")
+		}
 	}
 }
 
 func TestHotWalletThreadSafety(t *testing.T) {
-	store := walletutil.NewEphemeralStore()
-	w := wallet.NewHotWallet(store, wallet.NewSeed())
-	cs := new(mockCS)
-	ccid, err := store.ConsensusChangeID()
+	store1 := walletutil.NewEphemeralStore()
+	w1 := wallet.NewHotWallet(store1, wallet.NewSeed())
+	cs1 := new(mockCS)
+	ccid1, err := store1.ConsensusChangeID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cs.ConsensusSetSubscribe(store, ccid, nil)
+	cs1.ConsensusSetSubscribe(store1, ccid1, nil)
 
-	addr, err := w.Address()
+	store2, err := walletutil.NewJSONStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	txn := types.Transaction{
-		SiacoinOutputs: []types.SiacoinOutput{
-			{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
-		},
+	w2 := wallet.NewHotWallet(store2, wallet.NewSeed())
+	cs2 := new(mockCS)
+	ccid2, err := store2.ConsensusChangeID()
+	if err != nil {
+		t.Fatal(err)
 	}
+	cs2.ConsensusSetSubscribe(store2, ccid2, nil)
 
-	// create a bunch of goroutines that call routes and add transactions
-	// concurrently
-	funcs := []func(){
-		func() { cs.sendTxn(txn) },
-		func() { w.Balance() },
-		func() { w.Address() },
-		func() { w.Addresses() },
-		func() { w.Transactions(time.Time{}, math.MaxInt64) },
+	for _, s := range []struct {
+		w  *wallet.HotWallet
+		cs *mockCS
+	}{{w1, cs1}, {w2, cs2}} {
+		w := s.w
+		cs := s.cs
+
+		addr, err := w.Address()
+		if err != nil {
+			t.Fatal(err)
+		}
+		txn := types.Transaction{
+			SiacoinOutputs: []types.SiacoinOutput{
+				{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
+			},
+		}
+
+		// create a bunch of goroutines that call routes and add transactions
+		// concurrently
+		funcs := []func(){
+			func() { cs.sendTxn(txn) },
+			func() { w.Balance() },
+			func() { w.Address() },
+			func() { w.Addresses() },
+			func() { w.Transactions(time.Time{}, math.MaxInt64) },
+		}
+		var wg sync.WaitGroup
+		wg.Add(len(funcs))
+		for _, fn := range funcs {
+			go func(fn func()) {
+				for i := 0; i < 10; i++ {
+					time.Sleep(time.Duration(frand.Intn(10)) * time.Millisecond)
+					fn()
+				}
+				wg.Done()
+			}(fn)
+		}
+		wg.Wait()
 	}
-	var wg sync.WaitGroup
-	wg.Add(len(funcs))
-	for _, fn := range funcs {
-		go func(fn func()) {
-			for i := 0; i < 10; i++ {
-				time.Sleep(time.Duration(frand.Intn(10)) * time.Millisecond)
-				fn()
-			}
-			wg.Done()
-		}(fn)
-	}
-	wg.Wait()
 }
