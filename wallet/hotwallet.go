@@ -271,6 +271,12 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 	return toSign, discard, nil
 }
 
+// DistributeFunds distributes the value in the wallet's inputs among n
+// outputs, each containing per siacoins.
+func (w *HotWallet) DistributeFunds(n int, per, feePerByte types.Currency) (ins []SiacoinElement, fee, change types.Currency, err error) {
+	return w.store.DistributeFunds(n, per, feePerByte)
+}
+
 // SignTransaction signs the specified transaction using keys derived from the
 // wallet seed. If toSign is nil, SignTransaction will automatically add
 // TransactionSignatures for each input owned by the seed. If toSign is not nil,

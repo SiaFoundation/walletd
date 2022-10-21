@@ -87,6 +87,13 @@ func (c *Client) WalletFund(txn types.Transaction, amountSC, amountSF types.Curr
 	return
 }
 
+// WalletDistributeFunds distributes the value in the wallet's inputs among n
+// outputs, each containing per siacoins.
+func (c *Client) WalletDistributeFunds(n int, per types.Currency) (resp WalletDistributeFundsResponse, err error) {
+	err = c.c.POST("/wallet/distribute_funds", WalletDistributeFundsRequest{n, per}, &resp)
+	return
+}
+
 // WalletSendSiacoins sends a given amount of siacoins to the destination address.
 func (c *Client) WalletSendSiacoins(amount types.Currency, destination types.UnlockHash) (resp WalletSendResponse, err error) {
 	err = c.c.POST(fmt.Sprintf("/wallet/send?type=siacoins&amount=%s&destination=%s", amount, destination), nil, &resp)

@@ -299,6 +299,15 @@ func (s *EphemeralStore) Addresses() (addrs []types.UnlockHash, err error) {
 	return
 }
 
+func (s *EphemeralStore) DistributeFunds(n int, per, feePerByte types.Currency) (ins []wallet.SiacoinElement, fee, change types.Currency, err error) {
+	utxos, err := s.UnspentSiacoinOutputs()
+	if err != nil {
+		return
+	}
+	ins, fee, change = wallet.DistributeFunds(utxos, n, per, feePerByte)
+	return
+}
+
 func NewEphemeralStore() *EphemeralStore {
 	return &EphemeralStore{
 		addrs:     make(map[types.UnlockHash]wallet.SeedAddressInfo),

@@ -48,6 +48,7 @@ type (
 		TransactionsByAddress(addr types.UnlockHash) ([]wallet.Transaction, error)
 		SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error
 		FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error)
+		DistributeFunds(n int, per, feePerByte types.Currency) (ins []wallet.SiacoinElement, fee, change types.Currency, err error)
 	}
 )
 
@@ -187,6 +188,22 @@ func (s *server) walletFundHandler(jc jape.Context) {
 	})
 }
 
+func (s *server) walletDistributeFundsHandler(jc jape.Context) {
+	var wdfr WalletDistributeFundsRequest
+	if jc.Decode(&wdfr) != nil {
+		return
+	}
+	ins, fee, change, err := s.w.DistributeFunds(wdfr.Outputs, wdfr.Per, s.tp.RecommendedFee())
+	if err != nil {
+		jc.Check("Couldn't distribute funds", err)
+	}
+	jc.Encode(WalletDistributeFundsResponse{
+		Inputs: ins,
+		Fee:    fee,
+		Change: change,
+	})
+}
+
 func (s *server) walletSendHandler(jc jape.Context) {
 	b, ok := new(big.Int).SetString(jc.Request.FormValue("amount"), 10)
 	if !ok {
@@ -253,6 +270,7 @@ func NewServer(cm ChainManager, s Syncer, tp TransactionPool, w Wallet) http.Han
 		"GET  /wallet/transaction/:id":       srv.walletTransactionHandler,
 		"POST /wallet/sign":                  srv.walletSignHandler,
 		"POST /wallet/fund":                  srv.walletFundHandler,
+		"POST /wallet/distribute_funds":      srv.walletDistributeFundsHandler,
 		"POST /wallet/send":                  srv.walletSendHandler,
 		"GET  /wallet/transactions":          srv.walletTransactionsHandler,
 		"GET  /wallet/transactions/:address": srv.walletTransactionsAddressHandler,

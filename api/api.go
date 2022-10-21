@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"go.sia.tech/siad/crypto"
+	"go.sia.tech/walletd/wallet"
 
 	"go.sia.tech/siad/types"
 )
@@ -59,4 +60,17 @@ type WalletFundResponse struct {
 type WalletSendResponse struct {
 	ID          types.TransactionID
 	Transaction types.Transaction
+}
+
+// WalletDistributeFundsRequest is the request type for /wallet/distribute_funds
+type WalletDistributeFundsRequest struct {
+	Outputs int            `json:"outputs"`
+	Per     types.Currency `json:"per"`
+}
+
+// WalletDistributeFundsResponse is the response type for /wallet/distribute_funds
+type WalletDistributeFundsResponse struct {
+	Inputs []wallet.SiacoinElement `json:"inputs"`
+	Fee    types.Currency          `json:"fee"`
+	Change types.Currency          `json:"change"`
 }
