@@ -188,16 +188,16 @@ func (s *server) walletFundHandler(jc jape.Context) {
 	})
 }
 
-func (s *server) walletDistributeFundsHandler(jc jape.Context) {
-	var wdfr WalletDistributeFundsRequest
-	if jc.Decode(&wdfr) != nil {
+func (s *server) walletSplitHandler(jc jape.Context) {
+	var wsr WalletSplitRequest
+	if jc.Decode(&wsr) != nil {
 		return
 	}
-	ins, fee, change, err := s.w.DistributeFunds(wdfr.Outputs, wdfr.Per, s.tp.RecommendedFee())
+	ins, fee, change, err := s.w.DistributeFunds(wsr.Outputs, wsr.Amount, s.tp.RecommendedFee())
 	if err != nil {
 		jc.Check("Couldn't distribute funds", err)
 	}
-	jc.Encode(WalletDistributeFundsResponse{
+	jc.Encode(WalletSplitResponse{
 		Inputs: ins,
 		Fee:    fee,
 		Change: change,
@@ -270,7 +270,7 @@ func NewServer(cm ChainManager, s Syncer, tp TransactionPool, w Wallet) http.Han
 		"GET  /wallet/transaction/:id":       srv.walletTransactionHandler,
 		"POST /wallet/sign":                  srv.walletSignHandler,
 		"POST /wallet/fund":                  srv.walletFundHandler,
-		"POST /wallet/distribute_funds":      srv.walletDistributeFundsHandler,
+		"POST /wallet/split":                 srv.walletSplitHandler,
 		"POST /wallet/send":                  srv.walletSendHandler,
 		"GET  /wallet/transactions":          srv.walletTransactionsHandler,
 		"GET  /wallet/transactions/:address": srv.walletTransactionsAddressHandler,

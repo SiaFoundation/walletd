@@ -62,14 +62,14 @@ type WalletSendResponse struct {
 	Transaction types.Transaction
 }
 
-// WalletDistributeFundsRequest is the request type for /wallet/distribute_funds
-type WalletDistributeFundsRequest struct {
+// WalletSplitRequest is the request type for /wallet/split
+type WalletSplitRequest struct {
 	Outputs int            `json:"outputs"`
-	Per     types.Currency `json:"per"`
+	Amount  types.Currency `json:"amount"`
 }
 
-// WalletDistributeFundsResponse is the response type for /wallet/distribute_funds
-type WalletDistributeFundsResponse struct {
+// WalletSplitResponse is the response type for /wallet/split
+type WalletSplitResponse struct {
 	Inputs []wallet.SiacoinElement `json:"inputs"`
 	Fee    types.Currency          `json:"fee"`
 	Change types.Currency          `json:"change"`

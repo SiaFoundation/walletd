@@ -61,8 +61,6 @@ type Store interface {
 	AddAddress(info SeedAddressInfo) error
 	Addresses() ([]types.UnlockHash, error)
 	TransactionsByAddress(addr types.UnlockHash) ([]Transaction, error)
-
-	DistributeFunds(n int, per, feePerByte types.Currency) (ins []SiacoinElement, fee, change types.Currency, err error)
 }
 
 // StandardUnlockConditions returns the standard unlock conditions for a single

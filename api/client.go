@@ -87,10 +87,10 @@ func (c *Client) WalletFund(txn types.Transaction, amountSC, amountSF types.Curr
 	return
 }
 
-// WalletDistributeFunds distributes the value in the wallet's inputs among n
-// outputs, each containing per siacoins.
-func (c *Client) WalletDistributeFunds(n int, per types.Currency) (resp WalletDistributeFundsResponse, err error) {
-	err = c.c.POST("/wallet/distribute_funds", WalletDistributeFundsRequest{n, per}, &resp)
+// WalletSplit distributes the value in the wallet's inputs among n outputs,
+// each containing per siacoins.
+func (c *Client) WalletSplit(n int, per types.Currency) (resp WalletSplitResponse, err error) {
+	err = c.c.POST("/wallet/split", WalletSplitRequest{n, per}, &resp)
 	return
 }
 
