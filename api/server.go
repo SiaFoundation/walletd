@@ -158,9 +158,16 @@ func (s *server) walletSignHandler(jc jape.Context) {
 	if jc.Decode(&wtsr) != nil {
 		return
 	}
-	if jc.Check("failed to sign transaction", s.w.SignTransaction(&wtsr.Transaction, wtsr.ToSign)) == nil {
-		jc.Encode(wtsr.Transaction)
+
+	err := s.w.SignTransaction(&wtsr.Transaction, wtsr.ToSign)
+	if errors.Is(err, wallet.ErrDisabled) {
+		jc.Error(err, http.StatusMethodNotAllowed)
+		return
+	} else if jc.Check("failed to sign transaction", err) != nil {
+		return
 	}
+
+	jc.Encode(wtsr.Transaction)
 }
 
 func (s *server) walletFundHandler(jc jape.Context) {
@@ -172,7 +179,10 @@ func (s *server) walletFundHandler(jc jape.Context) {
 	fee := s.tp.RecommendedFee().Mul64(uint64(len(encoding.Marshal(txn))))
 	txn.MinerFees = []types.Currency{fee}
 	toSign, unclaim, err := s.w.FundTransaction(&wfr.Transaction, wfr.Siacoins.Add(txn.MinerFees[0]), wfr.Siafunds)
-	if jc.Check("failed to fund transaction", err) != err {
+	if errors.Is(err, wallet.ErrDisabled) {
+		jc.Error(err, http.StatusMethodNotAllowed)
+		return
+	} else if jc.Check("failed to fund transaction", err) != nil {
 		return
 	}
 	parents, err := s.tp.UnconfirmedParents(txn)
@@ -194,8 +204,11 @@ func (s *server) walletSplitHandler(jc jape.Context) {
 		return
 	}
 	ins, fee, change, err := s.w.DistributeFunds(wsr.Outputs, wsr.Amount, s.tp.RecommendedFee())
-	if err != nil {
-		jc.Check("Couldn't distribute funds", err)
+	if errors.Is(err, wallet.ErrDisabled) {
+		jc.Error(err, http.StatusMethodNotAllowed)
+		return
+	} else if jc.Check("Couldn't distribute funds", err) != nil {
+		return
 	}
 	jc.Encode(WalletSplitResponse{
 		Inputs: ins,
@@ -233,7 +246,10 @@ func (s *server) walletSendHandler(jc jape.Context) {
 	amountSC = amountSC.Add(fee)
 
 	toSign, unclaim, err := s.w.FundTransaction(&txn, amountSC, amountSF)
-	if jc.Check("failed to fund transaction", err) != nil {
+	if errors.Is(err, wallet.ErrDisabled) {
+		jc.Error(err, http.StatusMethodNotAllowed)
+		return
+	} else if jc.Check("failed to fund transaction", err) != nil {
 		return
 	}
 	defer unclaim()
