@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"go.sia.tech/siad/crypto"
-	"go.sia.tech/walletd/wallet"
 
 	"go.sia.tech/siad/types"
 )
@@ -70,7 +69,5 @@ type WalletSplitRequest struct {
 
 // WalletSplitResponse is the response type for /wallet/split
 type WalletSplitResponse struct {
-	Inputs []wallet.SiacoinElement `json:"inputs"`
-	Fee    types.Currency          `json:"fee"`
-	Change types.Currency          `json:"change"`
+	Transaction types.Transaction `json:"transaction"`
 }

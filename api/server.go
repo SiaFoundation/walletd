@@ -159,14 +159,9 @@ func (s *server) walletSignHandler(jc jape.Context) {
 		return
 	}
 
-	err := s.w.SignTransaction(&wtsr.Transaction, wtsr.ToSign)
-	if errors.Is(err, wallet.ErrDisabled) {
-		jc.Error(err, http.StatusMethodNotAllowed)
-		return
-	} else if jc.Check("failed to sign transaction", err) != nil {
+	if jc.Check("failed to sign transaction", s.w.SignTransaction(&wtsr.Transaction, wtsr.ToSign)) != nil {
 		return
 	}
-
 	jc.Encode(wtsr.Transaction)
 }
 
@@ -179,10 +174,7 @@ func (s *server) walletFundHandler(jc jape.Context) {
 	fee := s.tp.RecommendedFee().Mul64(uint64(len(encoding.Marshal(txn))))
 	txn.MinerFees = []types.Currency{fee}
 	toSign, unclaim, err := s.w.FundTransaction(&wfr.Transaction, wfr.Siacoins.Add(txn.MinerFees[0]), wfr.Siafunds)
-	if errors.Is(err, wallet.ErrDisabled) {
-		jc.Error(err, http.StatusMethodNotAllowed)
-		return
-	} else if jc.Check("failed to fund transaction", err) != nil {
+	if jc.Check("failed to fund transaction", err) != nil {
 		return
 	}
 	parents, err := s.tp.UnconfirmedParents(txn)
@@ -203,17 +195,22 @@ func (s *server) walletSplitHandler(jc jape.Context) {
 	if jc.Decode(&wsr) != nil {
 		return
 	}
-	ins, fee, change, err := s.w.DistributeFunds(wsr.Outputs, wsr.Amount, s.tp.RecommendedFee())
-	if errors.Is(err, wallet.ErrDisabled) {
-		jc.Error(err, http.StatusMethodNotAllowed)
-		return
-	} else if jc.Check("Couldn't distribute funds", err) != nil {
+	ins, fee, _, err := s.w.DistributeFunds(wsr.Outputs, wsr.Amount, s.tp.RecommendedFee())
+	if jc.Check("Couldn't distribute funds", err) != nil {
 		return
 	}
+
+	var txn types.Transaction
+	for _, out := range ins {
+		txn.SiacoinOutputs = append(txn.SiacoinOutputs, out.SiacoinOutput)
+	}
+	_, _, err = s.w.FundTransaction(&txn, wsr.Amount.Add(fee), types.ZeroCurrency)
+	if jc.Check("Couldn't fund transaction", err) != nil {
+		return
+	}
+
 	jc.Encode(WalletSplitResponse{
-		Inputs: ins,
-		Fee:    fee,
-		Change: change,
+		Transaction: txn,
 	})
 }
 
@@ -246,10 +243,7 @@ func (s *server) walletSendHandler(jc jape.Context) {
 	amountSC = amountSC.Add(fee)
 
 	toSign, unclaim, err := s.w.FundTransaction(&txn, amountSC, amountSF)
-	if errors.Is(err, wallet.ErrDisabled) {
-		jc.Error(err, http.StatusMethodNotAllowed)
-		return
-	} else if jc.Check("failed to fund transaction", err) != nil {
+	if jc.Check("failed to fund transaction", err) != nil {
 		return
 	}
 	defer unclaim()
