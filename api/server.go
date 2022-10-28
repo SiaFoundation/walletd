@@ -201,7 +201,7 @@ func (s *server) walletSplitHandler(jc jape.Context) {
 		return
 	}
 
-	ins, fee, _ := wallet.DistributeFunds(utxos, wsr.Outputs, wsr.Amount, s.tp.RecommendedFee())
+	ins, fee, change := wallet.DistributeFunds(utxos, wsr.Outputs, wsr.Amount, s.tp.RecommendedFee())
 	if jc.Check("couldn't distribute funds", err) != nil {
 		return
 	}
@@ -227,12 +227,17 @@ func (s *server) walletSplitHandler(jc jape.Context) {
 			UnlockConditions: addr.UnlockConditions,
 		}
 	}
-
 	for i := range txn.SiacoinOutputs {
 		txn.SiacoinOutputs[i] = types.SiacoinOutput{
 			Value:      wsr.Amount,
 			UnlockHash: addr,
 		}
+	}
+	if !change.IsZero() {
+		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
+			Value:      change,
+			UnlockHash: addr,
+		})
 	}
 
 	jc.Encode(txn)
