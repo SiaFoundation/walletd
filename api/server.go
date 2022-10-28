@@ -41,6 +41,7 @@ type (
 		Balance() (types.Currency, types.Currency, error)
 		Address() (types.UnlockHash, error)
 		Addresses() ([]types.UnlockHash, error)
+		AddressInfo(addr types.UnlockHash) (wallet.SeedAddressInfo, error)
 		UnspentSiacoinOutputs() ([]wallet.SiacoinElement, error)
 		UnspentSiafundOutputs() ([]wallet.SiafundElement, error)
 		Transaction(id types.TransactionID) (wallet.Transaction, error)
@@ -48,7 +49,6 @@ type (
 		TransactionsByAddress(addr types.UnlockHash) ([]wallet.Transaction, error)
 		SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error
 		FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error)
-		DistributeFunds(n int, per, feePerByte types.Currency) (ins []wallet.SiacoinElement, fee, change types.Currency, err error)
 	}
 )
 
@@ -195,23 +195,47 @@ func (s *server) walletSplitHandler(jc jape.Context) {
 	if jc.Decode(&wsr) != nil {
 		return
 	}
-	ins, fee, _, err := s.w.DistributeFunds(wsr.Outputs, wsr.Amount, s.tp.RecommendedFee())
-	if jc.Check("Couldn't distribute funds", err) != nil {
+
+	utxos, err := s.w.UnspentSiacoinOutputs()
+	if jc.Check("couldn't load unspent siacoin outputs", err) != nil {
 		return
 	}
 
-	var txn types.Transaction
-	for _, out := range ins {
-		txn.SiacoinOutputs = append(txn.SiacoinOutputs, out.SiacoinOutput)
-	}
-	_, _, err = s.w.FundTransaction(&txn, wsr.Amount.Add(fee), types.ZeroCurrency)
-	if jc.Check("Couldn't fund transaction", err) != nil {
+	ins, fee, _ := wallet.DistributeFunds(utxos, wsr.Outputs, wsr.Amount, s.tp.RecommendedFee())
+	if jc.Check("couldn't distribute funds", err) != nil {
 		return
 	}
 
-	jc.Encode(WalletSplitResponse{
-		Transaction: txn,
-	})
+	txn := types.Transaction{
+		SiacoinInputs:  make([]types.SiacoinInput, len(ins)),
+		SiacoinOutputs: make([]types.SiacoinOutput, wsr.Outputs),
+		MinerFees:      []types.Currency{fee},
+	}
+
+	addr, err := s.w.Address()
+	if jc.Check("couldn't get wallet address", err) != nil {
+		return
+	}
+
+	for i := range ins {
+		addr, err := s.w.AddressInfo(ins[i].UnlockHash)
+		if jc.Check("couldn't load address info", err) != nil {
+			return
+		}
+		txn.SiacoinInputs[i] = types.SiacoinInput{
+			ParentID:         ins[i].ID,
+			UnlockConditions: addr.UnlockConditions,
+		}
+	}
+
+	for i := range txn.SiacoinOutputs {
+		txn.SiacoinOutputs[i] = types.SiacoinOutput{
+			Value:      wsr.Amount,
+			UnlockHash: addr,
+		}
+	}
+
+	jc.Encode(txn)
 }
 
 func (s *server) walletSendHandler(jc jape.Context) {

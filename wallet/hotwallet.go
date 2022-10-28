@@ -83,6 +83,7 @@ func (w *HotWallet) Addresses() ([]types.UnlockHash, error) {
 	return w.store.Addresses()
 }
 
+// AddressInfo returns seed information associated with the specified address.
 func (w *HotWallet) AddressInfo(addr types.UnlockHash) (SeedAddressInfo, error) {
 	return w.store.AddressInfo(addr)
 }
@@ -269,21 +270,6 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 
 	toSign := append(toSignSC, toSignSF...)
 	return toSign, discard, nil
-}
-
-// DistributeFunds distributes the value in the wallet's inputs among n
-// outputs, each containing per siacoins.
-func (w *HotWallet) DistributeFunds(n int, per, feePerByte types.Currency) (ins []SiacoinElement, fee, change types.Currency, err error) {
-	if n < 1 {
-		err = errors.New("n should be at least 1")
-		return
-	}
-	utxos, err := w.UnspentSiacoinOutputs()
-	if err != nil {
-		return
-	}
-	ins, fee, change = DistributeFunds(utxos, n, per, feePerByte)
-	return
 }
 
 // SignTransaction signs the specified transaction using keys derived from the

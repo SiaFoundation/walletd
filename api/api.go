@@ -66,8 +66,3 @@ type WalletSplitRequest struct {
 	Outputs int            `json:"outputs"`
 	Amount  types.Currency `json:"amount"`
 }
-
-// WalletSplitResponse is the response type for /wallet/split
-type WalletSplitResponse struct {
-	Transaction types.Transaction `json:"transaction"`
-}

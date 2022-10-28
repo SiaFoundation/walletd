@@ -69,6 +69,11 @@ func (w *WatchWallet) Addresses() ([]types.UnlockHash, error) {
 	return w.store.Addresses()
 }
 
+// AddressInfo is disabled in the read only wallet.
+func (w *WatchWallet) AddressInfo(addr types.UnlockHash) (SeedAddressInfo, error) {
+	return SeedAddressInfo{}, ErrDisabled
+}
+
 // UnspentSiacoinOutputs returns the unspent outputs owned by the wallet.
 func (w *WatchWallet) UnspentSiacoinOutputs() ([]SiacoinElement, error) {
 	return w.store.UnspentSiacoinOutputs()
@@ -102,11 +107,6 @@ func (w *WatchWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Ha
 // FundTransaction is disabled in the read only wallet.
 func (w *WatchWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error) {
 	return nil, nil, ErrDisabled
-}
-
-// DistributeFunds is disabled in the read only wallet.
-func (w *WatchWallet) DistributeFunds(outputs int, per, feePerByte types.Currency) (ins []SiacoinElement, fee, change types.Currency, err error) {
-	return nil, types.ZeroCurrency, types.ZeroCurrency, ErrDisabled
 }
 
 // NewWatchWallet returns a new WatchWallet.
