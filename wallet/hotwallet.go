@@ -83,6 +83,7 @@ func (w *HotWallet) Addresses() ([]types.UnlockHash, error) {
 	return w.store.Addresses()
 }
 
+// AddressInfo returns seed information associated with the specified address.
 func (w *HotWallet) AddressInfo(addr types.UnlockHash) (SeedAddressInfo, error) {
 	return w.store.AddressInfo(addr)
 }

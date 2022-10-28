@@ -41,6 +41,7 @@ type (
 		Balance() (types.Currency, types.Currency, error)
 		Address() (types.UnlockHash, error)
 		Addresses() ([]types.UnlockHash, error)
+		AddressInfo(addr types.UnlockHash) (wallet.SeedAddressInfo, error)
 		UnspentSiacoinOutputs() ([]wallet.SiacoinElement, error)
 		UnspentSiafundOutputs() ([]wallet.SiafundElement, error)
 		Transaction(id types.TransactionID) (wallet.Transaction, error)
@@ -157,9 +158,11 @@ func (s *server) walletSignHandler(jc jape.Context) {
 	if jc.Decode(&wtsr) != nil {
 		return
 	}
-	if jc.Check("failed to sign transaction", s.w.SignTransaction(&wtsr.Transaction, wtsr.ToSign)) == nil {
-		jc.Encode(wtsr.Transaction)
+
+	if jc.Check("failed to sign transaction", s.w.SignTransaction(&wtsr.Transaction, wtsr.ToSign)) != nil {
+		return
 	}
+	jc.Encode(wtsr.Transaction)
 }
 
 func (s *server) walletFundHandler(jc jape.Context) {
@@ -171,7 +174,7 @@ func (s *server) walletFundHandler(jc jape.Context) {
 	fee := s.tp.RecommendedFee().Mul64(uint64(len(encoding.Marshal(txn))))
 	txn.MinerFees = []types.Currency{fee}
 	toSign, unclaim, err := s.w.FundTransaction(&wfr.Transaction, wfr.Siacoins.Add(txn.MinerFees[0]), wfr.Siafunds)
-	if jc.Check("failed to fund transaction", err) != err {
+	if jc.Check("failed to fund transaction", err) != nil {
 		return
 	}
 	parents, err := s.tp.UnconfirmedParents(txn)
@@ -185,6 +188,59 @@ func (s *server) walletFundHandler(jc jape.Context) {
 		ToSign:      toSign,
 		DependsOn:   parents,
 	})
+}
+
+func (s *server) walletSplitHandler(jc jape.Context) {
+	var wsr WalletSplitRequest
+	if jc.Decode(&wsr) != nil {
+		return
+	}
+
+	utxos, err := s.w.UnspentSiacoinOutputs()
+	if jc.Check("couldn't load unspent siacoin outputs", err) != nil {
+		return
+	}
+
+	ins, fee, change := wallet.DistributeFunds(utxos, wsr.Outputs, wsr.Amount, s.tp.RecommendedFee())
+	if jc.Check("couldn't distribute funds", err) != nil {
+		return
+	}
+
+	txn := types.Transaction{
+		SiacoinInputs:  make([]types.SiacoinInput, len(ins)),
+		SiacoinOutputs: make([]types.SiacoinOutput, wsr.Outputs),
+		MinerFees:      []types.Currency{fee},
+	}
+
+	addr, err := s.w.Address()
+	if jc.Check("couldn't get wallet address", err) != nil {
+		return
+	}
+
+	for i := range ins {
+		addr, err := s.w.AddressInfo(ins[i].UnlockHash)
+		if jc.Check("couldn't load address info", err) != nil {
+			return
+		}
+		txn.SiacoinInputs[i] = types.SiacoinInput{
+			ParentID:         ins[i].ID,
+			UnlockConditions: addr.UnlockConditions,
+		}
+	}
+	for i := range txn.SiacoinOutputs {
+		txn.SiacoinOutputs[i] = types.SiacoinOutput{
+			Value:      wsr.Amount,
+			UnlockHash: addr,
+		}
+	}
+	if !change.IsZero() {
+		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
+			Value:      change,
+			UnlockHash: addr,
+		})
+	}
+
+	jc.Encode(txn)
 }
 
 func (s *server) walletSendHandler(jc jape.Context) {
@@ -253,6 +309,7 @@ func NewServer(cm ChainManager, s Syncer, tp TransactionPool, w Wallet) http.Han
 		"GET  /wallet/transaction/:id":       srv.walletTransactionHandler,
 		"POST /wallet/sign":                  srv.walletSignHandler,
 		"POST /wallet/fund":                  srv.walletFundHandler,
+		"POST /wallet/split":                 srv.walletSplitHandler,
 		"POST /wallet/send":                  srv.walletSendHandler,
 		"GET  /wallet/transactions":          srv.walletTransactionsHandler,
 		"GET  /wallet/transactions/:address": srv.walletTransactionsAddressHandler,

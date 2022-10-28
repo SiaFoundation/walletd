@@ -14,6 +14,8 @@ type WatchWallet struct {
 	store Store
 }
 
+var ErrDisabled = errors.New("This function is disabled in the watch wallet")
+
 // Balance returns the total value of the unspent siacoin and siafund outputs
 // owned by the wallet.
 func (w *WatchWallet) Balance() (types.Currency, types.Currency, error) {
@@ -67,6 +69,11 @@ func (w *WatchWallet) Addresses() ([]types.UnlockHash, error) {
 	return w.store.Addresses()
 }
 
+// AddressInfo is disabled in the read only wallet.
+func (w *WatchWallet) AddressInfo(addr types.UnlockHash) (SeedAddressInfo, error) {
+	return SeedAddressInfo{}, ErrDisabled
+}
+
 // UnspentSiacoinOutputs returns the unspent outputs owned by the wallet.
 func (w *WatchWallet) UnspentSiacoinOutputs() ([]SiacoinElement, error) {
 	return w.store.UnspentSiacoinOutputs()
@@ -92,12 +99,14 @@ func (w *WatchWallet) Transactions(since time.Time, max int) ([]Transaction, err
 	return w.store.Transactions(since, max)
 }
 
+// SignTransaction is disabled in the read only wallet.
 func (w *WatchWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error {
-	return nil
+	return ErrDisabled
 }
 
+// FundTransaction is disabled in the read only wallet.
 func (w *WatchWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error) {
-	return nil, nil, nil
+	return nil, nil, ErrDisabled
 }
 
 // NewWatchWallet returns a new WatchWallet.

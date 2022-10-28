@@ -60,3 +60,9 @@ type WalletSendResponse struct {
 	ID          types.TransactionID
 	Transaction types.Transaction
 }
+
+// WalletSplitRequest is the request type for /wallet/split
+type WalletSplitRequest struct {
+	Outputs int            `json:"outputs"`
+	Amount  types.Currency `json:"amount"`
+}
