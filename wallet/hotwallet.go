@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"reflect"
+	"sort"
 	"sync"
 	"time"
 
@@ -173,7 +174,7 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 		unusedSC = []SiacoinElement{exactElem}
 		outputSumSC = exactElem.Value
 	} else if SumOutputs(smallerUnusedSC).Cmp(amountSC) == 0 {
-		// if sum of all UTXOs == target, use all UTXOs
+		// if sum of all UTXOs smaller than target == target, use all UTXOs smaller than target
 		unusedSC = smallerUnusedSC
 		outputSumSC = SumOutputs(smallerUnusedSC)
 	} else if smallestGreaterIndex := smallestGreaterTargetSC(unusedSC); smallestGreaterIndex != -1 {
@@ -182,15 +183,64 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 		unusedSC = []SiacoinElement{smallestGreaterElem}
 		outputSumSC = smallestGreaterElem.Value
 	} else {
-		// choose outputs randomly
-		frand.Shuffle(len(unusedSC), reflect.Swapper(unusedSC))
+		sort.Slice(unusedSC, func(i, j int) bool {
+			return unusedSC[i].Value.Cmp(unusedSC[j].Value) == -1
+		})
 
-		// keep adding outputs until we have enough
-		for i, o := range unusedSC {
-			if outputSumSC = outputSumSC.Add(o.Value); outputSumSC.Cmp(amountSC) >= 0 {
-				unusedSC = unusedSC[:i+1]
-				break
+		best := SumOutputs(smallerUnusedSC)
+		included := make([]bool, len(unusedSC))
+		includedBest := make([]bool, len(unusedSC))
+		for i := 0; i < 1000 && best.Cmp(amountSC) != 0; i++ {
+			for j := 0; j < len(included); j++ {
+				included[j] = false
 			}
+
+			var reachedTarget bool
+			var total types.Currency
+			for j := 0; j < 2 && !reachedTarget; j++ {
+				for k := 0; k < len(unusedSC); k++ {
+					if (j == 0 && ((frand.Uint64n(1) % 2) == 1)) || (j != 0 && !included[k]) {
+						total = total.Add(unusedSC[i].Value)
+						included[k] = true
+						if cmp := total.Cmp(amountSC); cmp == 0 || cmp == 1 {
+							reachedTarget = true
+							if total.Cmp(best) == -1 {
+								best = total
+								for i := 0; i < len(included); i++ {
+									includedBest[i] = included[i]
+								}
+							}
+							total = total.Sub(unusedSC[i].Value)
+							included[i] = false
+						}
+					}
+				}
+			}
+		}
+
+		// if the stochastic approximation didn't find a solution, just keep
+		// adding outputs till we have enough
+		if best.Cmp(amountSC) == -1 {
+			// choose outputs randomly
+			frand.Shuffle(len(unusedSC), reflect.Swapper(unusedSC))
+
+			// keep adding outputs until we have enough
+			for i, o := range unusedSC {
+				if outputSumSC = outputSumSC.Add(o.Value); outputSumSC.Cmp(amountSC) >= 0 {
+					unusedSC = unusedSC[:i+1]
+					break
+				}
+			}
+		} else {
+			// if we found a solution
+			var newUnusedSC []SiacoinElement
+			for i := 0; i < len(includedBest); i++ {
+				if includedBest[i] {
+					newUnusedSC = append(newUnusedSC, unusedSC[i])
+				}
+			}
+			unusedSC = newUnusedSC
+			outputSumSC = best
 		}
 	}
 
