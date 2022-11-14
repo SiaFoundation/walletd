@@ -26,13 +26,19 @@ func (m *mockCS) ConsensusSetSubscribe(s modules.ConsensusSetSubscriber, ccid mo
 }
 
 func (m *mockCS) sendTxn(txn types.Transaction) {
-	outputs := make([]modules.SiacoinOutputDiff, len(txn.SiacoinOutputs))
-	for i := range outputs {
-		outputs[i] = modules.SiacoinOutputDiff{
+	outputs := make([]modules.SiacoinOutputDiff, 0, len(txn.SiacoinOutputs)+len(txn.SiacoinInputs))
+	for i, out := range txn.SiacoinOutputs {
+		outputs = append(outputs, modules.SiacoinOutputDiff{
 			Direction:     modules.DiffApply,
-			SiacoinOutput: txn.SiacoinOutputs[i],
+			SiacoinOutput: out,
 			ID:            txn.SiacoinOutputID(uint64(i)),
-		}
+		})
+	}
+	for _, in := range txn.SiacoinInputs {
+		outputs = append(outputs, modules.SiacoinOutputDiff{
+			Direction: modules.DiffRevert,
+			ID:        in.ParentID,
+		})
 	}
 	cc := modules.ConsensusChange{
 		AppliedBlocks: []types.Block{{
@@ -339,5 +345,83 @@ func TestHotWalletThreadSafety(t *testing.T) {
 			}(fn)
 		}
 		wg.Wait()
+	}
+}
+
+type scenario struct {
+	initial      []types.SiacoinOutput
+	transactions [][]types.SiacoinOutput
+	description  string
+}
+
+func TestSimulate(t *testing.T) {
+	seeds := make([]wallet.Seed, 100)
+	for i := 0; i < len(seeds); i++ {
+		seeds[i] = wallet.NewSeed()
+	}
+
+	scenarios := []scenario{
+		{
+			initial: []types.SiacoinOutput{
+				{types.SiacoinPrecision, wallet.StandardAddress(seeds[0].PublicKey(0).Key)},
+			},
+			transactions: [][]types.SiacoinOutput{
+				{{types.SiacoinPrecision.Div64(2), wallet.StandardAddress(seeds[1].PublicKey(0).Key)}},
+			},
+			description: "example 1",
+		},
+	}
+	for _, coinSelection := range []wallet.CoinSelection{wallet.Random, wallet.Bitcoin, wallet.SingleRandomDraw} {
+		for _, scenario := range scenarios {
+			store := walletutil.NewEphemeralStore()
+			w := wallet.NewHotWallet(store, seeds[0])
+			cs := new(mockCS)
+			ccid, err := store.ConsensusChangeID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			cs.ConsensusSetSubscribe(store, ccid, nil)
+			t.Log("Testing with coin selection: ", coinSelection)
+
+			// initial balance should be zero
+			sc, _, err := w.Balance()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !sc.IsZero() {
+				t.Fatal("balance should be zero")
+			}
+
+			// create and add addresses
+			for i := 0; i < 10; i++ {
+				if _, err := w.Address(); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// establish initial utxos
+			cs.sendTxn(types.Transaction{
+				SiacoinOutputs: scenario.initial,
+			})
+
+			for _, transaction := range scenario.transactions {
+				var amountSC types.Currency
+				for _, out := range transaction {
+					amountSC = amountSC.Add(out.Value)
+				}
+
+				txn := types.Transaction{SiacoinOutputs: transaction}
+				toSign, _, err := w.FundTransaction(&txn, amountSC, types.ZeroCurrency, types.SiacoinPrecision.Div64(100), coinSelection)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := w.SignTransaction(&txn, toSign); err != nil {
+					t.Fatal(err)
+				}
+				cs.sendTxn(txn)
+			}
+
+			// record and output various statistics
+		}
 	}
 }
