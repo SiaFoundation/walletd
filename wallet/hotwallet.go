@@ -81,7 +81,7 @@ func (w *HotWallet) Address() (types.UnlockHash, error) {
 	}
 
 	info := SeedAddressInfo{
-		UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index).Key),
+		UnlockConditions: StandardUnlockConditions(w.seed.SecretKey(index)),
 		KeyIndex:         index,
 	}
 	w.store.AddAddress(info)
@@ -243,7 +243,6 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 				}
 			}
 
-			var outputSumSC types.Currency
 			// if the stochastic approximation didn't find a solution, just keep
 			// adding outputs till we have enough
 			if best.Cmp(amountSC) == -1 {

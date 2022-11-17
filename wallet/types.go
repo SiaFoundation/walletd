@@ -65,7 +65,7 @@ type Store interface {
 
 // StandardUnlockConditions returns the standard unlock conditions for a single
 // Ed25519 key.
-func StandardUnlockConditions(priv ed25519.PublicKey) types.UnlockConditions {
+func StandardUnlockConditions(priv ed25519.PrivateKey) types.UnlockConditions {
 	return types.UnlockConditions{
 		PublicKeys: []types.SiaPublicKey{{
 			Algorithm: types.SignatureEd25519,
@@ -76,7 +76,7 @@ func StandardUnlockConditions(priv ed25519.PublicKey) types.UnlockConditions {
 }
 
 // StandardAddress returns the standard address for an Ed25519 key.
-func StandardAddress(priv ed25519.PublicKey) types.UnlockHash {
+func StandardAddress(priv ed25519.PrivateKey) types.UnlockHash {
 	return StandardUnlockConditions(priv).UnlockHash()
 }
 

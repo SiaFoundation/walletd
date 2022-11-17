@@ -363,14 +363,15 @@ func TestSimulate(t *testing.T) {
 	scenarios := []scenario{
 		{
 			initial: []types.SiacoinOutput{
-				{types.SiacoinPrecision, wallet.StandardAddress(seeds[0].PublicKey(0).Key)},
+				{types.SiacoinPrecision, wallet.StandardAddress(seeds[0].SecretKey(0))},
 			},
 			transactions: [][]types.SiacoinOutput{
-				{{types.SiacoinPrecision.Div64(2), wallet.StandardAddress(seeds[1].PublicKey(0).Key)}},
+				{{types.SiacoinPrecision.Div64(3), wallet.StandardAddress(seeds[1].SecretKey(0))}},
 			},
 			description: "example 1",
 		},
 	}
+
 	for _, coinSelection := range []wallet.CoinSelection{wallet.Random, wallet.Bitcoin, wallet.SingleRandomDraw} {
 		for _, scenario := range scenarios {
 			store := walletutil.NewEphemeralStore()
@@ -382,36 +383,41 @@ func TestSimulate(t *testing.T) {
 			}
 			cs.ConsensusSetSubscribe(store, ccid, nil)
 			t.Log("Testing with coin selection: ", coinSelection)
+			for _, transaction := range scenario.transactions {
 
-			// initial balance should be zero
-			sc, _, err := w.Balance()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !sc.IsZero() {
-				t.Fatal("balance should be zero")
-			}
-
-			// create and add addresses
-			for i := 0; i < 10; i++ {
-				if _, err := w.Address(); err != nil {
+				// initial balance should be zero
+				sc, _, err := w.Balance()
+				if err != nil {
 					t.Fatal(err)
 				}
-			}
+				if !sc.IsZero() {
+					t.Fatal("balance should be zero")
+				}
 
-			// establish initial utxos
-			cs.sendTxn(types.Transaction{
-				SiacoinOutputs: scenario.initial,
-			})
+				// create and add addresses
+				for i := 0; i < 10; i++ {
+					if _, err := w.Address(); err != nil {
+						t.Fatal(err)
+					}
+				}
 
-			for _, transaction := range scenario.transactions {
+				// establish initial utxos
+				cs.sendTxn(types.Transaction{
+					SiacoinOutputs: scenario.initial,
+				})
+
+				utxos, err := w.UnspentSiacoinOutputs()
+				if err != nil {
+					t.Fatal(err)
+				}
+
 				var amountSC types.Currency
 				for _, out := range transaction {
 					amountSC = amountSC.Add(out.Value)
 				}
 
 				txn := types.Transaction{SiacoinOutputs: transaction}
-				toSign, _, err := w.FundTransaction(&txn, amountSC, types.ZeroCurrency, types.SiacoinPrecision.Div64(100), coinSelection)
+				toSign, _, err := w.FundTransaction(&txn, amountSC, types.ZeroCurrency, types.SiacoinPrecision.Div64(1000), coinSelection)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -419,6 +425,12 @@ func TestSimulate(t *testing.T) {
 					t.Fatal(err)
 				}
 				cs.sendTxn(txn)
+
+				utxos, err = w.UnspentSiacoinOutputs()
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Log("Balance after:  ", wallet.SumOutputs(utxos))
 			}
 
 			// record and output various statistics
