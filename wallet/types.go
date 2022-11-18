@@ -65,19 +65,19 @@ type Store interface {
 
 // StandardUnlockConditions returns the standard unlock conditions for a single
 // Ed25519 key.
-func StandardUnlockConditions(priv ed25519.PrivateKey) types.UnlockConditions {
+func StandardUnlockConditions(pub ed25519.PublicKey) types.UnlockConditions {
 	return types.UnlockConditions{
 		PublicKeys: []types.SiaPublicKey{{
 			Algorithm: types.SignatureEd25519,
-			Key:       priv[32:],
+			Key:       pub,
 		}},
 		SignaturesRequired: 1,
 	}
 }
 
 // StandardAddress returns the standard address for an Ed25519 key.
-func StandardAddress(priv ed25519.PrivateKey) types.UnlockHash {
-	return StandardUnlockConditions(priv).UnlockHash()
+func StandardAddress(pub ed25519.PublicKey) types.UnlockHash {
+	return StandardUnlockConditions(pub).UnlockHash()
 }
 
 // StandardTransactionSignature is the most common form of TransactionSignature.

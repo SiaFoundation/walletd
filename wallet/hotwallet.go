@@ -81,7 +81,7 @@ func (w *HotWallet) Address() (types.UnlockHash, error) {
 	}
 
 	info := SeedAddressInfo{
-		UnlockConditions: StandardUnlockConditions(w.seed.SecretKey(index)),
+		UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index).Key),
 		KeyIndex:         index,
 	}
 	w.store.AddAddress(info)
@@ -296,20 +296,22 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 		toSignSC = append(toSignSC, crypto.Hash(o.ID))
 	}
 	// add change output, if needed
-	if change := outputSumSC.Sub(amountSC); !change.IsZero() {
-		index, err := w.store.SeedIndex()
-		if err != nil {
-			return nil, nil, err
+	if outputSumSC.Cmp(amountSC) > 0 {
+		if change := outputSumSC.Sub(amountSC); !change.IsZero() {
+			index, err := w.store.SeedIndex()
+			if err != nil {
+				return nil, nil, err
+			}
+			info := SeedAddressInfo{
+				UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index).Key),
+				KeyIndex:         index,
+			}
+			w.store.AddAddress(info)
+			txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
+				UnlockHash: info.UnlockConditions.UnlockHash(),
+				Value:      change,
+			})
 		}
-		info := SeedAddressInfo{
-			UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index).Key),
-			KeyIndex:         index,
-		}
-		w.store.AddAddress(info)
-		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
-			UnlockHash: info.UnlockConditions.UnlockHash(),
-			Value:      change,
-		})
 	}
 
 	w.mu.Lock()

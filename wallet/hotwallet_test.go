@@ -14,14 +14,14 @@ import (
 )
 
 type mockCS struct {
-	subscriber    modules.ConsensusSetSubscriber
+	subscribers   []modules.ConsensusSetSubscriber
 	dscos         map[types.BlockHeight][]modules.DelayedSiacoinOutputDiff
 	filecontracts map[types.FileContractID]types.FileContract
 	height        types.BlockHeight
 }
 
 func (m *mockCS) ConsensusSetSubscribe(s modules.ConsensusSetSubscriber, ccid modules.ConsensusChangeID, cancel <-chan struct{}) error {
-	m.subscriber = s
+	m.subscribers = append(m.subscribers, s)
 	return nil
 }
 
@@ -49,7 +49,9 @@ func (m *mockCS) sendTxn(txn types.Transaction) {
 		},
 		ID: frand.Entropy256(),
 	}
-	m.subscriber.ProcessConsensusChange(cc)
+	for i := range m.subscribers {
+		m.subscribers[i].ProcessConsensusChange(cc)
+	}
 	m.height++
 }
 
@@ -81,7 +83,9 @@ func (m *mockCS) mineBlock(fees types.Currency, addr types.UnlockHash) {
 			ID:            dsco.ID,
 		})
 	}
-	m.subscriber.ProcessConsensusChange(cc)
+	for i := range m.subscribers {
+		m.subscribers[i].ProcessConsensusChange(cc)
+	}
 	m.height++
 	if m.dscos == nil {
 		m.dscos = make(map[types.BlockHeight][]modules.DelayedSiacoinOutputDiff)
@@ -117,7 +121,9 @@ func (m *mockCS) formContract(payout types.Currency, addr types.UnlockHash) {
 		},
 		ID: frand.Entropy256(),
 	}
-	m.subscriber.ProcessConsensusChange(cc)
+	for i := range m.subscribers {
+		m.subscribers[i].ProcessConsensusChange(cc)
+	}
 	m.height++
 	if m.filecontracts == nil {
 		m.filecontracts = make(map[types.FileContractID]types.FileContract)
@@ -166,7 +172,9 @@ func (m *mockCS) reviseContract(id types.FileContractID) {
 		},
 		ID: frand.Entropy256(),
 	}
-	m.subscriber.ProcessConsensusChange(cc)
+	for i := range m.subscribers {
+		m.subscribers[i].ProcessConsensusChange(cc)
+	}
 	m.height++
 	m.filecontracts[id] = fc
 }
@@ -354,6 +362,37 @@ type scenario struct {
 	description  string
 }
 
+type walletStats struct {
+	// count of remaining UTXOs in the UTXO pool after the scenario
+	utxoRemaining int
+	// the mean count of UTXOs in the UTXO pool during the scenario
+	utxoMean int
+	// count of UTXOs received throughout the scenario
+	utxoReceived int
+	// count of UTXOs spent from the UTXO pool
+	utxoSpent int
+	// count of change outputs created
+	change int
+	// minimum change output value
+	changeMinimum types.Currency
+	// mean change output value
+	changeMean types.Currency
+	// maximum change output value
+	changeMaximum types.Currency
+	// standard deviation of change output value
+	changeStandardDeviation types.Currency
+	// fees paid for all transactions
+	fees types.Currency
+	// minimum # of UTXOs selected for input
+	utxoInputMinimum int
+	// mean # of UTXOs selected for input
+	utxoInputMean int
+	// maximum # of UTXOs selected for input
+	utxoInputMaximum int
+	// standard deviation of input set size
+	inputSetSizeStandardDeviation float64
+}
+
 func TestSimulate(t *testing.T) {
 	seeds := make([]wallet.Seed, 100)
 	for i := 0; i < len(seeds); i++ {
@@ -363,10 +402,10 @@ func TestSimulate(t *testing.T) {
 	scenarios := []scenario{
 		{
 			initial: []types.SiacoinOutput{
-				{types.SiacoinPrecision, wallet.StandardAddress(seeds[0].SecretKey(0))},
+				{types.SiacoinPrecision, wallet.StandardAddress(seeds[0].PublicKey(0).Key)},
 			},
 			transactions: [][]types.SiacoinOutput{
-				{{types.SiacoinPrecision.Div64(3), wallet.StandardAddress(seeds[1].SecretKey(0))}},
+				{{types.SiacoinPrecision.Div64(3), wallet.StandardAddress(seeds[1].PublicKey(0).Key)}},
 			},
 			description: "example 1",
 		},
@@ -374,14 +413,24 @@ func TestSimulate(t *testing.T) {
 
 	for _, coinSelection := range []wallet.CoinSelection{wallet.Random, wallet.Bitcoin, wallet.SingleRandomDraw} {
 		for _, scenario := range scenarios {
-			store := walletutil.NewEphemeralStore()
-			w := wallet.NewHotWallet(store, seeds[0])
 			cs := new(mockCS)
-			ccid, err := store.ConsensusChangeID()
-			if err != nil {
-				t.Fatal(err)
+
+			wallets := make([]struct {
+				w     *wallet.HotWallet
+				stats walletStats
+			}, len(seeds))
+			for i := range seeds {
+				store := walletutil.NewEphemeralStore()
+				ccid, err := store.ConsensusChangeID()
+				if err != nil {
+					t.Fatal(err)
+				}
+				cs.ConsensusSetSubscribe(store, ccid, nil)
+				wallets[i].w = wallet.NewHotWallet(store, seeds[i])
 			}
-			cs.ConsensusSetSubscribe(store, ccid, nil)
+
+			w := wallets[0].w
+
 			t.Log("Testing with coin selection: ", coinSelection)
 			for _, transaction := range scenario.transactions {
 
