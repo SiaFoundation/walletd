@@ -356,9 +356,14 @@ func TestHotWalletThreadSafety(t *testing.T) {
 	}
 }
 
+type scenarioTransaction struct {
+	index   int
+	outputs []types.SiacoinOutput
+}
+
 type scenario struct {
 	initial      []types.SiacoinOutput
-	transactions [][]types.SiacoinOutput
+	transactions []scenarioTransaction
 	description  string
 }
 
@@ -366,7 +371,7 @@ type walletStats struct {
 	// count of remaining UTXOs in the UTXO pool after the scenario
 	utxoRemaining int
 	// the mean count of UTXOs in the UTXO pool during the scenario
-	utxoMean int
+	utxoMean float64
 	// count of UTXOs received throughout the scenario
 	utxoReceived int
 	// count of UTXOs spent from the UTXO pool
@@ -404,10 +409,8 @@ func TestSimulate(t *testing.T) {
 			initial: []types.SiacoinOutput{
 				{types.SiacoinPrecision, wallet.StandardAddress(seeds[0].PublicKey(0).Key)},
 			},
-			transactions: [][]types.SiacoinOutput{
-				{{types.SiacoinPrecision.Div64(3), wallet.StandardAddress(seeds[1].PublicKey(0).Key)}},
-			},
-			description: "example 1",
+			transactions: []scenarioTransaction{{0, []types.SiacoinOutput{{UnlockHash: wallet.StandardAddress(seeds[1].PublicKey(0).Key), Value: types.SiacoinPrecision.Div64(3)}}}},
+			description:  "example 1",
 		},
 	}
 
@@ -427,22 +430,21 @@ func TestSimulate(t *testing.T) {
 				}
 				cs.ConsensusSetSubscribe(store, ccid, nil)
 				wallets[i].w = wallet.NewHotWallet(store, seeds[i])
+				wallets[i].stats.changeMinimum = types.NewCurrency64(math.MaxUint64)
 			}
-
-			w := wallets[0].w
 
 			t.Log("Testing with coin selection: ", coinSelection)
 			for _, transaction := range scenario.transactions {
-
-				// initial balance should be zero
-				sc, _, err := w.Balance()
-				if err != nil {
-					t.Fatal(err)
+				for i := 0; i < len(wallets); i++ {
+					utxos, err := wallets[i].w.UnspentSiacoinOutputs()
+					if err != nil {
+						t.Fatal(err)
+					}
+					wallets[i].stats.utxoMean += float64(len(utxos))
+					wallets[i].stats.utxoReceived += len(utxos)
 				}
-				if !sc.IsZero() {
-					t.Fatal("balance should be zero")
-				}
 
+				w := wallets[transaction.index].w
 				// create and add addresses
 				for i := 0; i < 10; i++ {
 					if _, err := w.Address(); err != nil {
@@ -455,17 +457,12 @@ func TestSimulate(t *testing.T) {
 					SiacoinOutputs: scenario.initial,
 				})
 
-				utxos, err := w.UnspentSiacoinOutputs()
-				if err != nil {
-					t.Fatal(err)
-				}
-
 				var amountSC types.Currency
-				for _, out := range transaction {
+				for _, out := range transaction.outputs {
 					amountSC = amountSC.Add(out.Value)
 				}
 
-				txn := types.Transaction{SiacoinOutputs: transaction}
+				txn := types.Transaction{SiacoinOutputs: transaction.outputs}
 				toSign, _, err := w.FundTransaction(&txn, amountSC, types.ZeroCurrency, types.SiacoinPrecision.Div64(1000), coinSelection)
 				if err != nil {
 					t.Fatal(err)
@@ -475,13 +472,46 @@ func TestSimulate(t *testing.T) {
 				}
 				cs.sendTxn(txn)
 
-				utxos, err = w.UnspentSiacoinOutputs()
+				hasChange := (len(txn.SiacoinOutputs) - len(transaction.outputs)) > 0
+				if hasChange {
+					wallets[transaction.index].stats.change += 1
+
+					change := txn.SiacoinOutputs[len(txn.SiacoinOutputs)-1].Value
+					if change.Cmp(wallets[transaction.index].stats.changeMinimum) == -1 {
+						wallets[transaction.index].stats.changeMinimum = change
+					}
+					if change.Cmp(wallets[transaction.index].stats.changeMinimum) == 1 {
+						wallets[transaction.index].stats.changeMaximum = change
+					}
+					wallets[transaction.index].stats.changeMean = wallets[transaction.index].stats.changeMean.Add(change)
+				}
+
+				wallets[transaction.index].stats.utxoSpent += len(txn.SiacoinInputs)
+				for i := 0; i < len(wallets); i++ {
+					utxos, err := wallets[i].w.UnspentSiacoinOutputs()
+					if err != nil {
+						t.Fatal(err)
+					}
+					wallets[i].stats.utxoReceived -= len(utxos)
+				}
+			}
+
+			for i := range wallets {
+				w := wallets[i].w
+
+				utxos, err := w.UnspentSiacoinOutputs()
 				if err != nil {
 					t.Fatal(err)
 				}
-				t.Log("Balance after:  ", wallet.SumOutputs(utxos))
-			}
 
+				wallets[i].stats.utxoRemaining = len(utxos)
+				if len(scenario.transactions) > 0 {
+					wallets[i].stats.utxoMean /= float64(len(scenario.transactions))
+				}
+				if wallets[i].stats.change > 0 {
+					wallets[i].stats.changeMean = wallets[i].stats.changeMean.Div64(uint64(wallets[i].stats.change))
+				}
+			}
 			// record and output various statistics
 		}
 	}
