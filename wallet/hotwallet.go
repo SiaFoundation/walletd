@@ -22,6 +22,18 @@ const (
 	SingleRandomDraw
 )
 
+func (c CoinSelection) String() string {
+	switch c {
+	case Random:
+		return "String"
+	case Bitcoin:
+		return "Bitcoin"
+	case SingleRandomDraw:
+		return "SingleRandomDraw"
+	}
+	return "Unknown"
+}
+
 // A HotWallet is a wallet that allows funding and signing transactions.
 type HotWallet struct {
 	mu sync.Mutex

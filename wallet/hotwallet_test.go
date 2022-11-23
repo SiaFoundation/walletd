@@ -391,11 +391,13 @@ type walletStats struct {
 	// minimum # of UTXOs selected for input
 	utxoInputMinimum int
 	// mean # of UTXOs selected for input
-	utxoInputMean int
+	utxoInputMean float64
 	// maximum # of UTXOs selected for input
 	utxoInputMaximum int
 	// standard deviation of input set size
 	inputSetSizeStandardDeviation float64
+	// transactions
+	transactions int
 }
 
 func TestSimulate(t *testing.T) {
@@ -404,6 +406,7 @@ func TestSimulate(t *testing.T) {
 		seeds[i] = wallet.NewSeed()
 	}
 
+	// TODO: convert past blocks into scenarios
 	scenarios := []scenario{
 		{
 			initial: []types.SiacoinOutput{
@@ -485,8 +488,23 @@ func TestSimulate(t *testing.T) {
 					}
 					wallets[transaction.index].stats.changeMean = wallets[transaction.index].stats.changeMean.Add(change)
 				}
+				for _, fee := range txn.MinerFees {
+					wallets[transaction.index].stats.fees = wallets[transaction.index].stats.fees.Add(fee)
+				}
+
+				if len(txn.SiacoinInputs) < wallets[transaction.index].stats.utxoInputMinimum {
+					wallets[transaction.index].stats.utxoInputMinimum = len(txn.SiacoinInputs)
+				}
+				if len(txn.SiacoinInputs) > wallets[transaction.index].stats.utxoInputMaximum {
+					wallets[transaction.index].stats.utxoInputMaximum = len(txn.SiacoinInputs)
+				}
+				wallets[transaction.index].stats.utxoInputMean += float64(len(txn.SiacoinInputs))
 
 				wallets[transaction.index].stats.utxoSpent += len(txn.SiacoinInputs)
+				wallets[transaction.index].stats.transactions++
+
+				// we add len(utxos) at the beginning of the loop so this
+				// represents the number of new utxos received
 				for i := 0; i < len(wallets); i++ {
 					utxos, err := wallets[i].w.UnspentSiacoinOutputs()
 					if err != nil {
@@ -505,11 +523,14 @@ func TestSimulate(t *testing.T) {
 				}
 
 				wallets[i].stats.utxoRemaining = len(utxos)
-				if len(scenario.transactions) > 0 {
-					wallets[i].stats.utxoMean /= float64(len(scenario.transactions))
-				}
+
 				if wallets[i].stats.change > 0 {
 					wallets[i].stats.changeMean = wallets[i].stats.changeMean.Div64(uint64(wallets[i].stats.change))
+				}
+
+				if len(scenario.transactions) > 0 {
+					wallets[i].stats.utxoMean /= float64(wallets[i].stats.transactions)
+					wallets[i].stats.utxoInputMean /= float64(wallets[i].stats.transactions)
 				}
 			}
 			// record and output various statistics
