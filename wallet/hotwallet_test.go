@@ -1,7 +1,9 @@
 package wallet_test
 
 import (
+	"encoding/json"
 	"math"
+	"math/big"
 	"sync"
 	"testing"
 	"time"
@@ -369,35 +371,35 @@ type scenario struct {
 
 type walletStats struct {
 	// count of remaining UTXOs in the UTXO pool after the scenario
-	utxoRemaining int
+	UtxoRemaining int
 	// the mean count of UTXOs in the UTXO pool during the scenario
-	utxoMean float64
+	UtxoMean float64
 	// count of UTXOs received throughout the scenario
-	utxoReceived int
+	UtxoReceived int
 	// count of UTXOs spent from the UTXO pool
-	utxoSpent int
+	UtxoSpent int
 	// count of change outputs created
-	change int
+	Change int
 	// minimum change output value
-	changeMinimum types.Currency
+	ChangeMinimum types.Currency
 	// mean change output value
-	changeMean types.Currency
+	ChangeMean types.Currency
 	// maximum change output value
-	changeMaximum types.Currency
+	ChangeMaximum types.Currency
 	// standard deviation of change output value
-	changeStandardDeviation types.Currency
+	ChangeStandardDeviation types.Currency
 	// fees paid for all transactions
-	fees types.Currency
+	Fees types.Currency
 	// minimum # of UTXOs selected for input
-	utxoInputMinimum int
+	UtxoInputMinimum int
 	// mean # of UTXOs selected for input
-	utxoInputMean float64
+	UtxoInputMean float64
 	// maximum # of UTXOs selected for input
-	utxoInputMaximum int
+	UtxoInputMaximum int
 	// standard deviation of input set size
-	inputSetSizeStandardDeviation float64
+	InputSetSizeStandardDeviation float64
 	// transactions
-	transactions int
+	Transactions int
 }
 
 func TestSimulate(t *testing.T) {
@@ -433,7 +435,7 @@ func TestSimulate(t *testing.T) {
 				}
 				cs.ConsensusSetSubscribe(store, ccid, nil)
 				wallets[i].w = wallet.NewHotWallet(store, seeds[i])
-				wallets[i].stats.changeMinimum = types.NewCurrency64(math.MaxUint64)
+				wallets[i].stats.ChangeMinimum = types.NewCurrency(new(big.Int).Exp(big.NewInt(10), big.NewInt(24), nil))
 			}
 
 			t.Log("Testing with coin selection: ", coinSelection)
@@ -443,8 +445,8 @@ func TestSimulate(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					wallets[i].stats.utxoMean += float64(len(utxos))
-					wallets[i].stats.utxoReceived += len(utxos)
+					wallets[i].stats.UtxoMean += float64(len(utxos))
+					wallets[i].stats.UtxoReceived += len(utxos)
 				}
 
 				w := wallets[transaction.index].w
@@ -477,31 +479,31 @@ func TestSimulate(t *testing.T) {
 
 				hasChange := (len(txn.SiacoinOutputs) - len(transaction.outputs)) > 0
 				if hasChange {
-					wallets[transaction.index].stats.change += 1
+					wallets[transaction.index].stats.Change += 1
 
 					change := txn.SiacoinOutputs[len(txn.SiacoinOutputs)-1].Value
-					if change.Cmp(wallets[transaction.index].stats.changeMinimum) == -1 {
-						wallets[transaction.index].stats.changeMinimum = change
+					if change.Cmp(wallets[transaction.index].stats.ChangeMinimum) == -1 {
+						wallets[transaction.index].stats.ChangeMinimum = change
 					}
-					if change.Cmp(wallets[transaction.index].stats.changeMinimum) == 1 {
-						wallets[transaction.index].stats.changeMaximum = change
+					if change.Cmp(wallets[transaction.index].stats.ChangeMaximum) == 1 {
+						wallets[transaction.index].stats.ChangeMaximum = change
 					}
-					wallets[transaction.index].stats.changeMean = wallets[transaction.index].stats.changeMean.Add(change)
+					wallets[transaction.index].stats.ChangeMean = wallets[transaction.index].stats.ChangeMean.Add(change)
 				}
 				for _, fee := range txn.MinerFees {
-					wallets[transaction.index].stats.fees = wallets[transaction.index].stats.fees.Add(fee)
+					wallets[transaction.index].stats.Fees = wallets[transaction.index].stats.Fees.Add(fee)
 				}
 
-				if len(txn.SiacoinInputs) < wallets[transaction.index].stats.utxoInputMinimum {
-					wallets[transaction.index].stats.utxoInputMinimum = len(txn.SiacoinInputs)
+				if len(txn.SiacoinInputs) < wallets[transaction.index].stats.UtxoInputMinimum {
+					wallets[transaction.index].stats.UtxoInputMinimum = len(txn.SiacoinInputs)
 				}
-				if len(txn.SiacoinInputs) > wallets[transaction.index].stats.utxoInputMaximum {
-					wallets[transaction.index].stats.utxoInputMaximum = len(txn.SiacoinInputs)
+				if len(txn.SiacoinInputs) > wallets[transaction.index].stats.UtxoInputMaximum {
+					wallets[transaction.index].stats.UtxoInputMaximum = len(txn.SiacoinInputs)
 				}
-				wallets[transaction.index].stats.utxoInputMean += float64(len(txn.SiacoinInputs))
+				wallets[transaction.index].stats.UtxoInputMean += float64(len(txn.SiacoinInputs))
 
-				wallets[transaction.index].stats.utxoSpent += len(txn.SiacoinInputs)
-				wallets[transaction.index].stats.transactions++
+				wallets[transaction.index].stats.UtxoSpent += len(txn.SiacoinInputs)
+				wallets[transaction.index].stats.Transactions++
 
 				// we add len(utxos) at the beginning of the loop so this
 				// represents the number of new utxos received
@@ -510,7 +512,7 @@ func TestSimulate(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					wallets[i].stats.utxoReceived -= len(utxos)
+					wallets[i].stats.UtxoReceived -= len(utxos)
 				}
 			}
 
@@ -522,18 +524,25 @@ func TestSimulate(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				wallets[i].stats.utxoRemaining = len(utxos)
+				wallets[i].stats.UtxoRemaining = len(utxos)
 
-				if wallets[i].stats.change > 0 {
-					wallets[i].stats.changeMean = wallets[i].stats.changeMean.Div64(uint64(wallets[i].stats.change))
+				if wallets[i].stats.Change > 0 {
+					wallets[i].stats.ChangeMean = wallets[i].stats.ChangeMean.Div64(uint64(wallets[i].stats.Change))
 				}
 
 				if len(scenario.transactions) > 0 {
-					wallets[i].stats.utxoMean /= float64(wallets[i].stats.transactions)
-					wallets[i].stats.utxoInputMean /= float64(wallets[i].stats.transactions)
+					wallets[i].stats.UtxoMean /= float64(wallets[i].stats.Transactions)
+					wallets[i].stats.UtxoInputMean /= float64(wallets[i].stats.Transactions)
+				}
+
+				// print
+				data, err := json.Marshal(wallets[i].stats)
+				if err == nil {
+					t.Logf("%d: %s", i, string(data))
+				} else {
+					t.Logf("%d: unused", i)
 				}
 			}
-			// record and output various statistics
 		}
 	}
 }

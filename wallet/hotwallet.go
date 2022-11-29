@@ -25,7 +25,7 @@ const (
 func (c CoinSelection) String() string {
 	switch c {
 	case Random:
-		return "String"
+		return "Random"
 	case Bitcoin:
 		return "Bitcoin"
 	case SingleRandomDraw:
