@@ -408,16 +408,20 @@ func TestSimulate(t *testing.T) {
 		seeds[i] = wallet.NewSeed()
 	}
 
-	// TODO: convert past blocks into scenarios
-	scenarios := []scenario{
-		{
-			initial: []types.SiacoinOutput{
-				{types.SiacoinPrecision, wallet.StandardAddress(seeds[0].PublicKey(0).Key)},
-			},
-			transactions: []scenarioTransaction{{0, []types.SiacoinOutput{{UnlockHash: wallet.StandardAddress(seeds[1].PublicKey(0).Key), Value: types.SiacoinPrecision.Div64(3)}}}},
-			description:  "example 1",
-		},
+	var s scenario
+	for i := 0; i < len(seeds)-1; i++ {
+		s.initial = append(s.initial, types.SiacoinOutput{
+			Value:      types.SiacoinPrecision,
+			UnlockHash: wallet.StandardAddress(seeds[i].PublicKey(0).Key),
+		})
+		s.transactions = append(s.transactions, scenarioTransaction{
+			index: i,
+			outputs: []types.SiacoinOutput{{
+				Value:      types.SiacoinPrecision.Div64(3),
+				UnlockHash: wallet.StandardAddress(seeds[i+1].PublicKey(0).Key),
+			}}})
 	}
+	scenarios := []scenario{s}
 
 	for _, coinSelection := range []wallet.CoinSelection{wallet.Random, wallet.Bitcoin, wallet.SingleRandomDraw} {
 		for _, scenario := range scenarios {
@@ -524,24 +528,24 @@ func TestSimulate(t *testing.T) {
 					t.Fatal(err)
 				}
 
+				wallets[i].stats.UtxoReceived *= -1
 				wallets[i].stats.UtxoRemaining = len(utxos)
 
 				if wallets[i].stats.Change > 0 {
 					wallets[i].stats.ChangeMean = wallets[i].stats.ChangeMean.Div64(uint64(wallets[i].stats.Change))
 				}
 
-				if len(scenario.transactions) > 0 {
-					wallets[i].stats.UtxoMean /= float64(wallets[i].stats.Transactions)
+				if wallets[i].stats.Transactions > 0 {
+					wallets[i].stats.UtxoMean = float64(wallets[i].stats.UtxoReceived) / float64(wallets[i].stats.Transactions)
 					wallets[i].stats.UtxoInputMean /= float64(wallets[i].stats.Transactions)
 				}
 
 				// print
 				data, err := json.Marshal(wallets[i].stats)
-				if err == nil {
-					t.Logf("%d: %s", i, string(data))
-				} else {
-					t.Logf("%d: unused", i)
+				if err != nil {
+					t.Fatal(err)
 				}
+				t.Logf("%d: %s", i, string(data))
 			}
 		}
 	}
