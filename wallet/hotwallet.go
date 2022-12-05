@@ -237,18 +237,18 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 				for j := 0; j < 2 && !reachedTarget; j++ {
 					for k := 0; k < len(unusedSC); k++ {
 						if (j == 0 && ((frand.Uint64n(1) % 2) == 1)) || (j != 0 && !included[k]) {
-							total = total.Add(unusedSC[i].Value)
+							total = total.Add(unusedSC[k].Value)
 							included[k] = true
 							if cmp := total.Cmp(amountSC); cmp == 0 || cmp == 1 {
 								reachedTarget = true
 								if total.Cmp(best) == -1 {
 									best = total
-									for i := 0; i < len(included); i++ {
-										includedBest[i] = included[i]
+									for l := 0; l < len(included); l++ {
+										includedBest[l] = included[l]
 									}
 								}
-								total = total.Sub(unusedSC[i].Value)
-								included[i] = false
+								total = total.Sub(unusedSC[k].Value)
+								included[k] = false
 							}
 						}
 					}

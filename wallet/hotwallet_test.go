@@ -371,35 +371,31 @@ type scenario struct {
 
 type walletStats struct {
 	// count of remaining UTXOs in the UTXO pool after the scenario
-	UtxoRemaining int
+	UtxoRemaining float64
 	// the mean count of UTXOs in the UTXO pool during the scenario
 	UtxoMean float64
 	// count of UTXOs received throughout the scenario
-	UtxoReceived int
+	UtxoReceived float64
 	// count of UTXOs spent from the UTXO pool
-	UtxoSpent int
+	UtxoSpent float64
 	// count of change outputs created
-	Change int
+	Change float64
 	// minimum change output value
 	ChangeMinimum types.Currency
 	// mean change output value
 	ChangeMean types.Currency
 	// maximum change output value
 	ChangeMaximum types.Currency
-	// standard deviation of change output value
-	ChangeStandardDeviation types.Currency
 	// fees paid for all transactions
 	Fees types.Currency
 	// minimum # of UTXOs selected for input
-	UtxoInputMinimum int
+	UtxoInputMinimum float64
 	// mean # of UTXOs selected for input
 	UtxoInputMean float64
 	// maximum # of UTXOs selected for input
-	UtxoInputMaximum int
-	// standard deviation of input set size
-	InputSetSizeStandardDeviation float64
+	UtxoInputMaximum float64
 	// transactions
-	Transactions int
+	Transactions float64
 }
 
 func TestSimulate(t *testing.T) {
@@ -410,16 +406,29 @@ func TestSimulate(t *testing.T) {
 
 	var s scenario
 	for i := 0; i < len(seeds)-1; i++ {
-		s.initial = append(s.initial, types.SiacoinOutput{
-			Value:      types.SiacoinPrecision,
-			UnlockHash: wallet.StandardAddress(seeds[i].PublicKey(0).Key),
-		})
-		s.transactions = append(s.transactions, scenarioTransaction{
-			index: i,
-			outputs: []types.SiacoinOutput{{
-				Value:      types.SiacoinPrecision.Div64(3),
-				UnlockHash: wallet.StandardAddress(seeds[i+1].PublicKey(0).Key),
-			}}})
+		var sum types.Currency
+		for j := 0; j < 5; j++ {
+			if frand.Float64() <= 0.5 {
+				s.initial = append(s.initial, types.SiacoinOutput{
+					Value:      types.SiacoinPrecision.Div64(frand.Uint64n(10) + 1),
+					UnlockHash: wallet.StandardAddress(seeds[i].PublicKey(0).Key),
+				})
+				sum = sum.Add(s.initial[len(s.initial)-1].Value)
+			}
+		}
+
+		for j := 0; j < 5; j++ {
+			if frand.Float64() <= 0.5 && sum.Cmp(types.ZeroCurrency) == 1 {
+				current := sum.Div64(frand.Uint64n(10) + 1)
+				s.transactions = append(s.transactions, scenarioTransaction{
+					index: i,
+					outputs: []types.SiacoinOutput{{
+						Value:      current,
+						UnlockHash: wallet.StandardAddress(seeds[frand.Intn(len(seeds))].PublicKey(0).Key),
+					}}})
+				sum = sum.Sub(current)
+			}
+		}
 	}
 	scenarios := []scenario{s}
 
@@ -450,7 +459,7 @@ func TestSimulate(t *testing.T) {
 						t.Fatal(err)
 					}
 					wallets[i].stats.UtxoMean += float64(len(utxos))
-					wallets[i].stats.UtxoReceived += len(utxos)
+					wallets[i].stats.UtxoReceived += float64(len(utxos))
 				}
 
 				w := wallets[transaction.index].w
@@ -498,15 +507,15 @@ func TestSimulate(t *testing.T) {
 					wallets[transaction.index].stats.Fees = wallets[transaction.index].stats.Fees.Add(fee)
 				}
 
-				if len(txn.SiacoinInputs) < wallets[transaction.index].stats.UtxoInputMinimum {
-					wallets[transaction.index].stats.UtxoInputMinimum = len(txn.SiacoinInputs)
+				if float64(len(txn.SiacoinInputs)) < wallets[transaction.index].stats.UtxoInputMinimum {
+					wallets[transaction.index].stats.UtxoInputMinimum = float64(len(txn.SiacoinInputs))
 				}
-				if len(txn.SiacoinInputs) > wallets[transaction.index].stats.UtxoInputMaximum {
-					wallets[transaction.index].stats.UtxoInputMaximum = len(txn.SiacoinInputs)
+				if float64(len(txn.SiacoinInputs)) > wallets[transaction.index].stats.UtxoInputMaximum {
+					wallets[transaction.index].stats.UtxoInputMaximum = float64(len(txn.SiacoinInputs))
 				}
 				wallets[transaction.index].stats.UtxoInputMean += float64(len(txn.SiacoinInputs))
 
-				wallets[transaction.index].stats.UtxoSpent += len(txn.SiacoinInputs)
+				wallets[transaction.index].stats.UtxoSpent += float64(len(txn.SiacoinInputs))
 				wallets[transaction.index].stats.Transactions++
 
 				// we add len(utxos) at the beginning of the loop so this
@@ -516,37 +525,67 @@ func TestSimulate(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					wallets[i].stats.UtxoReceived -= len(utxos)
+					wallets[i].stats.UtxoReceived -= float64(len(utxos))
 				}
 			}
 
+			var average walletStats
 			for i := range wallets {
-				w := wallets[i].w
-
-				utxos, err := w.UnspentSiacoinOutputs()
+				utxos, err := wallets[i].w.UnspentSiacoinOutputs()
 				if err != nil {
 					t.Fatal(err)
 				}
 
 				wallets[i].stats.UtxoReceived *= -1
-				wallets[i].stats.UtxoRemaining = len(utxos)
+				wallets[i].stats.UtxoRemaining = float64(len(utxos))
 
 				if wallets[i].stats.Change > 0 {
 					wallets[i].stats.ChangeMean = wallets[i].stats.ChangeMean.Div64(uint64(wallets[i].stats.Change))
 				}
 
 				if wallets[i].stats.Transactions > 0 {
-					wallets[i].stats.UtxoMean = float64(wallets[i].stats.UtxoReceived) / float64(wallets[i].stats.Transactions)
-					wallets[i].stats.UtxoInputMean /= float64(wallets[i].stats.Transactions)
+					wallets[i].stats.UtxoMean = wallets[i].stats.UtxoReceived / wallets[i].stats.Transactions
+					wallets[i].stats.UtxoInputMean /= wallets[i].stats.Transactions
 				}
 
-				// print
-				data, err := json.Marshal(wallets[i].stats)
-				if err != nil {
-					t.Fatal(err)
-				}
-				t.Logf("%d: %s", i, string(data))
+				// data, err := json.Marshal(wallets[i].stats)
+				// if err != nil {
+				// 	t.Fatal(err)
+				// }
+				// t.Logf("%d: %s", i, string(data))
+
+				average.UtxoRemaining += wallets[i].stats.UtxoRemaining
+				average.UtxoMean += wallets[i].stats.UtxoMean
+				average.UtxoReceived += wallets[i].stats.UtxoReceived
+				average.UtxoSpent += wallets[i].stats.UtxoSpent
+				average.Change += wallets[i].stats.Change
+				average.ChangeMean = average.ChangeMinimum.Add(wallets[i].stats.ChangeMean)
+				average.ChangeMinimum = average.ChangeMinimum.Add(wallets[i].stats.ChangeMinimum)
+				average.ChangeMaximum = average.ChangeMinimum.Add(wallets[i].stats.ChangeMaximum)
+				average.Fees = average.Fees.Add(wallets[i].stats.Fees)
+				average.UtxoInputMinimum += wallets[i].stats.UtxoInputMinimum
+				average.UtxoInputMean += wallets[i].stats.UtxoInputMean
+				average.UtxoInputMaximum += wallets[i].stats.UtxoInputMaximum
 			}
+
+			average.UtxoRemaining /= float64(len(wallets))
+			average.UtxoMean /= float64(len(wallets))
+			average.UtxoReceived /= float64(len(wallets))
+			average.UtxoSpent /= float64(len(wallets))
+			average.Change /= float64(len(wallets))
+			average.ChangeMinimum = average.ChangeMinimum.Div64(uint64(len(wallets)))
+			average.ChangeMaximum = average.ChangeMinimum.Div64(uint64(len(wallets)))
+			average.Fees = average.Fees.Div64(uint64(len(wallets)))
+			average.UtxoInputMinimum /= float64(len(wallets))
+			average.UtxoInputMean /= float64(len(wallets))
+			average.UtxoInputMaximum /= float64(len(wallets))
+
+			// print
+			data, err := json.Marshal(average)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("All wallets averaged: %s", string(data))
 		}
 	}
 }
