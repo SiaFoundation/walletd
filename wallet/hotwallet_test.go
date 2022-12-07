@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/siad/types"
 	"go.sia.tech/walletd/internal/walletutil"
@@ -399,18 +400,21 @@ type walletStats struct {
 }
 
 func TestSimulate(t *testing.T) {
+	feePerByte := types.SiacoinPrecision.Div64(1000)
+
 	seeds := make([]wallet.Seed, 100)
 	for i := 0; i < len(seeds); i++ {
 		seeds[i] = wallet.NewSeed()
 	}
 
 	var s scenario
+	rng := frand.NewCustom(make([]byte, 32), 32, 8)
 	for i := 0; i < len(seeds)-1; i++ {
 		var sum types.Currency
 		for j := 0; j < 5; j++ {
-			if frand.Float64() <= 0.5 {
+			if rng.Float64() <= 0.5 {
 				s.initial = append(s.initial, types.SiacoinOutput{
-					Value:      types.SiacoinPrecision.Div64(frand.Uint64n(10) + 1),
+					Value:      types.SiacoinPrecision.Div64(rng.Uint64n(10) + 1),
 					UnlockHash: wallet.StandardAddress(seeds[i].PublicKey(0).Key),
 				})
 				sum = sum.Add(s.initial[len(s.initial)-1].Value)
@@ -418,13 +422,13 @@ func TestSimulate(t *testing.T) {
 		}
 
 		for j := 0; j < 5; j++ {
-			if frand.Float64() <= 0.5 && sum.Cmp(types.ZeroCurrency) == 1 {
-				current := sum.Div64(frand.Uint64n(10) + 1)
+			if rng.Float64() <= 0.5 && sum.Cmp(types.ZeroCurrency) == 1 {
+				current := sum.Div64(rng.Uint64n(10) + 1)
 				s.transactions = append(s.transactions, scenarioTransaction{
 					index: i,
 					outputs: []types.SiacoinOutput{{
 						Value:      current,
-						UnlockHash: wallet.StandardAddress(seeds[frand.Intn(len(seeds))].PublicKey(0).Key),
+						UnlockHash: wallet.StandardAddress(seeds[rng.Intn(len(seeds))].PublicKey(0).Key),
 					}}})
 				sum = sum.Sub(current)
 			}
@@ -451,7 +455,6 @@ func TestSimulate(t *testing.T) {
 				wallets[i].stats.ChangeMinimum = types.NewCurrency(new(big.Int).Exp(big.NewInt(10), big.NewInt(24), nil))
 			}
 
-			t.Log("Testing with coin selection: ", coinSelection)
 			for _, transaction := range scenario.transactions {
 				for i := 0; i < len(wallets); i++ {
 					utxos, err := wallets[i].w.UnspentSiacoinOutputs()
@@ -481,7 +484,8 @@ func TestSimulate(t *testing.T) {
 				}
 
 				txn := types.Transaction{SiacoinOutputs: transaction.outputs}
-				toSign, _, err := w.FundTransaction(&txn, amountSC, types.ZeroCurrency, types.SiacoinPrecision.Div64(1000), coinSelection)
+				txn.MinerFees = []types.Currency{feePerByte.Mul64(uint64(len(encoding.Marshal(txn))))}
+				toSign, _, err := w.FundTransaction(&txn, amountSC, types.ZeroCurrency, feePerByte, coinSelection)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -585,7 +589,7 @@ func TestSimulate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Logf("All wallets averaged: %s", string(data))
+			t.Logf("%s: %s", coinSelection, string(data))
 		}
 	}
 }
