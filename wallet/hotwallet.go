@@ -128,6 +128,8 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 		return nil, nil, err
 	}
 
+	// See discussion on https://github.com/SiaFoundation/walletd/pull/8 for
+	// why this algorithm was chosen.
 	var unusedSC []SiacoinElement
 	for _, out := range outputsSC {
 		if _, ok := w.usedSC[out.ID]; !ok {

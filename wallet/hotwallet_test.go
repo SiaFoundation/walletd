@@ -14,25 +14,31 @@ import (
 )
 
 type mockCS struct {
-	subscriber    modules.ConsensusSetSubscriber
+	subscribers   []modules.ConsensusSetSubscriber
 	dscos         map[types.BlockHeight][]modules.DelayedSiacoinOutputDiff
 	filecontracts map[types.FileContractID]types.FileContract
 	height        types.BlockHeight
 }
 
 func (m *mockCS) ConsensusSetSubscribe(s modules.ConsensusSetSubscriber, ccid modules.ConsensusChangeID, cancel <-chan struct{}) error {
-	m.subscriber = s
+	m.subscribers = append(m.subscribers, s)
 	return nil
 }
 
 func (m *mockCS) sendTxn(txn types.Transaction) {
-	outputs := make([]modules.SiacoinOutputDiff, len(txn.SiacoinOutputs))
-	for i := range outputs {
-		outputs[i] = modules.SiacoinOutputDiff{
+	outputs := make([]modules.SiacoinOutputDiff, 0, len(txn.SiacoinOutputs)+len(txn.SiacoinInputs))
+	for i, out := range txn.SiacoinOutputs {
+		outputs = append(outputs, modules.SiacoinOutputDiff{
 			Direction:     modules.DiffApply,
-			SiacoinOutput: txn.SiacoinOutputs[i],
+			SiacoinOutput: out,
 			ID:            txn.SiacoinOutputID(uint64(i)),
-		}
+		})
+	}
+	for _, in := range txn.SiacoinInputs {
+		outputs = append(outputs, modules.SiacoinOutputDiff{
+			Direction: modules.DiffRevert,
+			ID:        in.ParentID,
+		})
 	}
 	cc := modules.ConsensusChange{
 		AppliedBlocks: []types.Block{{
@@ -43,7 +49,9 @@ func (m *mockCS) sendTxn(txn types.Transaction) {
 		},
 		ID: frand.Entropy256(),
 	}
-	m.subscriber.ProcessConsensusChange(cc)
+	for i := range m.subscribers {
+		m.subscribers[i].ProcessConsensusChange(cc)
+	}
 	m.height++
 }
 
@@ -75,7 +83,9 @@ func (m *mockCS) mineBlock(fees types.Currency, addr types.UnlockHash) {
 			ID:            dsco.ID,
 		})
 	}
-	m.subscriber.ProcessConsensusChange(cc)
+	for i := range m.subscribers {
+		m.subscribers[i].ProcessConsensusChange(cc)
+	}
 	m.height++
 	if m.dscos == nil {
 		m.dscos = make(map[types.BlockHeight][]modules.DelayedSiacoinOutputDiff)
@@ -111,7 +121,9 @@ func (m *mockCS) formContract(payout types.Currency, addr types.UnlockHash) {
 		},
 		ID: frand.Entropy256(),
 	}
-	m.subscriber.ProcessConsensusChange(cc)
+	for i := range m.subscribers {
+		m.subscribers[i].ProcessConsensusChange(cc)
+	}
 	m.height++
 	if m.filecontracts == nil {
 		m.filecontracts = make(map[types.FileContractID]types.FileContract)
@@ -160,7 +172,9 @@ func (m *mockCS) reviseContract(id types.FileContractID) {
 		},
 		ID: frand.Entropy256(),
 	}
-	m.subscriber.ProcessConsensusChange(cc)
+	for i := range m.subscribers {
+		m.subscribers[i].ProcessConsensusChange(cc)
+	}
 	m.height++
 	m.filecontracts[id] = fc
 }

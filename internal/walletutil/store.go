@@ -76,7 +76,7 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 	defer s.mu.Unlock()
 
 	for _, sco := range cc.SiacoinOutputDiffs {
-		if _, ok := s.addrs[sco.SiacoinOutput.UnlockHash]; !ok {
+		if _, ok := s.outputsSC[sco.ID]; !ok && !s.ownsAddress(sco.SiacoinOutput.UnlockHash) {
 			continue
 		}
 
@@ -92,7 +92,7 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 	}
 
 	for _, sco := range cc.DelayedSiacoinOutputDiffs {
-		if _, ok := s.addrs[sco.SiacoinOutput.UnlockHash]; !ok {
+		if _, ok := s.outputsSC[sco.ID]; !ok && !s.ownsAddress(sco.SiacoinOutput.UnlockHash) {
 			continue
 		}
 
@@ -108,7 +108,7 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 	}
 
 	for _, sfo := range cc.SiafundOutputDiffs {
-		if _, ok := s.addrs[sfo.SiafundOutput.UnlockHash]; !ok {
+		if _, ok := s.outputsSF[sfo.ID]; !ok && !s.ownsAddress(sfo.SiafundOutput.UnlockHash) {
 			continue
 		}
 
