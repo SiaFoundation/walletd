@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"reflect"
-	"sort"
 	"sync"
 	"time"
 
@@ -140,39 +139,9 @@ func (w *HotWallet) TransactionsByAddress(addr types.UnlockHash) ([]Transaction,
 // with SignTransaction. It also returns a function that will "unclaim" the
 // inputs; this function must be called once the transaction has been broadcast
 // or discarded.
-func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency, feePerByte types.Currency, coinSelection CoinSelection) ([]crypto.Hash, func(), error) {
+func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error) {
 	if amountSC.IsZero() && amountSF.IsZero() {
 		return nil, func() {}, nil
-	}
-
-	exactTargetSC := func(outputs []SiacoinElement) int {
-		for i, o := range outputs {
-			if o.Value.Cmp(amountSC) == 0 {
-				return i
-			}
-		}
-		return -1
-	}
-
-	smallestGreaterTargetSC := func(outputs []SiacoinElement) int {
-		index := -1
-		for i, o := range outputs {
-			if index == -1 && o.Value.Cmp(amountSC) == 1 {
-				// o.Value > target
-				index = i
-			} else if index != -1 && o.Value.Cmp(amountSC) == 1 && o.Value.Cmp(outputs[index].Value) == -1 {
-				// o.Value > target && o.Value < current min greater than target
-				index = i
-			}
-		}
-		return index
-	}
-
-	estimateFee := func(n int) types.Currency {
-		const bytesPerOutput = 64 // approximate; depends on currency size
-		outputFees := feePerByte.Mul64(bytesPerOutput).Mul64(uint64(n))
-		feePerInput := feePerByte.Mul64(BytesPerInput)
-		return feePerInput.Mul64(uint64(n)).Add(outputFees)
 	}
 
 	outputsSC, err := w.store.UnspentSiacoinOutputs()
@@ -180,117 +149,29 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 		return nil, nil, err
 	}
 
+	// See discussion on https://github.com/SiaFoundation/walletd/pull/8 for
+	// why this algorithm was chosen.
 	var unusedSC []SiacoinElement
-	for _, o := range outputsSC {
-		if _, ok := w.usedSC[o.ID]; !ok {
-			unusedSC = append(unusedSC, o)
+	for _, out := range outputsSC {
+		if _, ok := w.usedSC[out.ID]; !ok {
+			unusedSC = append(unusedSC, out)
 		}
 	}
 
+	var balanceSC types.Currency
+	for _, o := range unusedSC {
+		balanceSC = balanceSC.Add(o.Value)
+	}
+
+	// choose outputs randomly
+	frand.Shuffle(len(unusedSC), reflect.Swapper(unusedSC))
+
+	// keep adding outputs until we have enough
 	var outputSumSC types.Currency
-	if coinSelection == Random {
-		// choose outputs randomly
-		frand.Shuffle(len(unusedSC), reflect.Swapper(unusedSC))
-
-		// keep adding outputs until we have enough
-		for i, o := range unusedSC {
-			if outputSumSC = outputSumSC.Add(o.Value); outputSumSC.Cmp(amountSC) >= 0 {
-				unusedSC = unusedSC[:i+1]
-				break
-			}
-		}
-	} else if coinSelection == Bitcoin {
-		// utxos smaller than target amount
-		var smallerUnusedSC []SiacoinElement
-		for _, o := range unusedSC {
-			if o.Value.Cmp(amountSC) == -1 {
-				smallerUnusedSC = append(smallerUnusedSC, o)
-			}
-		}
-
-		if exactIndex := exactTargetSC(unusedSC); exactIndex != -1 {
-			// if any UTXO matches the target, use that utxo
-			exactElem := unusedSC[exactIndex]
-			unusedSC = []SiacoinElement{exactElem}
-		} else if SumOutputs(smallerUnusedSC).Cmp(amountSC) == 0 {
-			// if sum of all UTXOs smaller than target == target, use all UTXOs smaller than target
-			unusedSC = smallerUnusedSC
-		} else if smallestGreaterIndex := smallestGreaterTargetSC(unusedSC); smallestGreaterIndex != -1 {
-			// use smallest UTXO that is larger than target
-			smallestGreaterElem := unusedSC[smallestGreaterIndex]
-			unusedSC = []SiacoinElement{smallestGreaterElem}
-		} else {
-			sort.Slice(unusedSC, func(i, j int) bool {
-				return unusedSC[i].Value.Cmp(unusedSC[j].Value) == -1
-			})
-
-			best := SumOutputs(smallerUnusedSC)
-			included := make([]bool, len(unusedSC))
-			includedBest := make([]bool, len(unusedSC))
-			for i := 0; i < 1000 && best.Cmp(amountSC) != 0; i++ {
-				for j := 0; j < len(included); j++ {
-					included[j] = false
-				}
-
-				var reachedTarget bool
-				var total types.Currency
-				for j := 0; j < 2 && !reachedTarget; j++ {
-					for k := 0; k < len(unusedSC); k++ {
-						if (j == 0 && ((frand.Uint64n(1) % 2) == 1)) || (j != 0 && !included[k]) {
-							total = total.Add(unusedSC[k].Value)
-							included[k] = true
-							if cmp := total.Cmp(amountSC); cmp == 0 || cmp == 1 {
-								reachedTarget = true
-								if total.Cmp(best) == -1 {
-									best = total
-									for l := 0; l < len(included); l++ {
-										includedBest[l] = included[l]
-									}
-								}
-								total = total.Sub(unusedSC[k].Value)
-								included[k] = false
-							}
-						}
-					}
-				}
-			}
-
-			// if the stochastic approximation didn't find a solution, just keep
-			// adding outputs till we have enough
-			if best.Cmp(amountSC) == -1 {
-				// choose outputs randomly
-				frand.Shuffle(len(unusedSC), reflect.Swapper(unusedSC))
-
-				// keep adding outputs until we have enough
-				for i, o := range unusedSC {
-					if outputSumSC = outputSumSC.Add(o.Value); outputSumSC.Cmp(amountSC) >= 0 {
-						unusedSC = unusedSC[:i+1]
-						break
-					}
-				}
-			} else {
-				// if we found a solution
-				var newUnusedSC []SiacoinElement
-				for i := 0; i < len(includedBest); i++ {
-					if includedBest[i] {
-						newUnusedSC = append(newUnusedSC, unusedSC[i])
-					}
-				}
-				unusedSC = newUnusedSC
-			}
-		}
-		outputSumSC = SumOutputs(unusedSC)
-	} else if coinSelection == SingleRandomDraw {
-		// choose outputs randomly
-		frand.Shuffle(len(unusedSC), reflect.Swapper(unusedSC))
-
-		mc := amountSC
-		// keep adding outputs until we have enough
-		for i, o := range unusedSC {
-			if outputSumSC = outputSumSC.Add(o.Value); outputSumSC.Cmp(amountSC.Add(mc).Add(estimateFee(i))) >= 0 {
-				unusedSC = unusedSC[:i+1]
-				break
-			}
+	for i, o := range unusedSC {
+		if outputSumSC = outputSumSC.Add(o.Value); outputSumSC.Cmp(amountSC) >= 0 {
+			unusedSC = unusedSC[:i+1]
+			break
 		}
 	}
 
@@ -308,22 +189,20 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 		toSignSC = append(toSignSC, crypto.Hash(o.ID))
 	}
 	// add change output, if needed
-	if outputSumSC.Cmp(amountSC) > 0 {
-		if change := outputSumSC.Sub(amountSC); !change.IsZero() {
-			index, err := w.store.SeedIndex()
-			if err != nil {
-				return nil, nil, err
-			}
-			info := SeedAddressInfo{
-				UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index).Key),
-				KeyIndex:         index,
-			}
-			w.store.AddAddress(info)
-			txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
-				UnlockHash: info.UnlockConditions.UnlockHash(),
-				Value:      change,
-			})
+	if change := outputSumSC.Sub(amountSC); !change.IsZero() {
+		index, err := w.store.SeedIndex()
+		if err != nil {
+			return nil, nil, err
 		}
+		info := SeedAddressInfo{
+			UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index).Key),
+			KeyIndex:         index,
+		}
+		w.store.AddAddress(info)
+		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
+			UnlockHash: info.UnlockConditions.UnlockHash(),
+			Value:      change,
+		})
 	}
 
 	w.mu.Lock()
@@ -338,10 +217,15 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 	}
 
 	var unusedSF []SiafundElement
-	for _, o := range outputsSF {
-		if _, ok := w.usedSF[o.ID]; !ok {
-			unusedSF = append(unusedSF, o)
+	for _, out := range outputsSF {
+		if _, ok := w.usedSF[out.ID]; !ok {
+			unusedSF = append(unusedSF, out)
 		}
+	}
+
+	var balanceSF types.Currency
+	for _, o := range unusedSF {
+		balanceSF = balanceSF.Add(o.Value)
 	}
 
 	// choose outputs randomly

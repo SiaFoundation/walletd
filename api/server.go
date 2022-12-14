@@ -48,7 +48,7 @@ type (
 		Transactions(since time.Time, max int) ([]wallet.Transaction, error)
 		TransactionsByAddress(addr types.UnlockHash) ([]wallet.Transaction, error)
 		SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error
-		FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency, feePerByte types.Currency, coinSelection wallet.CoinSelection) ([]crypto.Hash, func(), error)
+		FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error)
 	}
 )
 
@@ -173,7 +173,7 @@ func (s *server) walletFundHandler(jc jape.Context) {
 	txn := wfr.Transaction
 	fee := s.tp.RecommendedFee().Mul64(uint64(len(encoding.Marshal(txn))))
 	txn.MinerFees = []types.Currency{fee}
-	toSign, unclaim, err := s.w.FundTransaction(&wfr.Transaction, wfr.Siacoins.Add(txn.MinerFees[0]), wfr.Siafunds, s.tp.RecommendedFee(), wallet.Random)
+	toSign, unclaim, err := s.w.FundTransaction(&wfr.Transaction, wfr.Siacoins.Add(txn.MinerFees[0]), wfr.Siafunds)
 	if jc.Check("failed to fund transaction", err) != nil {
 		return
 	}
@@ -271,7 +271,7 @@ func (s *server) walletSendHandler(jc jape.Context) {
 	txn.MinerFees = []types.Currency{fee}
 	amountSC = amountSC.Add(fee)
 
-	toSign, unclaim, err := s.w.FundTransaction(&txn, amountSC, amountSF, s.tp.RecommendedFee(), wallet.Random)
+	toSign, unclaim, err := s.w.FundTransaction(&txn, amountSC, amountSF)
 	if jc.Check("failed to fund transaction", err) != nil {
 		return
 	}
