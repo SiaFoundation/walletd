@@ -12,27 +12,6 @@ import (
 	"lukechampine.com/frand"
 )
 
-// CoinSelection selects the coin selection algorithm used by the wallet.
-type CoinSelection int
-
-const (
-	Random CoinSelection = iota
-	Bitcoin
-	SingleRandomDraw
-)
-
-func (c CoinSelection) String() string {
-	switch c {
-	case Random:
-		return "Random"
-	case Bitcoin:
-		return "Bitcoin"
-	case SingleRandomDraw:
-		return "SingleRandomDraw"
-	}
-	return "Unknown"
-}
-
 // A HotWallet is a wallet that allows funding and signing transactions.
 type HotWallet struct {
 	mu sync.Mutex
