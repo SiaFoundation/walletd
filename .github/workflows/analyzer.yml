@@ -1,0 +1,16 @@
+name: Analyzer
+on:
+  pull_request:
+    branches: [ master ]
+  push:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+      - uses: SiaFoundation/action-golang-analysis@v1
+        with:
+          analyzers: "go.sia.tech/jape.Analyzer"
