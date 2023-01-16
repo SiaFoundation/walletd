@@ -13,4 +13,5 @@ jobs:
       - uses: actions/setup-go@v3
       - uses: SiaFoundation/action-golang-analysis@HEAD
         with:
-          analyzers: "go.sia.tech/jape.Analyzer"
+          analyzers:
+            - go.sia.tech/jape.Analyzer
