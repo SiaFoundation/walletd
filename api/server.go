@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-	"math/big"
 	"net/http"
 	"time"
 
@@ -244,25 +243,19 @@ func (s *server) walletSplitHandler(jc jape.Context) {
 }
 
 func (s *server) walletSendHandler(jc jape.Context) {
-	b, ok := new(big.Int).SetString(jc.Request.FormValue("amount"), 10)
-	if !ok {
-		jc.Error(errors.New("invalid amount string"), http.StatusBadRequest)
-		return
-	}
-
-	var destination types.UnlockHash
-	if jc.Check("failed to parse destination address", destination.LoadString(jc.Request.FormValue("destination"))) != nil {
+	var wsr WalletSendRequest
+	if jc.Decode(&wsr) != nil {
 		return
 	}
 
 	var txn types.Transaction
 	var amountSC, amountSF types.Currency
-	if jc.Request.FormValue("type") == "siacoin" {
-		amountSC = types.NewCurrency(b)
-		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{amountSC, destination})
-	} else if jc.Request.FormValue("type") == "siafund" {
-		amountSF = types.NewCurrency(b)
-		txn.SiafundOutputs = append(txn.SiafundOutputs, types.SiafundOutput{amountSF, destination, types.ZeroCurrency})
+	if wsr.Type == "siacoin" {
+		amountSC = wsr.Amount
+		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{amountSC, wsr.Destination})
+	} else if wsr.Type == "siafund" {
+		amountSF = wsr.Amount
+		txn.SiafundOutputs = append(txn.SiafundOutputs, types.SiafundOutput{amountSF, wsr.Destination, types.ZeroCurrency})
 	} else {
 		jc.Error(errors.New("specify either siacoin or siafund as the type"), http.StatusBadRequest)
 		return
