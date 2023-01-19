@@ -15,6 +15,18 @@ type Client struct {
 	c jape.Client
 }
 
+// TxpoolBroadcast broadcasts a set of transaction to the network.
+func (c *Client) TxpoolBroadcast(txns []types.Transaction) (err error) {
+	err = c.c.POST("/txpool/broadcast", txns, nil)
+	return
+}
+
+// TxpoolTransactions returns all transactions in the transaction pool.
+func (c *Client) TxpoolTransactions() (resp []types.Transaction, err error) {
+	err = c.c.GET("/txpool/transactions", &resp)
+	return
+}
+
 // ConsensusTip returns the current tip index.
 func (c *Client) ConsensusTip() (resp ChainIndex, err error) {
 	err = c.c.GET("/consensus/tip", &resp)
@@ -95,8 +107,12 @@ func (c *Client) WalletSplit(n int, per types.Currency) (resp types.Transaction,
 }
 
 // WalletSendSiacoins sends a given amount of siacoins to the destination address.
-func (c *Client) WalletSendSiacoins(amount types.Currency, destination types.UnlockHash) (resp WalletSendResponse, err error) {
-	err = c.c.POST(fmt.Sprintf("/wallet/send?type=siacoins&amount=%s&destination=%s", amount, destination), nil, &resp)
+func (c *Client) WalletSendSiacoins(amount types.Currency, destination types.UnlockHash, siafunds bool) (resp WalletSendResponse, err error) {
+	wsr := WalletSendRequest{"siacoins", amount, destination}
+	if siafunds {
+		wsr.Type = "siafunds"
+	}
+	err = c.c.POST("/wallet/send", wsr, &resp)
 	return
 }
 

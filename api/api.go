@@ -55,7 +55,14 @@ type WalletFundResponse struct {
 	DependsOn   []types.Transaction `json:"dependsOn"`
 }
 
-// WalletSendResponse is the response to /wallet/send
+// WalletSendRequest is the request type for /wallet/send.
+type WalletSendRequest struct {
+	Type        string
+	Amount      types.Currency
+	Destination types.UnlockHash
+}
+
+// WalletSendResponse is the response to /wallet/send.
 type WalletSendResponse struct {
 	ID          types.TransactionID
 	Transaction types.Transaction
