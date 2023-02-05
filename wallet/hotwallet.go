@@ -7,8 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"go.sia.tech/siad/crypto"
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 	"lukechampine.com/frand"
 )
 
@@ -24,10 +23,10 @@ type HotWallet struct {
 
 // Balance returns the total value of the unspent siacoin and siafund outputs
 // owned by the wallet.
-func (w *HotWallet) Balance() (types.Currency, types.Currency, error) {
+func (w *HotWallet) Balance() (types.Currency, uint64, error) {
 	scOutputs, err := w.store.UnspentSiacoinOutputs()
 	if err != nil {
-		return types.Currency{}, types.Currency{}, err
+		return types.Currency{}, 0, err
 	}
 
 	var sc types.Currency
@@ -37,12 +36,12 @@ func (w *HotWallet) Balance() (types.Currency, types.Currency, error) {
 
 	sfOutputs, err := w.store.UnspentSiafundOutputs()
 	if err != nil {
-		return types.Currency{}, types.Currency{}, err
+		return types.Currency{}, 0, err
 	}
 
-	var sf types.Currency
+	var sf uint64
 	for _, out := range sfOutputs {
-		sf = sf.Add(out.Value)
+		sf += out.Value
 	}
 
 	return sc, sf, nil
@@ -50,28 +49,28 @@ func (w *HotWallet) Balance() (types.Currency, types.Currency, error) {
 
 // BalanceSiafund returns the total value of the unspent siafund outputs owned
 // by the wallet.
-func (w *HotWallet) BalanceSiafund() (types.Currency, error) {
+func (w *HotWallet) BalanceSiafund() (uint64, error) {
 	outputs, err := w.store.UnspentSiafundOutputs()
 	if err != nil {
-		return types.Currency{}, err
+		return 0, err
 	}
 
-	var sum types.Currency
+	var sum uint64
 	for _, out := range outputs {
-		sum = sum.Add(out.Value)
+		sum += out.Value
 	}
 	return sum, nil
 }
 
 // Address returns an address owned by the wallet.
-func (w *HotWallet) Address() (types.UnlockHash, error) {
+func (w *HotWallet) Address() (types.Address, error) {
 	index, err := w.store.SeedIndex()
 	if err != nil {
-		return types.UnlockHash{}, err
+		return types.Address{}, err
 	}
 
 	info := SeedAddressInfo{
-		UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index).Key),
+		UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index)),
 		KeyIndex:         index,
 	}
 	w.store.AddAddress(info)
@@ -79,12 +78,12 @@ func (w *HotWallet) Address() (types.UnlockHash, error) {
 }
 
 // Addresses returns the addresses owned by the wallet.
-func (w *HotWallet) Addresses() ([]types.UnlockHash, error) {
+func (w *HotWallet) Addresses() ([]types.Address, error) {
 	return w.store.Addresses()
 }
 
 // AddressInfo returns seed information associated with the specified address.
-func (w *HotWallet) AddressInfo(addr types.UnlockHash) (SeedAddressInfo, error) {
+func (w *HotWallet) AddressInfo(addr types.Address) (SeedAddressInfo, error) {
 	return w.store.AddressInfo(addr)
 }
 
@@ -109,7 +108,7 @@ func (w *HotWallet) Transactions(since time.Time, max int) ([]Transaction, error
 }
 
 // TransactionsByAddress returns all transactions involving the address.
-func (w *HotWallet) TransactionsByAddress(addr types.UnlockHash) ([]Transaction, error) {
+func (w *HotWallet) TransactionsByAddress(addr types.Address) ([]Transaction, error) {
 	return w.store.TransactionsByAddress(addr)
 }
 
@@ -118,8 +117,8 @@ func (w *HotWallet) TransactionsByAddress(addr types.UnlockHash) ([]Transaction,
 // with SignTransaction. It also returns a function that will "unclaim" the
 // inputs; this function must be called once the transaction has been broadcast
 // or discarded.
-func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error) {
-	if amountSC.IsZero() && amountSF.IsZero() {
+func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF uint64) ([]types.Hash256, func(), error) {
+	if amountSC.IsZero() && amountSF == 0 {
 		return nil, func() {}, nil
 	}
 
@@ -154,9 +153,9 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 		}
 	}
 
-	var toSignSC []crypto.Hash
+	var toSignSC []types.Hash256
 	for _, o := range unusedSC {
-		info, err := w.store.AddressInfo(o.UnlockHash)
+		info, err := w.store.AddressInfo(o.Address)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -164,8 +163,8 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 			ParentID:         o.ID,
 			UnlockConditions: info.UnlockConditions,
 		})
-		txn.TransactionSignatures = append(txn.TransactionSignatures, StandardTransactionSignature(crypto.Hash(o.ID)))
-		toSignSC = append(toSignSC, crypto.Hash(o.ID))
+		txn.Signatures = append(txn.Signatures, StandardTransactionSignature(types.Hash256(o.ID)))
+		toSignSC = append(toSignSC, types.Hash256(o.ID))
 	}
 	// add change output, if needed
 	if change := outputSumSC.Sub(amountSC); !change.IsZero() {
@@ -174,13 +173,13 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 			return nil, nil, err
 		}
 		info := SeedAddressInfo{
-			UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index).Key),
+			UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index)),
 			KeyIndex:         index,
 		}
 		w.store.AddAddress(info)
 		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
-			UnlockHash: info.UnlockConditions.UnlockHash(),
-			Value:      change,
+			Address: info.UnlockConditions.UnlockHash(),
+			Value:   change,
 		})
 	}
 
@@ -202,26 +201,26 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 		}
 	}
 
-	var balanceSF types.Currency
+	var balanceSF uint64
 	for _, o := range unusedSF {
-		balanceSF = balanceSF.Add(o.Value)
+		balanceSF += o.Value
 	}
 
 	// choose outputs randomly
 	frand.Shuffle(len(unusedSF), reflect.Swapper(unusedSF))
 
 	// keep adding outputs until we have enough
-	var outputSumSF types.Currency
+	var outputSumSF uint64
 	for i, o := range unusedSF {
-		if outputSumSF = outputSumSF.Add(o.Value); outputSumSF.Cmp(amountSF) >= 0 {
+		if outputSumSF = outputSumSF + o.Value; outputSumSF >= amountSF {
 			unusedSF = unusedSF[:i+1]
 			break
 		}
 	}
 
-	var toSignSF []crypto.Hash
+	var toSignSF []types.Hash256
 	for _, o := range unusedSF {
-		info, err := w.store.AddressInfo(o.UnlockHash)
+		info, err := w.store.AddressInfo(o.Address)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -229,23 +228,23 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 			ParentID:         o.ID,
 			UnlockConditions: info.UnlockConditions,
 		})
-		txn.TransactionSignatures = append(txn.TransactionSignatures, StandardTransactionSignature(crypto.Hash(o.ID)))
-		toSignSF = append(toSignSF, crypto.Hash(o.ID))
+		txn.Signatures = append(txn.Signatures, StandardTransactionSignature(types.Hash256(o.ID)))
+		toSignSF = append(toSignSF, types.Hash256(o.ID))
 	}
 	// add change output, if needed
-	if change := outputSumSF.Sub(amountSF); !change.IsZero() {
+	if change := outputSumSF - amountSF; outputSumSF > amountSF {
 		index, err := w.store.SeedIndex()
 		if err != nil {
 			return nil, nil, err
 		}
 		info := SeedAddressInfo{
-			UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index).Key),
+			UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index)),
 			KeyIndex:         index,
 		}
 		w.store.AddAddress(info)
 		txn.SiafundOutputs = append(txn.SiafundOutputs, types.SiafundOutput{
-			UnlockHash: info.UnlockConditions.UnlockHash(),
-			Value:      change,
+			Address: info.UnlockConditions.UnlockHash(),
+			Value:   change,
 		})
 	}
 
@@ -262,7 +261,7 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 				delete(w.usedSC, o.ID)
 			}
 		}
-		if !amountSF.IsZero() {
+		if amountSF != 0 {
 			for _, o := range unusedSF {
 				delete(w.usedSF, o.ID)
 			}
@@ -276,10 +275,10 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 
 // SignTransaction signs the specified transaction using keys derived from the
 // wallet seed. If toSign is nil, SignTransaction will automatically add
-// TransactionSignatures for each input owned by the seed. If toSign is not nil,
-// it a list of indices of TransactionSignatures already present in txn;
+// Signatures for each input owned by the seed. If toSign is not nil,
+// it a list of indices of Signatures already present in txn;
 // SignTransaction will fill in the Signature field of each.
-func (w *HotWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error {
+func (w *HotWallet) SignTransaction(txn *types.Transaction, toSign []types.Hash256) error {
 	if len(toSign) == 0 {
 		// lazy mode: add standard sigs for every input we own
 		for _, input := range txn.SiacoinInputs {
@@ -288,7 +287,7 @@ func (w *HotWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash
 				continue
 			}
 			sk := w.seed.SecretKey(info.KeyIndex)
-			txnSig := StandardTransactionSignature(crypto.Hash(input.ParentID))
+			txnSig := StandardTransactionSignature(types.Hash256(input.ParentID))
 			AppendTransactionSignature(txn, txnSig, sk)
 		}
 		for _, input := range txn.SiafundInputs {
@@ -297,32 +296,32 @@ func (w *HotWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash
 				continue
 			}
 			sk := w.seed.SecretKey(info.KeyIndex)
-			txnSig := StandardTransactionSignature(crypto.Hash(input.ParentID))
+			txnSig := StandardTransactionSignature(types.Hash256(input.ParentID))
 			AppendTransactionSignature(txn, txnSig, sk)
 		}
 		return nil
 	}
 
-	sigAddr := func(id crypto.Hash) (types.UnlockHash, bool) {
+	sigAddr := func(id types.Hash256) (types.Address, bool) {
 		for _, sci := range txn.SiacoinInputs {
-			if crypto.Hash(sci.ParentID) == id {
+			if types.Hash256(sci.ParentID) == id {
 				return sci.UnlockConditions.UnlockHash(), true
 			}
 		}
 		for _, sfi := range txn.SiafundInputs {
-			if crypto.Hash(sfi.ParentID) == id {
+			if types.Hash256(sfi.ParentID) == id {
 				return sfi.UnlockConditions.UnlockHash(), true
 			}
 		}
 		for _, fcr := range txn.FileContractRevisions {
-			if crypto.Hash(fcr.ParentID) == id {
+			if types.Hash256(fcr.ParentID) == id {
 				return fcr.UnlockConditions.UnlockHash(), true
 			}
 		}
-		return types.UnlockHash{}, false
+		return types.Address{}, false
 	}
 	sign := func(i int) error {
-		addr, ok := sigAddr(txn.TransactionSignatures[i].ParentID)
+		addr, ok := sigAddr(txn.Signatures[i].ParentID)
 		if !ok {
 			return errors.New("invalid id")
 		}
@@ -331,14 +330,14 @@ func (w *HotWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash
 			return errors.New("can't sign")
 		}
 		sk := w.seed.SecretKey(info.KeyIndex)
-		hash := txn.SigHash(i, types.FoundationHardforkHeight+1)
-		txn.TransactionSignatures[i].Signature = ed25519.Sign(sk, hash[:])
+		hash := txn.ID()
+		txn.Signatures[i].Signature = ed25519.Sign(sk, hash[:])
 		return nil
 	}
 
 outer:
 	for _, parent := range toSign {
-		for sigIndex, sig := range txn.TransactionSignatures {
+		for sigIndex, sig := range txn.Signatures {
 			if sig.ParentID == parent {
 				if err := sign(sigIndex); err != nil {
 					return err

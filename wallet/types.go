@@ -4,16 +4,15 @@ import (
 	"crypto/ed25519"
 	"time"
 
-	"go.sia.tech/siad/crypto"
+	"go.sia.tech/core/types"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/types"
 )
 
 // A SiacoinElement is a SiacoinOutput along with its ID.
 type SiacoinElement struct {
 	types.SiacoinOutput
 	ID             types.SiacoinOutputID
-	MaturityHeight types.BlockHeight
+	MaturityHeight uint64
 }
 
 // A SiafundElement is a SiafundOutput along with its ID.
@@ -30,7 +29,7 @@ type FileContractElement struct {
 
 type ChainIndex struct {
 	ID     types.BlockID
-	Height types.BlockHeight
+	Height uint64
 }
 
 // A Transaction is an on-chain transaction relevant to a particular wallet,
@@ -56,37 +55,37 @@ type Store interface {
 
 	SeedIndex() (uint64, error)
 	SetSeedIndex(index uint64) error
-	AddressInfo(addr types.UnlockHash) (SeedAddressInfo, error)
+	AddressInfo(addr types.Address) (SeedAddressInfo, error)
 
 	AddAddress(info SeedAddressInfo) error
-	Addresses() ([]types.UnlockHash, error)
-	TransactionsByAddress(addr types.UnlockHash) ([]Transaction, error)
+	Addresses() ([]types.Address, error)
+	TransactionsByAddress(addr types.Address) ([]Transaction, error)
 }
 
 // StandardUnlockConditions returns the standard unlock conditions for a single
 // Ed25519 key.
-func StandardUnlockConditions(pub ed25519.PublicKey) types.UnlockConditions {
+func StandardUnlockConditions(pub types.PublicKey) types.UnlockConditions {
 	return types.UnlockConditions{
-		PublicKeys: []types.SiaPublicKey{{
-			Algorithm: types.SignatureEd25519,
-			Key:       pub,
+		PublicKeys: []types.UnlockKey{{
+			Algorithm: types.SpecifierEd25519,
+			Key:       pub[:],
 		}},
 		SignaturesRequired: 1,
 	}
 }
 
 // StandardAddress returns the standard address for an Ed25519 key.
-func StandardAddress(pub ed25519.PublicKey) types.UnlockHash {
+func StandardAddress(pub types.PublicKey) types.Address {
 	return StandardUnlockConditions(pub).UnlockHash()
 }
 
 // StandardTransactionSignature is the most common form of TransactionSignature.
 // It covers the entire transaction and references the first (typically the
 // only) public key.
-func StandardTransactionSignature(id crypto.Hash) types.TransactionSignature {
+func StandardTransactionSignature(id types.Hash256) types.TransactionSignature {
 	return types.TransactionSignature{
 		ParentID:       id,
-		CoveredFields:  types.FullCoveredFields,
+		CoveredFields:  types.CoveredFields{WholeTransaction: true},
 		PublicKeyIndex: 0,
 	}
 }
@@ -94,8 +93,8 @@ func StandardTransactionSignature(id crypto.Hash) types.TransactionSignature {
 // AppendTransactionSignature appends a TransactionSignature to txn and signs it
 // with key.
 func AppendTransactionSignature(txn *types.Transaction, txnSig types.TransactionSignature, key ed25519.PrivateKey) {
-	txn.TransactionSignatures = append(txn.TransactionSignatures, txnSig)
-	sigIndex := len(txn.TransactionSignatures) - 1
-	hash := txn.SigHash(sigIndex, types.FoundationHardforkHeight+1)
-	txn.TransactionSignatures[sigIndex].Signature = ed25519.Sign(key, hash[:])
+	txn.Signatures = append(txn.Signatures, txnSig)
+	sigIndex := len(txn.Signatures) - 1
+	hash := txn.ID()
+	txn.Signatures[sigIndex].Signature = ed25519.Sign(key, hash[:])
 }

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/internal/walletutil"
 	"go.sia.tech/walletd/wallet"
 	"lukechampine.com/frand"

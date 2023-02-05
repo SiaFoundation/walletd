@@ -9,7 +9,7 @@ import (
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/crypto"
 
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/wallet"
 )
 
@@ -37,17 +37,17 @@ type (
 
 	// A Wallet can spend and receive siacoins.
 	Wallet interface {
-		Balance() (types.Currency, types.Currency, error)
-		Address() (types.UnlockHash, error)
-		Addresses() ([]types.UnlockHash, error)
-		AddressInfo(addr types.UnlockHash) (wallet.SeedAddressInfo, error)
+		Balance() (types.Currency, uint64, error)
+		Address() (types.Address, error)
+		Addresses() ([]types.Address, error)
+		AddressInfo(addr types.Address) (wallet.SeedAddressInfo, error)
 		UnspentSiacoinOutputs() ([]wallet.SiacoinElement, error)
 		UnspentSiafundOutputs() ([]wallet.SiafundElement, error)
 		Transaction(id types.TransactionID) (wallet.Transaction, error)
 		Transactions(since time.Time, max int) ([]wallet.Transaction, error)
-		TransactionsByAddress(addr types.UnlockHash) ([]wallet.Transaction, error)
+		TransactionsByAddress(addr types.Address) ([]wallet.Transaction, error)
 		SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error
-		FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error)
+		FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF uint64) ([]crypto.Hash, func(), error)
 	}
 )
 
@@ -133,7 +133,7 @@ func (s *server) walletTransactionHandler(jc jape.Context) {
 }
 
 func (s *server) walletTransactionsAddressHandler(jc jape.Context) {
-	var addr types.UnlockHash
+	var addr types.Address
 	if jc.DecodeParam("address", &addr) != nil {
 		return
 	}
@@ -217,7 +217,7 @@ func (s *server) walletSplitHandler(jc jape.Context) {
 	}
 
 	for i := range ins {
-		addr, err := s.w.AddressInfo(ins[i].UnlockHash)
+		addr, err := s.w.AddressInfo(ins[i].Address)
 		if jc.Check("couldn't load address info", err) != nil {
 			return
 		}
@@ -228,14 +228,14 @@ func (s *server) walletSplitHandler(jc jape.Context) {
 	}
 	for i := range txn.SiacoinOutputs {
 		txn.SiacoinOutputs[i] = types.SiacoinOutput{
-			Value:      wsr.Amount,
-			UnlockHash: addr,
+			Value:   wsr.Amount,
+			Address: addr,
 		}
 	}
 	if !change.IsZero() {
 		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
-			Value:      change,
-			UnlockHash: addr,
+			Value:   change,
+			Address: addr,
 		})
 	}
 
@@ -249,13 +249,14 @@ func (s *server) walletSendHandler(jc jape.Context) {
 	}
 
 	var txn types.Transaction
-	var amountSC, amountSF types.Currency
+	var amountSC types.Currency
+	var amountSF uint64
 	if wsr.Type == "siacoin" {
 		amountSC = wsr.Amount
 		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{amountSC, wsr.Destination})
 	} else if wsr.Type == "siafund" {
-		amountSF = wsr.Amount
-		txn.SiafundOutputs = append(txn.SiafundOutputs, types.SiafundOutput{amountSF, wsr.Destination, types.ZeroCurrency})
+		amountSF = wsr.Amount.Lo
+		txn.SiafundOutputs = append(txn.SiafundOutputs, types.SiafundOutput{amountSF, wsr.Destination})
 	} else {
 		jc.Error(errors.New("specify either siacoin or siafund as the type"), http.StatusBadRequest)
 		return

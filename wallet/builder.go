@@ -1,10 +1,9 @@
 package wallet
 
 import (
-	"math/big"
 	"sort"
 
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 )
 
 // BytesPerInput is the encoded size of a SiacoinInput and corresponding
@@ -12,12 +11,11 @@ import (
 const BytesPerInput = 241
 
 // SumOutputs returns the total value of the supplied outputs.
-func SumOutputs(outputs []SiacoinElement) types.Currency {
-	sum := new(big.Int)
+func SumOutputs(outputs []SiacoinElement) (sum types.Currency) {
 	for _, o := range outputs {
-		sum.Add(sum, o.Value.Big())
+		sum = sum.Add(o.Value)
 	}
-	return types.NewCurrency(sum)
+	return
 }
 
 // DistributeFunds is a helper function for distributing the value in a set of

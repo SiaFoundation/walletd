@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/crypto"
-	"go.sia.tech/siad/types"
 	"go.sia.tech/walletd/wallet"
 )
 
@@ -52,13 +52,13 @@ func (c *Client) WalletBalance() (resp WalletBalanceResponse, err error) {
 }
 
 // WalletAddress returns an address controlled by the wallet.
-func (c *Client) WalletAddress() (resp types.UnlockHash, err error) {
+func (c *Client) WalletAddress() (resp types.Address, err error) {
 	err = c.c.GET("/wallet/address", &resp)
 	return
 }
 
 // WalletAddresses the addresses controlled by the wallet.
-func (c *Client) WalletAddresses() (resp []types.UnlockHash, err error) {
+func (c *Client) WalletAddresses() (resp []types.Address, err error) {
 	err = c.c.GET("/wallet/addresses", &resp)
 	return
 }
@@ -82,7 +82,7 @@ func (c *Client) WalletTransactions(since time.Time, max int) (resp []wallet.Tra
 }
 
 // WalletTransactionsAddress returns all transactions relevant to the wallet.
-func (c *Client) WalletTransactionsAddress(addr types.UnlockHash) (resp []wallet.Transaction, err error) {
+func (c *Client) WalletTransactionsAddress(addr types.Address) (resp []wallet.Transaction, err error) {
 	err = c.c.GET(fmt.Sprintf("/wallet/transactions/%s", addr), &resp)
 	return
 }
@@ -94,7 +94,7 @@ func (c *Client) WalletSign(txn types.Transaction, toSign []crypto.Hash) (resp t
 }
 
 // WalletFund funds a transaction.
-func (c *Client) WalletFund(txn types.Transaction, amountSC, amountSF types.Currency) (resp WalletFundResponse, err error) {
+func (c *Client) WalletFund(txn types.Transaction, amountSC types.Currency, amountSF uint64) (resp WalletFundResponse, err error) {
 	err = c.c.POST("/wallet/fund", WalletFundRequest{txn, amountSC, amountSF}, &resp)
 	return
 }
@@ -107,7 +107,7 @@ func (c *Client) WalletSplit(n int, per types.Currency) (resp types.Transaction,
 }
 
 // WalletSendSiacoins sends a given amount of siacoins to the destination address.
-func (c *Client) WalletSendSiacoins(amount types.Currency, destination types.UnlockHash, siafunds bool) (resp WalletSendResponse, err error) {
+func (c *Client) WalletSendSiacoins(amount types.Currency, destination types.Address, siafunds bool) (resp WalletSendResponse, err error) {
 	wsr := WalletSendRequest{"siacoins", amount, destination}
 	if siafunds {
 		wsr.Type = "siafunds"

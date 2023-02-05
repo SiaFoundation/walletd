@@ -5,7 +5,7 @@ import (
 
 	"go.sia.tech/siad/crypto"
 
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 )
 
 // for encoding/decoding time.Time values in API params
@@ -26,7 +26,7 @@ type ConsensusState struct {
 // WalletBalanceResponse is the response to /wallet/balance.
 type WalletBalanceResponse struct {
 	Siacoins types.Currency `json:"siacoins"`
-	Siafunds types.Currency `json:"siafunds"`
+	Siafunds uint64         `json:"siafunds"`
 }
 
 // WalletSignRequest requests that a transaction be signed.
@@ -45,7 +45,7 @@ type WalletSiacoinsResponse struct {
 type WalletFundRequest struct {
 	Transaction types.Transaction `json:"transaction"`
 	Siacoins    types.Currency    `json:"siacoins"`
-	Siafunds    types.Currency    `json:"siafunds"`
+	Siafunds    uint64            `json:"siafunds"`
 }
 
 // WalletFundResponse is the response to /wallet/fund.
@@ -59,7 +59,7 @@ type WalletFundResponse struct {
 type WalletSendRequest struct {
 	Type        string
 	Amount      types.Currency
-	Destination types.UnlockHash
+	Destination types.Address
 }
 
 // WalletSendResponse is the response to /wallet/send.

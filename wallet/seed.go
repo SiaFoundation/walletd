@@ -11,7 +11,7 @@ import (
 	"unicode"
 
 	mnemonics "gitlab.com/NebulousLabs/entropy-mnemonics"
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 	"golang.org/x/crypto/blake2b"
 	"lukechampine.com/frand"
 )
@@ -34,12 +34,10 @@ func (s Seed) deriveKeyPair(index uint64) (keypair [64]byte) {
 }
 
 // PublicKey derives the types.SiaPublicKey for the specified index.
-func (s Seed) PublicKey(index uint64) types.SiaPublicKey {
+func (s Seed) PublicKey(index uint64) (pk types.PublicKey) {
 	key := s.deriveKeyPair(index)
-	return types.SiaPublicKey{
-		Algorithm: types.SignatureEd25519,
-		Key:       key[len(key)-ed25519.PublicKeySize:],
-	}
+	copy(pk[:], key[len(key)-ed25519.PublicKeySize:])
+	return
 }
 
 // SecretKey derives the ed25519 private key for the specified index.

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/types"
 	"go.sia.tech/walletd/wallet"
 )
 
@@ -17,7 +17,7 @@ type EphemeralStore struct {
 	seedIndex uint64
 	ccid      modules.ConsensusChangeID
 
-	addrs     map[types.UnlockHash]wallet.SeedAddressInfo
+	addrs     map[types.Address]wallet.SeedAddressInfo
 	txns      map[types.TransactionID]wallet.Transaction
 	outputsSC map[types.SiacoinOutputID]wallet.SiacoinElement
 	outputsSF map[types.SiafundOutputID]wallet.SiafundElement
@@ -26,47 +26,47 @@ type EphemeralStore struct {
 	mu sync.Mutex
 }
 
-func relevantFileContract(fc types.FileContract, ownsAddress func(types.UnlockHash) bool) bool {
+func relevantFileContract(fc types.FileContract, ownsAddress func(types.Address) bool) bool {
 	relevant := false
 	for _, sco := range fc.ValidProofOutputs {
-		relevant = relevant || ownsAddress(sco.UnlockHash)
+		relevant = relevant || ownsAddress(sco.Address)
 	}
 	for _, sco := range fc.MissedProofOutputs {
-		relevant = relevant || ownsAddress(sco.UnlockHash)
+		relevant = relevant || ownsAddress(sco.Address)
 	}
 	return relevant
 }
 
-func relevantTransaction(txn types.Transaction, ownsAddress func(types.UnlockHash) bool) bool {
+func relevantTransaction(txn types.Transaction, ownsAddress func(types.Address) bool) bool {
 	relevant := false
 	for i := range txn.SiacoinInputs {
 		relevant = relevant || ownsAddress(txn.SiacoinInputs[i].UnlockConditions.UnlockHash())
 	}
 	for i := range txn.SiacoinOutputs {
-		relevant = relevant || ownsAddress(txn.SiacoinOutputs[i].UnlockHash)
+		relevant = relevant || ownsAddress(txn.SiacoinOutputs[i].Address)
 	}
 	for i := range txn.SiafundInputs {
 		relevant = relevant || ownsAddress(txn.SiafundInputs[i].UnlockConditions.UnlockHash())
-		relevant = relevant || ownsAddress(txn.SiafundInputs[i].ClaimUnlockHash)
+		relevant = relevant || ownsAddress(txn.SiafundInputs[i].ClaimAddress)
 	}
 	for i := range txn.SiafundOutputs {
-		relevant = relevant || ownsAddress(txn.SiafundOutputs[i].UnlockHash)
+		relevant = relevant || ownsAddress(txn.SiafundOutputs[i].Address)
 	}
 	for i := range txn.FileContracts {
 		relevant = relevant || relevantFileContract(txn.FileContracts[i], ownsAddress)
 	}
 	for i := range txn.FileContractRevisions {
-		for _, sco := range txn.FileContractRevisions[i].NewValidProofOutputs {
-			relevant = relevant || ownsAddress(sco.UnlockHash)
+		for _, sco := range txn.FileContractRevisions[i].ValidProofOutputs {
+			relevant = relevant || ownsAddress(sco.Address)
 		}
-		for _, sco := range txn.FileContractRevisions[i].NewMissedProofOutputs {
-			relevant = relevant || ownsAddress(sco.UnlockHash)
+		for _, sco := range txn.FileContractRevisions[i].MissedProofOutputs {
+			relevant = relevant || ownsAddress(sco.Address)
 		}
 	}
 	return relevant
 }
 
-func (s *EphemeralStore) ownsAddress(addr types.UnlockHash) bool {
+func (s *EphemeralStore) ownsAddress(addr types.Address) bool {
 	_, ok := s.addrs[addr]
 	return ok
 }
@@ -76,7 +76,7 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 	defer s.mu.Unlock()
 
 	for _, sco := range cc.SiacoinOutputDiffs {
-		if _, ok := s.outputsSC[sco.ID]; !ok && !s.ownsAddress(sco.SiacoinOutput.UnlockHash) {
+		if _, ok := s.outputsSC[sco.ID]; !ok && !s.ownsAddress(sco.SiacoinOutput.Address) {
 			continue
 		}
 
@@ -92,7 +92,7 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 	}
 
 	for _, sco := range cc.DelayedSiacoinOutputDiffs {
-		if _, ok := s.outputsSC[sco.ID]; !ok && !s.ownsAddress(sco.SiacoinOutput.UnlockHash) {
+		if _, ok := s.outputsSC[sco.ID]; !ok && !s.ownsAddress(sco.SiacoinOutput.Address) {
 			continue
 		}
 
@@ -108,7 +108,7 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 	}
 
 	for _, sfo := range cc.SiafundOutputDiffs {
-		if _, ok := s.outputsSF[sfo.ID]; !ok && !s.ownsAddress(sfo.SiafundOutput.UnlockHash) {
+		if _, ok := s.outputsSF[sfo.ID]; !ok && !s.ownsAddress(sfo.SiafundOutput.Address) {
 			continue
 		}
 
@@ -157,7 +157,7 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 
 			var inflow, outflow types.Currency
 			for _, out := range txn.SiacoinOutputs {
-				if _, ok := s.addrs[out.UnlockHash]; ok {
+				if _, ok := s.addrs[out.Address]; ok {
 					inflow = inflow.Add(out.Value)
 				}
 			}
@@ -216,11 +216,11 @@ func (s *EphemeralStore) Transactions(since time.Time, max int) (txns []wallet.T
 	return
 }
 
-func (s *EphemeralStore) TransactionsByAddress(addr types.UnlockHash) (txns []wallet.Transaction, err error) {
+func (s *EphemeralStore) TransactionsByAddress(addr types.Address) (txns []wallet.Transaction, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	ownsAddress := func(a types.UnlockHash) bool {
+	ownsAddress := func(a types.Address) bool {
 		return a == addr
 	}
 	for _, txn := range s.txns {
@@ -267,7 +267,7 @@ func (s *EphemeralStore) SetSeedIndex(index uint64) error {
 	return nil
 }
 
-func (s *EphemeralStore) AddressInfo(addr types.UnlockHash) (wallet.SeedAddressInfo, error) {
+func (s *EphemeralStore) AddressInfo(addr types.Address) (wallet.SeedAddressInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -289,7 +289,7 @@ func (s *EphemeralStore) AddAddress(info wallet.SeedAddressInfo) error {
 	return nil
 }
 
-func (s *EphemeralStore) Addresses() (addrs []types.UnlockHash, err error) {
+func (s *EphemeralStore) Addresses() (addrs []types.Address, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -301,7 +301,7 @@ func (s *EphemeralStore) Addresses() (addrs []types.UnlockHash, err error) {
 
 func NewEphemeralStore() *EphemeralStore {
 	return &EphemeralStore{
-		addrs:     make(map[types.UnlockHash]wallet.SeedAddressInfo),
+		addrs:     make(map[types.Address]wallet.SeedAddressInfo),
 		outputsSC: make(map[types.SiacoinOutputID]wallet.SiacoinElement),
 		outputsSF: make(map[types.SiafundOutputID]wallet.SiafundElement),
 		contracts: make(map[types.FileContractID]wallet.FileContractElement),

@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"strings"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/types"
 	"go.sia.tech/walletd/api"
 )
 
