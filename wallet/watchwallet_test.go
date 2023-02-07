@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	ctypes "go.sia.tech/core/types"
+	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/internal/walletutil"
 	"go.sia.tech/walletd/wallet"
 	"lukechampine.com/frand"
@@ -55,10 +55,10 @@ func TestWatchWallet(t *testing.T) {
 	}
 
 	// simulate a transaction
-	cs.sendTxn(ctypes.Transaction{
-		SiacoinOutputs: []ctypes.SiacoinOutput{
-			{Address: addr, Value: ctypes.Siacoins(1).Div64(2)},
-			{Address: addr, Value: ctypes.Siacoins(1).Div64(2)},
+	cs.sendTxn(types.Transaction{
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: addr, Value: types.Siacoins(1).Div64(2)},
+			{Address: addr, Value: types.Siacoins(1).Div64(2)},
 		},
 	})
 
@@ -67,7 +67,7 @@ func TestWatchWallet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sc.Equals(ctypes.Siacoins(1)) {
+	if !sc.Equals(types.Siacoins(1)) {
 		t.Fatal("balance should be 1 SC")
 	}
 
@@ -109,9 +109,9 @@ func TestWatchWalletThreadSafety(t *testing.T) {
 
 	uc := wallet.StandardUnlockConditions(wallet.NewSeed().PublicKey(0))
 	addr := uc.UnlockHash()
-	txn := ctypes.Transaction{
-		SiacoinOutputs: []ctypes.SiacoinOutput{
-			{Address: addr, Value: ctypes.Siacoins(1).Div64(2)},
+	txn := types.Transaction{
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: addr, Value: types.Siacoins(1).Div64(2)},
 		},
 	}
 

@@ -104,7 +104,7 @@ func (w *WatchWallet) SignTransaction(txn *types.Transaction, toSign []types.Has
 }
 
 // FundTransaction is disabled in the read only wallet.
-func (w *WatchWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]types.Hash256, func(), error) {
+func (w *WatchWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF uint64) ([]types.Hash256, func(), error) {
 	return nil, nil, ErrDisabled
 }
 
