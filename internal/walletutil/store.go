@@ -1,13 +1,16 @@
 package walletutil
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/core/types"
 	"go.sia.tech/siad/modules"
 	"go.sia.tech/walletd/wallet"
@@ -66,6 +69,24 @@ func relevantTransaction(txn types.Transaction, ownsAddress func(types.Address) 
 	return relevant
 }
 
+func siadConvertToCore(from interface{}, to types.DecoderFrom) {
+	d := types.NewBufDecoder(encoding.Marshal(from))
+	to.DecodeFrom(d)
+	if err := d.Err(); err != nil {
+		panic(fmt.Sprintf("type conversion failed (%T->%T): %v", from, to, err))
+	}
+}
+
+func coreConvertToSiad(from types.EncoderTo, to interface{}) {
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	from.EncodeTo(e)
+	e.Flush()
+	if err := encoding.Unmarshal(buf.Bytes(), to); err != nil {
+		panic(fmt.Sprintf("type conversion failed (%T->%T): %v", from, to, err))
+	}
+}
+
 func (s *EphemeralStore) ownsAddress(addr types.Address) bool {
 	_, ok := s.addrs[addr]
 	return ok
@@ -76,63 +97,64 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 	defer s.mu.Unlock()
 
 	for _, sco := range cc.SiacoinOutputDiffs {
-		if _, ok := s.outputsSC[sco.ID]; !ok && !s.ownsAddress(sco.SiacoinOutput.Address) {
+		var elem wallet.SiacoinElement
+		siadConvertToCore(sco.ID, &elem.ID)
+		if _, ok := s.outputsSC[elem.ID]; !ok && !s.ownsAddress(types.Address(sco.SiacoinOutput.UnlockHash)) {
 			continue
 		}
 
 		if sco.Direction == modules.DiffApply {
-			s.outputsSC[sco.ID] = wallet.SiacoinElement{
-				ID:             sco.ID,
-				SiacoinOutput:  sco.SiacoinOutput,
-				MaturityHeight: cc.BlockHeight,
-			}
+			siadConvertToCore(sco.SiacoinOutput, &elem.SiacoinOutput)
+			elem.MaturityHeight = uint64(cc.BlockHeight)
+			s.outputsSC[elem.ID] = elem
 		} else {
-			delete(s.outputsSC, sco.ID)
+			delete(s.outputsSC, elem.ID)
 		}
 	}
 
 	for _, sco := range cc.DelayedSiacoinOutputDiffs {
-		if _, ok := s.outputsSC[sco.ID]; !ok && !s.ownsAddress(sco.SiacoinOutput.Address) {
+		var elem wallet.SiacoinElement
+		siadConvertToCore(sco.ID, &elem.ID)
+		if _, ok := s.outputsSC[elem.ID]; !ok && !s.ownsAddress(types.Address(sco.SiacoinOutput.UnlockHash)) {
 			continue
 		}
 
 		if sco.Direction == modules.DiffApply {
-			s.outputsSC[sco.ID] = wallet.SiacoinElement{
-				ID:             sco.ID,
-				SiacoinOutput:  sco.SiacoinOutput,
-				MaturityHeight: sco.MaturityHeight,
-			}
+			siadConvertToCore(sco.SiacoinOutput, &elem.SiacoinOutput)
+			elem.MaturityHeight = uint64(sco.MaturityHeight)
+			s.outputsSC[elem.ID] = elem
 		} else {
-			delete(s.outputsSC, sco.ID)
+			delete(s.outputsSC, elem.ID)
 		}
 	}
 
 	for _, sfo := range cc.SiafundOutputDiffs {
-		if _, ok := s.outputsSF[sfo.ID]; !ok && !s.ownsAddress(sfo.SiafundOutput.Address) {
+		var elem wallet.SiafundElement
+		siadConvertToCore(sfo.ID, &elem.ID)
+		if _, ok := s.outputsSF[elem.ID]; !ok && !s.ownsAddress(types.Address(sfo.SiafundOutput.UnlockHash)) {
 			continue
 		}
 
 		if sfo.Direction == modules.DiffApply {
-			s.outputsSF[sfo.ID] = wallet.SiafundElement{
-				ID:            sfo.ID,
-				SiafundOutput: sfo.SiafundOutput,
-			}
+			siadConvertToCore(sfo.SiafundOutput, &elem.SiafundOutput)
+			s.outputsSF[elem.ID] = elem
 		} else {
-			delete(s.outputsSF, sfo.ID)
+			delete(s.outputsSF, elem.ID)
 		}
 	}
 
 	for _, fco := range cc.FileContractDiffs {
-		if !relevantFileContract(fco.FileContract, s.ownsAddress) {
+		var elem wallet.FileContractElement
+		siadConvertToCore(fco.ID, &elem.ID)
+		siadConvertToCore(fco.FileContract, &elem.FileContract)
+		if !relevantFileContract(elem.FileContract, s.ownsAddress) {
 			continue
 		}
+
 		if fco.Direction == modules.DiffApply {
-			s.contracts[fco.ID] = wallet.FileContractElement{
-				ID:           fco.ID,
-				FileContract: fco.FileContract,
-			}
+			s.contracts[elem.ID] = elem
 		} else {
-			delete(s.contracts, fco.ID)
+			delete(s.contracts, elem.ID)
 		}
 	}
 
@@ -141,35 +163,43 @@ func (s *EphemeralStore) ProcessConsensusChange(cc modules.ConsensusChange) {
 	for _, block := range cc.RevertedBlocks {
 		height--
 		for _, txn := range block.Transactions {
-			if !relevantTransaction(txn, s.ownsAddress) {
+			var coreTxn types.Transaction
+			siadConvertToCore(txn, &coreTxn)
+			if !relevantTransaction(coreTxn, s.ownsAddress) {
 				continue
 			}
-			delete(s.txns, txn.ID())
+			delete(s.txns, coreTxn.ID())
 		}
 	}
 
 	for _, block := range cc.AppliedBlocks {
 		height++
 		for _, txn := range block.Transactions {
-			if !relevantTransaction(txn, s.ownsAddress) {
+			var coreTxn types.Transaction
+			siadConvertToCore(txn, &coreTxn)
+			if !relevantTransaction(coreTxn, s.ownsAddress) {
 				continue
 			}
 
 			var inflow, outflow types.Currency
-			for _, out := range txn.SiacoinOutputs {
+			for _, out := range coreTxn.SiacoinOutputs {
 				if _, ok := s.addrs[out.Address]; ok {
 					inflow = inflow.Add(out.Value)
 				}
 			}
-			for _, in := range txn.SiacoinInputs {
+			for _, in := range coreTxn.SiacoinInputs {
 				if _, ok := s.addrs[in.UnlockConditions.UnlockHash()]; ok {
 					outflow = outflow.Add(s.outputsSC[in.ParentID].Value)
 				}
 			}
-			s.txns[txn.ID()] = wallet.Transaction{
-				Raw:       txn,
-				Index:     wallet.ChainIndex{block.ID(), height},
-				ID:        txn.ID(),
+
+			var coreBID types.BlockID
+			siadConvertToCore(block.ID(), &coreBID)
+
+			s.txns[coreTxn.ID()] = wallet.Transaction{
+				Raw:       coreTxn,
+				Index:     wallet.ChainIndex{coreBID, uint64(height)},
+				ID:        coreTxn.ID(),
 				Inflow:    inflow,
 				Outflow:   outflow,
 				Timestamp: time.Unix(int64(block.Timestamp), 0),

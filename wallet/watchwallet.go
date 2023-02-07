@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/siad/crypto"
 )
 
 // A WatchWallet is a wallet that allows monitoring addresses but not signing
@@ -100,12 +99,12 @@ func (w *WatchWallet) Transactions(since time.Time, max int) ([]Transaction, err
 }
 
 // SignTransaction is disabled in the read only wallet.
-func (w *WatchWallet) SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error {
+func (w *WatchWallet) SignTransaction(txn *types.Transaction, toSign []types.Hash256) error {
 	return ErrDisabled
 }
 
 // FundTransaction is disabled in the read only wallet.
-func (w *WatchWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]crypto.Hash, func(), error) {
+func (w *WatchWallet) FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF types.Currency) ([]types.Hash256, func(), error) {
 	return nil, nil, ErrDisabled
 }
 

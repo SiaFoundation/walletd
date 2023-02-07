@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"go.sia.tech/core/types"
+	ctypes "go.sia.tech/core/types"
 	"go.sia.tech/walletd/internal/walletutil"
 	"go.sia.tech/walletd/wallet"
 	"lukechampine.com/frand"
@@ -22,7 +22,7 @@ func TestWatchWallet(t *testing.T) {
 	}
 	cs.ConsensusSetSubscribe(store, ccid, nil)
 
-	uc := wallet.StandardUnlockConditions(wallet.NewSeed().PublicKey(0).Key)
+	uc := wallet.StandardUnlockConditions(wallet.NewSeed().PublicKey(0))
 	addr := uc.UnlockHash()
 	if err := w.AddAddress(uc); err != nil {
 		panic(err)
@@ -55,10 +55,10 @@ func TestWatchWallet(t *testing.T) {
 	}
 
 	// simulate a transaction
-	cs.sendTxn(types.Transaction{
-		SiacoinOutputs: []types.SiacoinOutput{
-			{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
-			{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
+	cs.sendTxn(ctypes.Transaction{
+		SiacoinOutputs: []ctypes.SiacoinOutput{
+			{Address: addr, Value: ctypes.Siacoins(1).Div64(2)},
+			{Address: addr, Value: ctypes.Siacoins(1).Div64(2)},
 		},
 	})
 
@@ -67,7 +67,7 @@ func TestWatchWallet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sc.Equals(types.SiacoinPrecision) {
+	if !sc.Equals(ctypes.Siacoins(1)) {
 		t.Fatal("balance should be 1 SC")
 	}
 
@@ -107,11 +107,11 @@ func TestWatchWalletThreadSafety(t *testing.T) {
 	}
 	cs.ConsensusSetSubscribe(store, ccid, nil)
 
-	uc := wallet.StandardUnlockConditions(wallet.NewSeed().PublicKey(0).Key)
+	uc := wallet.StandardUnlockConditions(wallet.NewSeed().PublicKey(0))
 	addr := uc.UnlockHash()
-	txn := types.Transaction{
-		SiacoinOutputs: []types.SiacoinOutput{
-			{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
+	txn := ctypes.Transaction{
+		SiacoinOutputs: []ctypes.SiacoinOutput{
+			{Address: addr, Value: ctypes.Siacoins(1).Div64(2)},
 		},
 	}
 

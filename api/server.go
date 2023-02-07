@@ -7,7 +7,6 @@ import (
 
 	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/jape"
-	"go.sia.tech/siad/crypto"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/wallet"
@@ -46,8 +45,8 @@ type (
 		Transaction(id types.TransactionID) (wallet.Transaction, error)
 		Transactions(since time.Time, max int) ([]wallet.Transaction, error)
 		TransactionsByAddress(addr types.Address) ([]wallet.Transaction, error)
-		SignTransaction(txn *types.Transaction, toSign []crypto.Hash) error
-		FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF uint64) ([]crypto.Hash, func(), error)
+		SignTransaction(txn *types.Transaction, toSign []types.Hash256) error
+		FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF uint64) ([]types.Hash256, func(), error)
 	}
 )
 
@@ -176,16 +175,25 @@ func (s *server) walletFundHandler(jc jape.Context) {
 	if jc.Check("failed to fund transaction", err) != nil {
 		return
 	}
+
 	parents, err := s.tp.UnconfirmedParents(txn)
 	if err != nil {
 		unclaim()
 		jc.Check("couldn't load parents", err)
 		return
 	}
+
+	var cParents []types.Transaction
+	for _, parent := range parents {
+		var cParent types.Transaction
+		siadConvertToCore(parent, &cParent)
+		cParents = append(cParents, cParent)
+	}
+
 	jc.Encode(WalletFundResponse{
 		Transaction: txn,
 		ToSign:      toSign,
-		DependsOn:   parents,
+		DependsOn:   cParents,
 	})
 }
 
@@ -274,6 +282,7 @@ func (s *server) walletSendHandler(jc jape.Context) {
 	if jc.Check("failed to fund transaction", s.w.SignTransaction(&txn, toSign)) != nil {
 		return
 	}
+
 	if jc.Check("failed to add transaction to transaction pool", s.tp.AddTransactionSet([]types.Transaction{txn})) != nil {
 		return
 	}

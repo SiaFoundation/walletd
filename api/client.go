@@ -6,7 +6,6 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/jape"
-	"go.sia.tech/siad/crypto"
 	"go.sia.tech/walletd/wallet"
 )
 
@@ -88,7 +87,7 @@ func (c *Client) WalletTransactionsAddress(addr types.Address) (resp []wallet.Tr
 }
 
 // WalletSign signs a transaction.
-func (c *Client) WalletSign(txn types.Transaction, toSign []crypto.Hash) (resp types.Transaction, err error) {
+func (c *Client) WalletSign(txn types.Transaction, toSign []types.Hash256) (resp types.Transaction, err error) {
 	err = c.c.POST("/wallet/sign", WalletSignRequest{txn, toSign}, &resp)
 	return
 }
