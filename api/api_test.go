@@ -1,20 +1,34 @@
 package api_test
 
 import (
+	"bytes"
+	"fmt"
 	"math"
 	"net"
 	"net/http"
 	"testing"
 	"time"
 
+	"gitlab.com/NebulousLabs/encoding"
+	ctypes "go.sia.tech/core/types"
 	"go.sia.tech/jape"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/types"
+	stypes "go.sia.tech/siad/types"
 	"go.sia.tech/walletd/api"
 	"go.sia.tech/walletd/internal/walletutil"
 	"go.sia.tech/walletd/wallet"
 	"lukechampine.com/frand"
 )
+
+func coreConvertToSiad(from ctypes.EncoderTo, to interface{}) {
+	var buf bytes.Buffer
+	e := ctypes.NewEncoder(&buf)
+	from.EncodeTo(e)
+	e.Flush()
+	if err := encoding.Unmarshal(buf.Bytes(), to); err != nil {
+		panic(fmt.Sprintf("type conversion failed (%T->%T): %v", from, to, err))
+	}
+}
 
 type mockChainManager struct{}
 
@@ -25,23 +39,23 @@ type mockSyncer struct{}
 func (mockSyncer) Addr() string              { return "" }
 func (mockSyncer) Peers() []string           { return nil }
 func (mockSyncer) Connect(addr string) error { return nil }
-func (mockSyncer) BroadcastTransaction(txn types.Transaction, dependsOn []types.Transaction) {
+func (mockSyncer) BroadcastTransaction(txn ctypes.Transaction, dependsOn []ctypes.Transaction) {
 }
 
 type mockTxPool struct{}
 
-func (mockTxPool) RecommendedFee() types.Currency                   { return types.ZeroCurrency }
-func (mockTxPool) Transactions() []types.Transaction                { return nil }
-func (mockTxPool) AddTransactionSet(txns []types.Transaction) error { return nil }
-func (mockTxPool) UnconfirmedParents(txn types.Transaction) ([]types.Transaction, error) {
+func (mockTxPool) RecommendedFee() ctypes.Currency                   { return ctypes.Currency{} }
+func (mockTxPool) Transactions() []ctypes.Transaction                { return nil }
+func (mockTxPool) AddTransactionSet(txns []ctypes.Transaction) error { return nil }
+func (mockTxPool) UnconfirmedParents(txn ctypes.Transaction) ([]ctypes.Transaction, error) {
 	return nil, nil
 }
 
 type mockCS struct {
 	subscriber    modules.ConsensusSetSubscriber
-	dscos         map[types.BlockHeight][]modules.DelayedSiacoinOutputDiff
-	filecontracts map[types.FileContractID]types.FileContract
-	height        types.BlockHeight
+	dscos         map[stypes.BlockHeight][]modules.DelayedSiacoinOutputDiff
+	filecontracts map[stypes.FileContractID]stypes.FileContract
+	height        stypes.BlockHeight
 }
 
 func (m *mockCS) ConsensusSetSubscribe(s modules.ConsensusSetSubscriber, ccid modules.ConsensusChangeID, cancel <-chan struct{}) error {
@@ -49,7 +63,10 @@ func (m *mockCS) ConsensusSetSubscribe(s modules.ConsensusSetSubscriber, ccid mo
 	return nil
 }
 
-func (m *mockCS) sendTxn(txn types.Transaction) {
+func (m *mockCS) sendTxn(cTxn ctypes.Transaction) {
+	var txn stypes.Transaction
+	coreConvertToSiad(cTxn, &txn)
+
 	outputs := make([]modules.SiacoinOutputDiff, len(txn.SiacoinOutputs))
 	for i := range outputs {
 		outputs[i] = modules.SiacoinOutputDiff{
@@ -59,8 +76,8 @@ func (m *mockCS) sendTxn(txn types.Transaction) {
 		}
 	}
 	cc := modules.ConsensusChange{
-		AppliedBlocks: []types.Block{{
-			Transactions: []types.Transaction{txn},
+		AppliedBlocks: []stypes.Block{{
+			Transactions: []stypes.Transaction{txn},
 		}},
 		ConsensusChangeDiffs: modules.ConsensusChangeDiffs{
 			SiacoinOutputDiffs: outputs,
@@ -105,7 +122,7 @@ func TestWallet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !balance.Siacoins.IsZero() || !balance.Siafunds.IsZero() {
+	if !balance.Siacoins.IsZero() || balance.Siafunds != 0 {
 		t.Fatal("balance should be 0")
 	}
 
@@ -143,10 +160,10 @@ func TestWallet(t *testing.T) {
 	}
 
 	// simulate a transaction
-	cs.sendTxn(types.Transaction{
-		SiacoinOutputs: []types.SiacoinOutput{
-			{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
-			{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
+	cs.sendTxn(ctypes.Transaction{
+		SiacoinOutputs: []ctypes.SiacoinOutput{
+			{Address: addr, Value: ctypes.Siacoins(1).Div64(2)},
+			{Address: addr, Value: ctypes.Siacoins(1).Div64(2)},
 		},
 	})
 
@@ -155,7 +172,7 @@ func TestWallet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !balance.Siacoins.Equals(types.SiacoinPrecision) {
+	if !balance.Siacoins.Equals(ctypes.Siacoins(1)) {
 		t.Fatal("balance should be 1 SC")
 	}
 

@@ -1,12 +1,32 @@
 package api
 
 import (
+	"bytes"
+	"fmt"
 	"time"
 
-	"go.sia.tech/siad/crypto"
+	"gitlab.com/NebulousLabs/encoding"
 
-	"go.sia.tech/siad/types"
+	"go.sia.tech/core/types"
 )
+
+func coreConvertToSiad(from types.EncoderTo, to interface{}) {
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	from.EncodeTo(e)
+	e.Flush()
+	if err := encoding.Unmarshal(buf.Bytes(), to); err != nil {
+		panic(fmt.Sprintf("type conversion failed (%T->%T): %v", from, to, err))
+	}
+}
+
+func siadConvertToCore(from interface{}, to types.DecoderFrom) {
+	d := types.NewBufDecoder(encoding.Marshal(from))
+	to.DecodeFrom(d)
+	if err := d.Err(); err != nil {
+		panic(fmt.Sprintf("type conversion failed (%T->%T): %v", from, to, err))
+	}
+}
 
 // for encoding/decoding time.Time values in API params
 type paramTime time.Time
@@ -26,32 +46,32 @@ type ConsensusState struct {
 // WalletBalanceResponse is the response to /wallet/balance.
 type WalletBalanceResponse struct {
 	Siacoins types.Currency `json:"siacoins"`
-	Siafunds types.Currency `json:"siafunds"`
+	Siafunds uint64         `json:"siafunds"`
 }
 
 // WalletSignRequest requests that a transaction be signed.
 type WalletSignRequest struct {
 	Transaction types.Transaction `json:"transaction"`
-	ToSign      []crypto.Hash     `json:"toSign"`
+	ToSign      []types.Hash256   `json:"toSign"`
 }
 
 // WalletSiacoinsResponse is the response to /wallet/siacoins.
 type WalletSiacoinsResponse struct {
 	Transactions   []types.Transaction `json:"transactions"`
-	TransactionIDs []crypto.Hash       `json:"transactionids"`
+	TransactionIDs []types.Hash256     `json:"transactionids"`
 }
 
 // WalletFundRequest is the request type for /wallet/fund.
 type WalletFundRequest struct {
 	Transaction types.Transaction `json:"transaction"`
 	Siacoins    types.Currency    `json:"siacoins"`
-	Siafunds    types.Currency    `json:"siafunds"`
+	Siafunds    uint64            `json:"siafunds"`
 }
 
 // WalletFundResponse is the response to /wallet/fund.
 type WalletFundResponse struct {
 	Transaction types.Transaction   `json:"transaction"`
-	ToSign      []crypto.Hash       `json:"toSign"`
+	ToSign      []types.Hash256     `json:"toSign"`
 	DependsOn   []types.Transaction `json:"dependsOn"`
 }
 
@@ -59,7 +79,7 @@ type WalletFundResponse struct {
 type WalletSendRequest struct {
 	Type        string
 	Amount      types.Currency
-	Destination types.UnlockHash
+	Destination types.Address
 }
 
 // WalletSendResponse is the response to /wallet/send.

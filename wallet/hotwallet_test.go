@@ -1,13 +1,17 @@
 package wallet_test
 
 import (
+	"bytes"
+	"fmt"
 	"math"
 	"sync"
 	"testing"
 	"time"
 
+	"gitlab.com/NebulousLabs/encoding"
+	ctypes "go.sia.tech/core/types"
 	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/types"
+	stypes "go.sia.tech/siad/types"
 	"go.sia.tech/walletd/internal/walletutil"
 	"go.sia.tech/walletd/wallet"
 	"lukechampine.com/frand"
@@ -15,9 +19,19 @@ import (
 
 type mockCS struct {
 	subscribers   []modules.ConsensusSetSubscriber
-	dscos         map[types.BlockHeight][]modules.DelayedSiacoinOutputDiff
-	filecontracts map[types.FileContractID]types.FileContract
-	height        types.BlockHeight
+	dscos         map[stypes.BlockHeight][]modules.DelayedSiacoinOutputDiff
+	filecontracts map[stypes.FileContractID]stypes.FileContract
+	height        stypes.BlockHeight
+}
+
+func coreConvertToSiad(from ctypes.EncoderTo, to interface{}) {
+	var buf bytes.Buffer
+	e := ctypes.NewEncoder(&buf)
+	from.EncodeTo(e)
+	e.Flush()
+	if err := encoding.Unmarshal(buf.Bytes(), to); err != nil {
+		panic(fmt.Sprintf("type conversion failed (%T->%T): %v", from, to, err))
+	}
 }
 
 func (m *mockCS) ConsensusSetSubscribe(s modules.ConsensusSetSubscriber, ccid modules.ConsensusChangeID, cancel <-chan struct{}) error {
@@ -25,7 +39,10 @@ func (m *mockCS) ConsensusSetSubscribe(s modules.ConsensusSetSubscriber, ccid mo
 	return nil
 }
 
-func (m *mockCS) sendTxn(txn types.Transaction) {
+func (m *mockCS) sendTxn(ctxn ctypes.Transaction) {
+	var txn stypes.Transaction
+	coreConvertToSiad(ctxn, &txn)
+
 	outputs := make([]modules.SiacoinOutputDiff, 0, len(txn.SiacoinOutputs)+len(txn.SiacoinInputs))
 	for i, out := range txn.SiacoinOutputs {
 		outputs = append(outputs, modules.SiacoinOutputDiff{
@@ -41,8 +58,8 @@ func (m *mockCS) sendTxn(txn types.Transaction) {
 		})
 	}
 	cc := modules.ConsensusChange{
-		AppliedBlocks: []types.Block{{
-			Transactions: []types.Transaction{txn},
+		AppliedBlocks: []stypes.Block{{
+			Transactions: []stypes.Transaction{txn},
 		}},
 		ConsensusChangeDiffs: modules.ConsensusChangeDiffs{
 			SiacoinOutputDiffs: outputs,
@@ -55,23 +72,23 @@ func (m *mockCS) sendTxn(txn types.Transaction) {
 	m.height++
 }
 
-func (m *mockCS) mineBlock(fees types.Currency, addr types.UnlockHash) {
-	b := types.Block{
-		Transactions: []types.Transaction{{
-			MinerFees: []types.Currency{fees},
+func (m *mockCS) mineBlock(fees stypes.Currency, addr stypes.UnlockHash) {
+	b := stypes.Block{
+		Transactions: []stypes.Transaction{{
+			MinerFees: []stypes.Currency{fees},
 		}},
-		MinerPayouts: []types.SiacoinOutput{
+		MinerPayouts: []stypes.SiacoinOutput{
 			{UnlockHash: addr},
 		},
 	}
 	b.MinerPayouts[0].Value = b.CalculateSubsidy(0)
 	cc := modules.ConsensusChange{
-		AppliedBlocks: []types.Block{b},
+		AppliedBlocks: []stypes.Block{b},
 		ConsensusChangeDiffs: modules.ConsensusChangeDiffs{
 			DelayedSiacoinOutputDiffs: []modules.DelayedSiacoinOutputDiff{{
 				SiacoinOutput:  b.MinerPayouts[0],
 				ID:             b.MinerPayoutID(0),
-				MaturityHeight: types.MaturityDelay,
+				MaturityHeight: stypes.MaturityDelay,
 			}},
 		},
 		ID: frand.Entropy256(),
@@ -88,50 +105,13 @@ func (m *mockCS) mineBlock(fees types.Currency, addr types.UnlockHash) {
 	}
 	m.height++
 	if m.dscos == nil {
-		m.dscos = make(map[types.BlockHeight][]modules.DelayedSiacoinOutputDiff)
+		m.dscos = make(map[stypes.BlockHeight][]modules.DelayedSiacoinOutputDiff)
 	}
 	dsco := cc.DelayedSiacoinOutputDiffs[0]
 	m.dscos[dsco.MaturityHeight] = append(m.dscos[dsco.MaturityHeight], dsco)
 }
 
-func (m *mockCS) formContract(payout types.Currency, addr types.UnlockHash) {
-	b := types.Block{
-		Transactions: []types.Transaction{{
-			FileContracts: []types.FileContract{{
-				Payout: payout,
-				ValidProofOutputs: []types.SiacoinOutput{
-					{UnlockHash: addr, Value: payout},
-					{},
-				},
-				MissedProofOutputs: []types.SiacoinOutput{
-					{UnlockHash: addr, Value: payout},
-					{},
-				},
-			}},
-		}},
-	}
-	cc := modules.ConsensusChange{
-		AppliedBlocks: []types.Block{b},
-		ConsensusChangeDiffs: modules.ConsensusChangeDiffs{
-			FileContractDiffs: []modules.FileContractDiff{{
-				FileContract: b.Transactions[0].FileContracts[0],
-				ID:           b.Transactions[0].FileContractID(0),
-				Direction:    modules.DiffApply,
-			}},
-		},
-		ID: frand.Entropy256(),
-	}
-	for i := range m.subscribers {
-		m.subscribers[i].ProcessConsensusChange(cc)
-	}
-	m.height++
-	if m.filecontracts == nil {
-		m.filecontracts = make(map[types.FileContractID]types.FileContract)
-	}
-	m.filecontracts[b.Transactions[0].FileContractID(0)] = b.Transactions[0].FileContracts[0]
-}
-
-func (m *mockCS) reviseContract(id types.FileContractID) {
+func (m *mockCS) reviseContract(id stypes.FileContractID) {
 	fc := m.filecontracts[id]
 	delta := fc.ValidProofOutputs[0].Value.Div64(2)
 	fc.ValidProofOutputs[0].Value = fc.ValidProofOutputs[0].Value.Sub(delta)
@@ -139,9 +119,9 @@ func (m *mockCS) reviseContract(id types.FileContractID) {
 	fc.MissedProofOutputs[0].Value = fc.MissedProofOutputs[0].Value.Sub(delta)
 	fc.MissedProofOutputs[1].Value = fc.MissedProofOutputs[1].Value.Add(delta)
 	fc.RevisionNumber++
-	b := types.Block{
-		Transactions: []types.Transaction{{
-			FileContractRevisions: []types.FileContractRevision{{
+	b := stypes.Block{
+		Transactions: []stypes.Transaction{{
+			FileContractRevisions: []stypes.FileContractRevision{{
 				ParentID:              id,
 				NewFileSize:           fc.FileSize,
 				NewFileMerkleRoot:     fc.FileMerkleRoot,
@@ -155,7 +135,7 @@ func (m *mockCS) reviseContract(id types.FileContractID) {
 		}},
 	}
 	cc := modules.ConsensusChange{
-		AppliedBlocks: []types.Block{b},
+		AppliedBlocks: []stypes.Block{b},
 		ConsensusChangeDiffs: modules.ConsensusChangeDiffs{
 			FileContractDiffs: []modules.FileContractDiff{
 				{
@@ -250,10 +230,10 @@ func TestHotWallet(t *testing.T) {
 		}
 
 		// simulate a transaction
-		cs.sendTxn(types.Transaction{
-			SiacoinOutputs: []types.SiacoinOutput{
-				{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
-				{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
+		cs.sendTxn(ctypes.Transaction{
+			SiacoinOutputs: []ctypes.SiacoinOutput{
+				{Address: addr, Value: ctypes.Siacoins(1).Div64(2)},
+				{Address: addr, Value: ctypes.Siacoins(1).Div64(2)},
 			},
 		})
 
@@ -262,7 +242,7 @@ func TestHotWallet(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !sc.Equals(types.SiacoinPrecision) {
+		if !sc.Equals(ctypes.Siacoins(1)) {
 			t.Fatal("balance should be 1 SC")
 		}
 
@@ -326,9 +306,9 @@ func TestHotWalletThreadSafety(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		txn := types.Transaction{
-			SiacoinOutputs: []types.SiacoinOutput{
-				{UnlockHash: addr, Value: types.SiacoinPrecision.Div64(2)},
+		txn := ctypes.Transaction{
+			SiacoinOutputs: []ctypes.SiacoinOutput{
+				{Address: addr, Value: ctypes.Siacoins(1).Div64(2)},
 			},
 		}
 
