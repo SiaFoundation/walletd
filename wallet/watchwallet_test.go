@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	cwallet "go.sia.tech/core/wallet"
 	"go.sia.tech/walletd/internal/walletutil"
 	"go.sia.tech/walletd/wallet"
 	"lukechampine.com/frand"
@@ -22,7 +23,7 @@ func TestWatchWallet(t *testing.T) {
 	}
 	cs.ConsensusSetSubscribe(store, ccid, nil)
 
-	uc := wallet.StandardUnlockConditions(wallet.NewSeed().PublicKey(0))
+	uc := cwallet.StandardUnlockConditions(wallet.NewSeed().PublicKey(0))
 	addr := uc.UnlockHash()
 	if err := w.AddAddress(uc); err != nil {
 		panic(err)
@@ -107,7 +108,7 @@ func TestWatchWalletThreadSafety(t *testing.T) {
 	}
 	cs.ConsensusSetSubscribe(store, ccid, nil)
 
-	uc := wallet.StandardUnlockConditions(wallet.NewSeed().PublicKey(0))
+	uc := cwallet.StandardUnlockConditions(wallet.NewSeed().PublicKey(0))
 	addr := uc.UnlockHash()
 	txn := types.Transaction{
 		SiacoinOutputs: []types.SiacoinOutput{

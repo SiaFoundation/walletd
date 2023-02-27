@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/core/wallet"
 	"lukechampine.com/frand"
 )
 
@@ -70,7 +71,7 @@ func (w *HotWallet) Address() (types.Address, error) {
 	}
 
 	info := SeedAddressInfo{
-		UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index)),
+		UnlockConditions: wallet.StandardUnlockConditions(w.seed.PublicKey(index)),
 		KeyIndex:         index,
 	}
 	w.store.AddAddress(info)
@@ -173,7 +174,7 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 			return nil, nil, err
 		}
 		info := SeedAddressInfo{
-			UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index)),
+			UnlockConditions: wallet.StandardUnlockConditions(w.seed.PublicKey(index)),
 			KeyIndex:         index,
 		}
 		w.store.AddAddress(info)
@@ -238,7 +239,7 @@ func (w *HotWallet) FundTransaction(txn *types.Transaction, amountSC types.Curre
 			return nil, nil, err
 		}
 		info := SeedAddressInfo{
-			UnlockConditions: StandardUnlockConditions(w.seed.PublicKey(index)),
+			UnlockConditions: wallet.StandardUnlockConditions(w.seed.PublicKey(index)),
 			KeyIndex:         index,
 		}
 		w.store.AddAddress(info)
@@ -286,7 +287,7 @@ func (w *HotWallet) SignTransaction(txn *types.Transaction, toSign []types.Hash2
 			if err != nil {
 				continue
 			}
-			sk := w.seed.SecretKey(info.KeyIndex)
+			sk := w.seed.PrivateKey(info.KeyIndex)
 			txnSig := StandardTransactionSignature(types.Hash256(input.ParentID))
 			AppendTransactionSignature(txn, txnSig, sk)
 		}
@@ -295,7 +296,7 @@ func (w *HotWallet) SignTransaction(txn *types.Transaction, toSign []types.Hash2
 			if err != nil {
 				continue
 			}
-			sk := w.seed.SecretKey(info.KeyIndex)
+			sk := w.seed.PrivateKey(info.KeyIndex)
 			txnSig := StandardTransactionSignature(types.Hash256(input.ParentID))
 			AppendTransactionSignature(txn, txnSig, sk)
 		}
@@ -329,9 +330,9 @@ func (w *HotWallet) SignTransaction(txn *types.Transaction, toSign []types.Hash2
 		if err != nil {
 			return errors.New("can't sign")
 		}
-		sk := w.seed.SecretKey(info.KeyIndex)
+		sk := w.seed.PrivateKey(info.KeyIndex)
 		hash := txn.ID()
-		txn.Signatures[i].Signature = ed25519.Sign(sk, hash[:])
+		txn.Signatures[i].Signature = ed25519.Sign(ed25519.PrivateKey(sk), hash[:])
 		return nil
 	}
 

@@ -62,23 +62,6 @@ type Store interface {
 	TransactionsByAddress(addr types.Address) ([]Transaction, error)
 }
 
-// StandardUnlockConditions returns the standard unlock conditions for a single
-// Ed25519 key.
-func StandardUnlockConditions(pub types.PublicKey) types.UnlockConditions {
-	return types.UnlockConditions{
-		PublicKeys: []types.UnlockKey{{
-			Algorithm: types.SpecifierEd25519,
-			Key:       pub[:],
-		}},
-		SignaturesRequired: 1,
-	}
-}
-
-// StandardAddress returns the standard address for an Ed25519 key.
-func StandardAddress(pub types.PublicKey) types.Address {
-	return StandardUnlockConditions(pub).UnlockHash()
-}
-
 // StandardTransactionSignature is the most common form of TransactionSignature.
 // It covers the entire transaction and references the first (typically the
 // only) public key.
@@ -92,9 +75,9 @@ func StandardTransactionSignature(id types.Hash256) types.TransactionSignature {
 
 // AppendTransactionSignature appends a TransactionSignature to txn and signs it
 // with key.
-func AppendTransactionSignature(txn *types.Transaction, txnSig types.TransactionSignature, key ed25519.PrivateKey) {
+func AppendTransactionSignature(txn *types.Transaction, txnSig types.TransactionSignature, key types.PrivateKey) {
 	txn.Signatures = append(txn.Signatures, txnSig)
 	sigIndex := len(txn.Signatures) - 1
 	hash := txn.ID()
-	txn.Signatures[sigIndex].Signature = ed25519.Sign(key, hash[:])
+	txn.Signatures[sigIndex].Signature = ed25519.Sign(ed25519.PrivateKey(key), hash[:])
 }
