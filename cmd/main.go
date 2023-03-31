@@ -7,16 +7,32 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime/debug"
 
-	"go.sia.tech/siad/modules"
 	"golang.org/x/term"
 )
 
-var (
-	// to be supplied at build time
-	githash   = "?"
-	builddate = "?"
-)
+var commit = func() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				return setting.Value
+			}
+		}
+	}
+	return ""
+}()
+
+var timestamp = func() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.time" {
+				return setting.Value
+			}
+		}
+	}
+	return ""
+}()
 
 func check(context string, err error) {
 	if err != nil {
@@ -41,60 +57,32 @@ func getAPIPassword() string {
 	return apiPassword
 }
 
-func getWalletSeed() string {
-	phrase := os.Getenv("SIA_WALLET_SEED")
-	if phrase != "" {
-		fmt.Println("Using SIA_WALLET_SEED environment variable")
-	} else {
-		fmt.Print("Enter wallet seed: ")
-		pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Println()
-		check("Could not read seed phrase:", err)
-		phrase = string(pw)
-	}
-	return phrase
-}
-
 func main() {
 	log.SetFlags(0)
-	gatewayAddr := flag.String("addr", ":0", "address to listen on")
+	gatewayAddr := flag.String("addr", ":0", "p2p address to listen on")
 	apiAddr := flag.String("http", "localhost:9980", "address to serve API on")
 	dir := flag.String("dir", ".", "directory to store node state in")
-	bootstrap := flag.String("bootstrap", "", "peer address or explorer URL to bootstrap from")
 	flag.Parse()
 
 	log.Println("walletd v0.1.0")
 	if flag.Arg(0) == "version" {
-		log.Println("Commit:", githash)
-		log.Println("Build Date:", builddate)
+		log.Println("Commit Hash:", commit)
+		log.Println("Commit Date:", timestamp)
 		return
 	}
 
 	apiPassword := getAPIPassword()
-	n, err := newNode(*gatewayAddr, *dir)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer func() {
-		if err := n.Close(); err != nil {
-			log.Println("WARN: error shutting down:", err)
-		}
-	}()
-	log.Println("p2p: Listening on", n.g.Address())
-
-	if *bootstrap != "" {
-		log.Println("Connecting to bootstrap peer...")
-		if err := n.g.Connect(modules.NetAddress(*bootstrap)); err != nil {
-			log.Println(err)
-		} else {
-			log.Println("Success!")
-		}
-	}
-
 	l, err := net.Listen("tcp", *apiAddr)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	n, err := newNode(*gatewayAddr, *dir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("p2p: Listening on", n.s.Addr())
+	go n.s.Run()
 	log.Println("api: Listening on", l.Addr())
 	go startWeb(l, n, apiPassword)
 

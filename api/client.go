@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -27,13 +28,13 @@ func (c *Client) TxpoolTransactions() (resp []types.Transaction, err error) {
 }
 
 // ConsensusTip returns the current tip index.
-func (c *Client) ConsensusTip() (resp ChainIndex, err error) {
+func (c *Client) ConsensusTip() (resp types.ChainIndex, err error) {
 	err = c.c.GET("/consensus/tip", &resp)
 	return
 }
 
 // SyncerPeers returns the current peers of the syncer.
-func (c *Client) SyncerPeers() (resp []string, err error) {
+func (c *Client) SyncerPeers() (resp []GatewayPeer, err error) {
 	err = c.c.GET("/syncer/peers", &resp)
 	return
 }
@@ -44,74 +45,45 @@ func (c *Client) SyncerConnect(addr string) (err error) {
 	return
 }
 
+// WalletAddAddress adds the specified address and associated metadata to the
+// wallet.
+func (c *Client) WalletAddAddress(addr types.Address, info json.RawMessage) (err error) {
+	fmt.Println(string(info))
+	err = c.c.PUT(fmt.Sprintf("/wallet/addresses/%v", addr), info)
+	return
+}
+
+// WalletAddresses the addresses controlled by the wallet.
+func (c *Client) WalletAddresses() (resp map[types.Address]json.RawMessage, err error) {
+	err = c.c.GET("/wallet/addresses", &resp)
+	return
+}
+
 // WalletBalance returns the current wallet balance.
 func (c *Client) WalletBalance() (resp WalletBalanceResponse, err error) {
 	err = c.c.GET("/wallet/balance", &resp)
 	return
 }
 
-// WalletAddress returns an address controlled by the wallet.
-func (c *Client) WalletAddress() (resp types.Address, err error) {
-	err = c.c.GET("/wallet/address", &resp)
-	return
-}
-
-// WalletAddresses the addresses controlled by the wallet.
-func (c *Client) WalletAddresses() (resp []types.Address, err error) {
-	err = c.c.GET("/wallet/addresses", &resp)
+// WalletEvents returns all events relevant to the wallet.
+func (c *Client) WalletEvents(since time.Time, max int) (resp []wallet.Event, err error) {
+	err = c.c.GET(fmt.Sprintf("/wallet/events?since=%s&max=%d", paramTime(since), max), &resp)
 	return
 }
 
 // WalletOutputs returns the set of unspent outputs controlled by the wallet.
-func (c *Client) WalletOutputs() (resp []wallet.SiacoinElement, err error) {
+func (c *Client) WalletOutputs() (sc []wallet.SiacoinElement, sf []wallet.SiafundElement, err error) {
+	var resp WalletOutputsResponse
 	err = c.c.GET("/wallet/outputs", &resp)
-	return
+	return resp.SiacoinOutputs, resp.SiafundOutputs, err
 }
 
-// WalletTransaction returns the transaction with the given ID.
-func (c *Client) WalletTransaction(id types.TransactionID) (resp wallet.Transaction, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallet/transaction/%s", id), &resp)
-	return
-}
-
-// WalletTransactions returns all transactions relevant to the wallet.
-func (c *Client) WalletTransactions(since time.Time, max int) (resp []wallet.Transaction, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallet/transactions?since=%s&max=%d", paramTime(since), max), &resp)
-	return
-}
-
-// WalletTransactionsAddress returns all transactions relevant to the wallet.
-func (c *Client) WalletTransactionsAddress(addr types.Address) (resp []wallet.Transaction, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallet/transactions/%s", addr), &resp)
-	return
-}
-
-// WalletSign signs a transaction.
-func (c *Client) WalletSign(txn types.Transaction, toSign []types.Hash256) (resp types.Transaction, err error) {
-	err = c.c.POST("/wallet/sign", WalletSignRequest{txn, toSign}, &resp)
-	return
-}
-
-// WalletFund funds a transaction.
-func (c *Client) WalletFund(txn types.Transaction, amountSC types.Currency, amountSF uint64) (resp WalletFundResponse, err error) {
-	err = c.c.POST("/wallet/fund", WalletFundRequest{txn, amountSC, amountSF}, &resp)
-	return
-}
-
-// WalletSplit distributes the value in the wallet's inputs among n outputs,
-// each containing per siacoins.
-func (c *Client) WalletSplit(n int, per types.Currency) (resp types.Transaction, err error) {
-	err = c.c.POST("/wallet/split", WalletSplitRequest{n, per}, &resp)
-	return
-}
-
-// WalletSendSiacoins sends a given amount of siacoins to the destination address.
-func (c *Client) WalletSendSiacoins(amount types.Currency, destination types.Address, siafunds bool) (resp WalletSendResponse, err error) {
-	wsr := WalletSendRequest{"siacoins", amount, destination}
-	if siafunds {
-		wsr.Type = "siafunds"
-	}
-	err = c.c.POST("/wallet/send", wsr, &resp)
+// WalletReserve reserves a set outputs for use in a transaction.
+func (c *Client) WalletReserve(sc []types.SiacoinOutputID, sf []types.SiafundOutputID, duration time.Duration) (err error) {
+	err = c.c.POST("/wallet/reserve", WalletReserveRequest{
+		SiacoinOutputs: sc,
+		SiafundOutputs: sf,
+	}, nil)
 	return
 }
 
