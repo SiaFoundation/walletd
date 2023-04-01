@@ -1,13 +1,16 @@
 package api
 
 import (
-	"errors"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
-	"gitlab.com/NebulousLabs/encoding"
 	"go.sia.tech/jape"
 
+	"go.sia.tech/core/consensus"
+	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/wallet"
 )
@@ -15,15 +18,15 @@ import (
 type (
 	// A ChainManager manages blockchain state.
 	ChainManager interface {
-		TipState() ConsensusState
+		TipState() consensus.State
 	}
 
 	// A Syncer can connect to other peers and synchronize the blockchain.
 	Syncer interface {
 		Addr() string
-		Peers() []string
-		Connect(addr string) error
-		BroadcastTransaction(txn types.Transaction, dependsOn []types.Transaction)
+		Peers() []*gateway.Peer
+		Connect(addr string) (*gateway.Peer, error)
+		BroadcastTransactionSet(txns []types.Transaction)
 	}
 
 	// A TransactionPool can validate and relay unconfirmed transactions.
@@ -31,30 +34,27 @@ type (
 		RecommendedFee() types.Currency
 		Transactions() []types.Transaction
 		AddTransactionSet(txns []types.Transaction) error
-		UnconfirmedParents(txn types.Transaction) ([]types.Transaction, error)
+		UnconfirmedParents(txn types.Transaction) []types.Transaction
 	}
 
 	// A Wallet can spend and receive siacoins.
 	Wallet interface {
-		Balance() (types.Currency, uint64, error)
-		Address() (types.Address, error)
-		Addresses() ([]types.Address, error)
-		AddressInfo(addr types.Address) (wallet.SeedAddressInfo, error)
-		UnspentSiacoinOutputs() ([]wallet.SiacoinElement, error)
-		UnspentSiafundOutputs() ([]wallet.SiafundElement, error)
-		Transaction(id types.TransactionID) (wallet.Transaction, error)
-		Transactions(since time.Time, max int) ([]wallet.Transaction, error)
-		TransactionsByAddress(addr types.Address) ([]wallet.Transaction, error)
-		SignTransaction(txn *types.Transaction, toSign []types.Hash256) error
-		FundTransaction(txn *types.Transaction, amountSC types.Currency, amountSF uint64) ([]types.Hash256, func(), error)
+		AddAddress(addr types.Address, info json.RawMessage) error
+		Addresses() (map[types.Address]json.RawMessage, error)
+		Events(since time.Time, max int) ([]wallet.Event, error)
+		UnspentOutputs() ([]wallet.SiacoinElement, []wallet.SiafundElement, error)
 	}
 )
 
 type server struct {
-	s  Syncer
 	cm ChainManager
 	tp TransactionPool
+	s  Syncer
 	w  Wallet
+
+	// for walletReserveHandler
+	mu   sync.Mutex
+	used map[types.Hash256]bool
 }
 
 func (s *server) consensusTipHandler(jc jape.Context) {
@@ -62,14 +62,24 @@ func (s *server) consensusTipHandler(jc jape.Context) {
 }
 
 func (s *server) syncerPeersHandler(jc jape.Context) {
-	jc.Encode(s.s.Peers())
+	var peers []GatewayPeer
+	for _, p := range s.s.Peers() {
+		peers = append(peers, GatewayPeer{
+			Addr:    p.Addr,
+			Inbound: p.Inbound,
+			Version: p.Version,
+		})
+	}
+	jc.Encode(peers)
 }
 
 func (s *server) syncerConnectHandler(jc jape.Context) {
 	var addr string
-	if jc.Decode(&addr) == nil {
-		jc.Check("couldn't connect to peer", s.s.Connect(addr))
+	if jc.Decode(&addr) != nil {
+		return
 	}
+	_, err := s.s.Connect(addr)
+	jc.Check("couldn't connect to peer", err)
 }
 
 func (s *server) txpoolTransactionsHandler(jc jape.Context) {
@@ -78,215 +88,118 @@ func (s *server) txpoolTransactionsHandler(jc jape.Context) {
 
 func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	var txnSet []types.Transaction
-	if jc.Decode(&txnSet) == nil {
-		jc.Check("couldn't broadcast transaction set", s.tp.AddTransactionSet(txnSet))
+	if jc.Decode(&txnSet) != nil {
+		return
 	}
+	if jc.Check("invalid transaction set", s.tp.AddTransactionSet(txnSet)) != nil {
+		return
+	}
+	s.s.BroadcastTransactionSet(txnSet)
 }
 
-func (s *server) walletBalanceHandler(jc jape.Context) {
-	siacoins, siafunds, err := s.w.Balance()
-	if jc.Check("couldn't load balance", err) == nil {
-		jc.Encode(WalletBalanceResponse{
-			Siacoins: siacoins,
-			Siafunds: siafunds,
-		})
+func (s *server) walletAddressHandlerPUT(jc jape.Context) {
+	var addr types.Address
+	if jc.DecodeParam("addr", &addr) != nil {
+		return
 	}
-}
-
-func (s *server) walletAddressHandler(jc jape.Context) {
-	address, err := s.w.Address()
-	if jc.Check("couldn't load address", err) == nil {
-		jc.Encode(address)
+	var info json.RawMessage
+	if jc.Decode(&info) != nil {
+		return
+	}
+	if jc.Check("couldn't watch address", s.w.AddAddress(addr, info)) != nil {
+		return
 	}
 }
 
 func (s *server) walletAddressesHandler(jc jape.Context) {
-	addresses, err := s.w.Addresses()
-	if jc.Check("couldn't load addresses", err) == nil {
-		jc.Encode(addresses)
+	addrs, err := s.w.Addresses()
+	if jc.Check("couldn't load addresses", err) != nil {
+		return
 	}
+	jc.Encode(addrs)
 }
 
-func (s *server) walletTransactionsHandler(jc jape.Context) {
+func (s *server) walletBalanceHandler(jc jape.Context) {
+	scos, sfos, err := s.w.UnspentOutputs()
+	if jc.Check("couldn't load outputs", err) != nil {
+		return
+	}
+	var sc types.Currency
+	var sf uint64
+	for _, sco := range scos {
+		sc = sc.Add(sco.Value)
+	}
+	for _, sfo := range sfos {
+		sf += sfo.Value
+	}
+	jc.Encode(WalletBalanceResponse{
+		Siacoins: sc,
+		Siafunds: sf,
+	})
+}
+
+func (s *server) walletEventsHandler(jc jape.Context) {
 	var since time.Time
 	max := -1
 	if jc.DecodeForm("since", (*paramTime)(&since)) != nil || jc.DecodeForm("max", &max) != nil {
 		return
 	}
-	txns, err := s.w.Transactions(since, max)
-	if jc.Check("couldn't load transactions", err) == nil {
-		jc.Encode(txns)
-	}
-}
-
-func (s *server) walletTransactionHandler(jc jape.Context) {
-	var id types.TransactionID
-	if jc.DecodeParam("id", &id) != nil {
+	events, err := s.w.Events(since, max)
+	if jc.Check("couldn't load events", err) != nil {
 		return
 	}
-
-	txn, err := s.w.Transaction(id)
-	if jc.Check("couldn't load transaction", err) == nil {
-		jc.Encode(txn)
-	}
-}
-
-func (s *server) walletTransactionsAddressHandler(jc jape.Context) {
-	var addr types.Address
-	if jc.DecodeParam("address", &addr) != nil {
-		return
-	}
-
-	txns, err := s.w.TransactionsByAddress(addr)
-	if jc.Check("couldn't load transactions", err) == nil {
-		jc.Encode(txns)
-		return
-	}
+	jc.Encode(events)
 }
 
 func (s *server) walletOutputsHandler(jc jape.Context) {
-	utxos, err := s.w.UnspentSiacoinOutputs()
-	if jc.Check("couldn't load unspent siacoin outputs", err) == nil {
-		jc.Encode(utxos)
-	}
-}
-
-func (s *server) walletSignHandler(jc jape.Context) {
-	var wtsr WalletSignRequest
-	if jc.Decode(&wtsr) != nil {
+	scos, sfos, err := s.w.UnspentOutputs()
+	if jc.Check("couldn't load outputs", err) != nil {
 		return
 	}
-
-	if jc.Check("failed to sign transaction", s.w.SignTransaction(&wtsr.Transaction, wtsr.ToSign)) != nil {
-		return
-	}
-	jc.Encode(wtsr.Transaction)
-}
-
-func (s *server) walletFundHandler(jc jape.Context) {
-	var wfr WalletFundRequest
-	if jc.Decode(&wfr) != nil {
-		return
-	}
-	txn := wfr.Transaction
-	fee := s.tp.RecommendedFee().Mul64(uint64(len(encoding.Marshal(txn))))
-	txn.MinerFees = []types.Currency{fee}
-	toSign, unclaim, err := s.w.FundTransaction(&wfr.Transaction, wfr.Siacoins.Add(txn.MinerFees[0]), wfr.Siafunds)
-	if jc.Check("failed to fund transaction", err) != nil {
-		return
-	}
-
-	parents, err := s.tp.UnconfirmedParents(txn)
-	if err != nil {
-		unclaim()
-		jc.Check("couldn't load parents", err)
-		return
-	}
-
-	var cParents []types.Transaction
-	for _, parent := range parents {
-		var cParent types.Transaction
-		siadConvertToCore(parent, &cParent)
-		cParents = append(cParents, cParent)
-	}
-
-	jc.Encode(WalletFundResponse{
-		Transaction: txn,
-		ToSign:      toSign,
-		DependsOn:   cParents,
+	jc.Encode(WalletOutputsResponse{
+		SiacoinOutputs: scos,
+		SiafundOutputs: sfos,
 	})
 }
 
-func (s *server) walletSplitHandler(jc jape.Context) {
-	var wsr WalletSplitRequest
-	if jc.Decode(&wsr) != nil {
+func (s *server) walletReserveHandler(jc jape.Context) {
+	var wrr WalletReserveRequest
+	if jc.Decode(&wrr) != nil {
 		return
 	}
 
-	utxos, err := s.w.UnspentSiacoinOutputs()
-	if jc.Check("couldn't load unspent siacoin outputs", err) != nil {
-		return
-	}
-
-	ins, fee, change := wallet.DistributeFunds(utxos, wsr.Outputs, wsr.Amount, s.tp.RecommendedFee())
-	if jc.Check("couldn't distribute funds", err) != nil {
-		return
-	}
-
-	txn := types.Transaction{
-		SiacoinInputs:  make([]types.SiacoinInput, len(ins)),
-		SiacoinOutputs: make([]types.SiacoinOutput, wsr.Outputs),
-		MinerFees:      []types.Currency{fee},
-	}
-
-	addr, err := s.w.Address()
-	if jc.Check("couldn't get wallet address", err) != nil {
-		return
-	}
-
-	for i := range ins {
-		addr, err := s.w.AddressInfo(ins[i].Address)
-		if jc.Check("couldn't load address info", err) != nil {
+	s.mu.Lock()
+	for _, id := range wrr.SiacoinOutputs {
+		if s.used[types.Hash256(id)] {
+			s.mu.Unlock()
+			jc.Error(fmt.Errorf("output %v is already reserved", id), http.StatusBadRequest)
 			return
 		}
-		txn.SiacoinInputs[i] = types.SiacoinInput{
-			ParentID:         ins[i].ID,
-			UnlockConditions: addr.UnlockConditions,
+		s.used[types.Hash256(id)] = true
+	}
+	for _, id := range wrr.SiafundOutputs {
+		if s.used[types.Hash256(id)] {
+			s.mu.Unlock()
+			jc.Error(fmt.Errorf("output %v is already reserved", id), http.StatusBadRequest)
+			return
 		}
+		s.used[types.Hash256(id)] = true
 	}
-	for i := range txn.SiacoinOutputs {
-		txn.SiacoinOutputs[i] = types.SiacoinOutput{
-			Value:   wsr.Amount,
-			Address: addr,
+	s.mu.Unlock()
+
+	if wrr.Timeout == 0 {
+		wrr.Timeout = 10 * time.Minute
+	}
+	time.AfterFunc(wrr.Timeout, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, id := range wrr.SiacoinOutputs {
+			delete(s.used, types.Hash256(id))
 		}
-	}
-	if !change.IsZero() {
-		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
-			Value:   change,
-			Address: addr,
-		})
-	}
-
-	jc.Encode(txn)
-}
-
-func (s *server) walletSendHandler(jc jape.Context) {
-	var wsr WalletSendRequest
-	if jc.Decode(&wsr) != nil {
-		return
-	}
-
-	var txn types.Transaction
-	var amountSC types.Currency
-	var amountSF uint64
-	if wsr.Type == "siacoin" {
-		amountSC = wsr.Amount
-		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{amountSC, wsr.Destination})
-	} else if wsr.Type == "siafund" {
-		amountSF = wsr.Amount.Lo
-		txn.SiafundOutputs = append(txn.SiafundOutputs, types.SiafundOutput{amountSF, wsr.Destination})
-	} else {
-		jc.Error(errors.New("specify either siacoin or siafund as the type"), http.StatusBadRequest)
-		return
-	}
-	fee := s.tp.RecommendedFee().Mul64(uint64(len(encoding.Marshal(txn))))
-	txn.MinerFees = []types.Currency{fee}
-	amountSC = amountSC.Add(fee)
-
-	toSign, unclaim, err := s.w.FundTransaction(&txn, amountSC, amountSF)
-	if jc.Check("failed to fund transaction", err) != nil {
-		return
-	}
-	defer unclaim()
-
-	if jc.Check("failed to fund transaction", s.w.SignTransaction(&txn, toSign)) != nil {
-		return
-	}
-
-	if jc.Check("failed to add transaction to transaction pool", s.tp.AddTransactionSet([]types.Transaction{txn})) != nil {
-		return
-	}
-	jc.Encode(WalletSendResponse{txn.ID(), txn})
+		for _, id := range wrr.SiafundOutputs {
+			delete(s.used, types.Hash256(id))
+		}
+	})
 }
 
 // NewServer returns an HTTP handler that serves the walletd API.
@@ -306,16 +219,11 @@ func NewServer(cm ChainManager, s Syncer, tp TransactionPool, w Wallet) http.Han
 		"GET  /txpool/transactions": srv.txpoolTransactionsHandler,
 		"POST /txpool/broadcast":    srv.txpoolBroadcastHandler,
 
-		"GET  /wallet/balance":               srv.walletBalanceHandler,
-		"GET  /wallet/address":               srv.walletAddressHandler,
-		"GET  /wallet/addresses":             srv.walletAddressesHandler,
-		"GET  /wallet/transaction/:id":       srv.walletTransactionHandler,
-		"POST /wallet/sign":                  srv.walletSignHandler,
-		"POST /wallet/fund":                  srv.walletFundHandler,
-		"POST /wallet/split":                 srv.walletSplitHandler,
-		"POST /wallet/send":                  srv.walletSendHandler,
-		"GET  /wallet/transactions":          srv.walletTransactionsHandler,
-		"GET  /wallet/transactions/:address": srv.walletTransactionsAddressHandler,
-		"GET  /wallet/outputs":               srv.walletOutputsHandler,
+		"PUT  /wallet/addresses/:addr": srv.walletAddressHandlerPUT,
+		"GET  /wallet/addresses":       srv.walletAddressesHandler,
+		"GET  /wallet/balance":         srv.walletBalanceHandler,
+		"GET  /wallet/events":          srv.walletEventsHandler,
+		"GET  /wallet/outputs":         srv.walletOutputsHandler,
+		"POST /wallet/reserve":         srv.walletReserveHandler,
 	})
 }

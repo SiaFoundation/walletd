@@ -2,94 +2,122 @@ package main
 
 import (
 	"log"
-	"os"
-	"path/filepath"
+	"net"
 
-	"go.sia.tech/siad/modules"
-	"go.sia.tech/siad/modules/consensus"
-	"go.sia.tech/siad/modules/gateway"
-	"go.sia.tech/siad/modules/transactionpool"
+	bolt "go.etcd.io/bbolt"
+	"go.sia.tech/core/chain"
+	"go.sia.tech/core/gateway"
 	"go.sia.tech/walletd/internal/walletutil"
-	"go.sia.tech/walletd/wallet"
+	"go.sia.tech/walletd/syncer"
+	"go.sia.tech/walletd/txpool"
 )
 
-type node struct {
-	g  modules.Gateway
-	cm modules.ConsensusSet
-	tp modules.TransactionPool
-	w  *wallet.HotWallet
+type boltDB struct {
+	db *bolt.DB
 }
 
-func (n *node) Close() error {
-	errs := []error{
-		n.g.Close(),
-		n.cm.Close(),
-		n.tp.Close(),
+func (db boltDB) View(fn func(chain.DBTx) error) error {
+	return db.db.View(func(tx *bolt.Tx) error {
+		return fn(boltTx{tx})
+	})
+}
+
+func (db boltDB) Update(fn func(chain.DBTx) error) error {
+	return db.db.Update(func(tx *bolt.Tx) error {
+		return fn(boltTx{tx})
+	})
+}
+
+type boltTx struct {
+	tx *bolt.Tx
+}
+
+func (tx boltTx) Bucket(name []byte) chain.DBBucket {
+	b := tx.tx.Bucket(name)
+	if b == nil {
+		return nil
 	}
-	for _, err := range errs {
-		if err != nil {
-			return err
-		}
+	return b
+}
+
+func (tx boltTx) CreateBucket(name []byte) (chain.DBBucket, error) {
+	b, err := tx.tx.CreateBucket(name)
+	if b == nil {
+		return nil, err
 	}
-	return nil
+	return b, nil
+}
+
+func (tx boltTx) DeleteBucket(name []byte) error {
+	return tx.tx.DeleteBucket(name)
+}
+
+type node struct {
+	cm *chain.Manager
+	tp *txpool.TxPool
+	s  *syncer.Syncer
+	w  *walletutil.JSONStore
+
+	Close func() error
 }
 
 func newNode(addr, dir string) (*node, error) {
-	gatewayDir := filepath.Join(dir, "gateway")
-	if err := os.MkdirAll(gatewayDir, 0700); err != nil {
-		return nil, err
+	bdb, err := bolt.Open("consensus.db", 0600, nil)
+	if err != nil {
+		log.Fatal(err)
 	}
-	g, err := gateway.New(addr, false, gatewayDir)
+	network, genesisBlock := chain.Mainnet()
+	dbstore, tip, err := chain.NewDBStore(boltDB{bdb}, network, genesisBlock)
 	if err != nil {
 		return nil, err
 	}
-	consensusDir := filepath.Join(dir, "consensus")
-	if err := os.MkdirAll(consensusDir, 0700); err != nil {
-		return nil, err
-	}
-	cm, errCh := consensus.New(g, false, consensusDir)
-	select {
-	case err := <-errCh:
-		return nil, err
-	default:
-		go func() {
-			if err := <-errCh; err != nil {
-				log.Println("WARNING: consensus initialization returned an error:", err)
-			}
-		}()
-	}
-	tpoolDir := filepath.Join(dir, "transactionpool")
-	if err := os.MkdirAll(tpoolDir, 0700); err != nil {
-		return nil, err
-	}
-	tp, err := transactionpool.New(cm, g, tpoolDir)
-	if err != nil {
-		return nil, err
-	}
+	cm := chain.NewManager(dbstore, tip.State)
 
-	walletDir := filepath.Join(dir, "wallet")
-	if err := os.MkdirAll(walletDir, 0700); err != nil {
-		return nil, err
-	}
+	tp := txpool.New(nil)
 
-	store, err := walletutil.NewJSONStore(walletDir)
+	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
-	w := wallet.NewHotWallet(store, wallet.NewSeed())
+	header := gateway.Header{
+		GenesisID:  genesisBlock.ID(),
+		UniqueID:   gateway.GenerateUniqueID(),
+		NetAddress: addr,
+	}
+	bootstrapPeers := []string{
+		"144.217.7.188:9981",
+		"5.19.177.22:9981",
+		"176.104.8.173:9981",
+	}
+	pm, err := syncer.NewJSONPeerManager("peers.json", bootstrapPeers)
+	if err != nil {
+		log.Fatal(err)
+	}
+	s := syncer.New(l, cm, tp, pm, header, syncer.WithLogger((*syncer.StdLogger)(log.Default())))
 
-	ccid, err := store.ConsensusChangeID()
+	w, wtip, err := walletutil.NewJSONStore(dir)
 	if err != nil {
 		return nil, err
-	}
-	if err := cm.ConsensusSetSubscribe(store, ccid, nil); err != nil {
+	} else if err := cm.AddSubscriber(w, wtip); err != nil {
 		return nil, err
 	}
 
 	return &node{
-		g:  g,
 		cm: cm,
 		tp: tp,
+		s:  s,
 		w:  w,
+		Close: func() error {
+			errs := []error{
+				s.Close(), // closes l
+				bdb.Close(),
+			}
+			for _, err := range errs {
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		},
 	}, nil
 }
