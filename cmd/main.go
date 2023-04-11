@@ -16,11 +16,25 @@ var commit = func() string {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, setting := range info.Settings {
 			if setting.Key == "vcs.revision" {
-				return setting.Value
+				if modified {
+					return setting.Value[:8] + " (modified)"
+				}
+				return setting.Value[:8]
 			}
 		}
 	}
-	return ""
+	return "?"
+}()
+
+var modified = func() bool {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.modified" {
+				return setting.Value == "true"
+			}
+		}
+	}
+	return false
 }()
 
 var timestamp = func() string {
@@ -31,7 +45,7 @@ var timestamp = func() string {
 			}
 		}
 	}
-	return ""
+	return "?"
 }()
 
 func check(context string, err error) {
@@ -59,7 +73,7 @@ func getAPIPassword() string {
 
 func main() {
 	log.SetFlags(0)
-	gatewayAddr := flag.String("addr", ":0", "p2p address to listen on")
+	gatewayAddr := flag.String("addr", "localhost:0", "p2p address to listen on")
 	apiAddr := flag.String("http", "localhost:9980", "address to serve API on")
 	dir := flag.String("dir", ".", "directory to store node state in")
 	flag.Parse()

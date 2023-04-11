@@ -15,8 +15,8 @@ import (
 // A DiscardLogger discards all log messages.
 type DiscardLogger struct{}
 
-// LogFailedConnect implements Logger.
-func (DiscardLogger) LogFailedConnect(peer string, inbound bool, err error) {}
+// LogConnect implements Logger.
+func (DiscardLogger) LogConnect(peer string, inbound bool, err error) {}
 
 // LogFailedRPC implements Logger.
 func (DiscardLogger) LogFailedRPC(p *gateway.Peer, rpc string, err error) {}
@@ -43,12 +43,17 @@ func (l *StdLogger) printf(fmt string, args ...interface{}) {
 	(*log.Logger)(l).Printf(fmt, args...)
 }
 
-// LogFailedConnect implements Logger.
-func (l *StdLogger) LogFailedConnect(peer string, inbound bool, err error) {
-	if inbound {
+// LogConnect implements Logger.
+func (l *StdLogger) LogConnect(peer string, inbound bool, err error) {
+	switch {
+	case inbound && err == nil:
+		l.printf("accepted inbound connection from %v", peer)
+	case !inbound && err == nil:
+		l.printf("formed outbound connection to %v", peer)
+	case inbound && err != nil:
 		l.printf("failed to accept inbound connection from %v: %v", peer, err)
-	} else {
-		l.printf("failed to form outbound connect to %v: %v", peer, err)
+	case !inbound && err != nil:
+		l.printf("failed to form outbound connection to %v: %v", peer, err)
 	}
 }
 
@@ -82,10 +87,15 @@ func (l *StdLogger) LogSyncFinish(p *gateway.Peer) {
 	l.printf("finished sync with peer %v", p)
 }
 
+type peerBan struct {
+	Expiry time.Time
+	Reason string
+}
+
 // EphemeralPeerManager implements PeerManager with an in-memory map.
 type EphemeralPeerManager struct {
 	peers map[string]struct{}
-	bans  map[string]time.Time
+	bans  map[string]peerBan
 	mu    sync.Mutex
 }
 
@@ -111,8 +121,8 @@ func (pm *EphemeralPeerManager) banned(peer string) bool {
 		subnet("/0"),  //  *
 	}
 	for _, s := range subs {
-		if expiry, ok := pm.bans[s]; ok {
-			if time.Until(expiry) <= 0 {
+		if b, ok := pm.bans[s]; ok {
+			if time.Until(b.Expiry) <= 0 {
 				delete(pm.bans, s)
 			} else {
 				return true
@@ -150,14 +160,14 @@ func (pm *EphemeralPeerManager) Banned(peer string) bool {
 }
 
 // Ban implements PeerManager.
-func (pm *EphemeralPeerManager) Ban(peer string, duration time.Duration) {
+func (pm *EphemeralPeerManager) Ban(peer string, duration time.Duration, reason string) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	// canonicalize
 	if _, ipnet, err := net.ParseCIDR(peer); err == nil {
 		peer = ipnet.String()
 	}
-	pm.bans[peer] = time.Now().Add(duration)
+	pm.bans[peer] = peerBan{Expiry: time.Now().Add(duration), Reason: reason}
 }
 
 // NewEphemeralPeerManager initializes an EphemeralPeerManager with an initial
@@ -169,6 +179,7 @@ func NewEphemeralPeerManager(bootstrap []string) *EphemeralPeerManager {
 	}
 	return &EphemeralPeerManager{
 		peers: peers,
+		bans:  make(map[string]peerBan),
 	}
 }
 
@@ -179,6 +190,7 @@ type jsonPeer struct {
 type jsonBan struct {
 	Subnet string    `json:"subnet"`
 	Expiry time.Time `json:"expiry"`
+	Reason string    `json:"reason"`
 }
 
 // JSONPeerManager implements PeerManager with a JSON file on disk.
@@ -208,13 +220,15 @@ func (pm *JSONPeerManager) load() error {
 	}
 	for _, ban := range p.Bans {
 		if time.Until(ban.Expiry) > 0 {
-			pm.EphemeralPeerManager.bans[ban.Subnet] = ban.Expiry
+			pm.EphemeralPeerManager.bans[ban.Subnet] = peerBan{ban.Expiry, ban.Reason}
 		}
 	}
 	return nil
 }
 
 func (pm *JSONPeerManager) save() error {
+	pm.EphemeralPeerManager.mu.Lock()
+	defer pm.EphemeralPeerManager.mu.Unlock()
 	var p struct {
 		Peers []jsonPeer `json:"peers"`
 		Bans  []jsonBan  `json:"bans"`
@@ -222,8 +236,8 @@ func (pm *JSONPeerManager) save() error {
 	for addr := range pm.EphemeralPeerManager.peers {
 		p.Peers = append(p.Peers, jsonPeer{addr})
 	}
-	for subnet, expiry := range pm.EphemeralPeerManager.bans {
-		p.Bans = append(p.Bans, jsonBan{subnet, expiry})
+	for subnet, ban := range pm.EphemeralPeerManager.bans {
+		p.Bans = append(p.Bans, jsonBan{subnet, ban.Expiry, ban.Reason})
 	}
 	js, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
@@ -253,8 +267,8 @@ func (pm *JSONPeerManager) AddPeer(peer string) {
 }
 
 // Ban implements PeerManager.
-func (pm *JSONPeerManager) Ban(peer string, duration time.Duration) {
-	pm.EphemeralPeerManager.Ban(peer, duration)
+func (pm *JSONPeerManager) Ban(peer string, duration time.Duration, reason string) {
+	pm.EphemeralPeerManager.Ban(peer, duration, reason)
 	pm.save()
 }
 

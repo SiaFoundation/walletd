@@ -17,15 +17,12 @@ import (
 type ChainManager interface {
 	History() ([32]types.BlockID, error)
 	BlocksForHistory(blocks []types.Block, history []types.BlockID) ([]types.Block, error)
-	Block(id types.BlockID) (types.Block, error)
+	Block(id types.BlockID) (types.Block, bool)
 	AddBlocks(blocks []types.Block) error
 	Tip() types.ChainIndex
 	TipState() consensus.State
-}
 
-// A TransactionPool manages uncommitted transactions.
-type TransactionPool interface {
-	AddTransactionSet(txns []types.Transaction) error
+	AddPoolTransactions(txns []types.Transaction) error
 }
 
 // A PeerManager manages a set of known peers.
@@ -35,12 +32,12 @@ type PeerManager interface {
 	Banned(peer string) bool
 	// Ban temporarily bans one or more IPs. The addr should either be a single
 	// IP with port (e.g. 1.2.3.4:5678) or a CIDR subnet (e.g. 1.2.3.4/16).
-	Ban(addr string, duration time.Duration)
+	Ban(addr string, duration time.Duration, reason string)
 }
 
 // A Logger logs events related to a Syncer.
 type Logger interface {
-	LogFailedConnect(peer string, inbound bool, err error)
+	LogConnect(peer string, inbound bool, err error)
 	LogFailedRPC(p *gateway.Peer, rpc string, err error)
 	LogBannedPeer(p *gateway.Peer, err error)
 	LogDiscoveredNodes(p *gateway.Peer, nodes []string)
@@ -135,7 +132,6 @@ func WithLogger(l Logger) Option {
 type Syncer struct {
 	l      net.Listener
 	cm     ChainManager
-	tp     TransactionPool
 	pm     PeerManager
 	log    Logger // redundant, but convenient
 	header gateway.Header
@@ -161,7 +157,11 @@ func (h *rpcHandler) PeersForShare() (peers []string) {
 }
 
 func (h *rpcHandler) Block(id types.BlockID) (types.Block, error) {
-	return h.s.cm.Block(id)
+	b, ok := h.s.cm.Block(id)
+	if !ok {
+		return types.Block{}, errors.New("block not found")
+	}
+	return b, nil
 }
 
 func (h *rpcHandler) BlocksForHistory(history [32]types.BlockID) ([]types.Block, bool, error) {
@@ -170,20 +170,27 @@ func (h *rpcHandler) BlocksForHistory(history [32]types.BlockID) ([]types.Block,
 }
 
 func (h *rpcHandler) RelayHeader(bh types.BlockHeader, origin *gateway.Peer) {
-	if _, err := h.s.cm.Block(bh.ID()); err == nil {
+	if _, ok := h.s.cm.Block(bh.ID()); ok {
 		return // already seen
-	} else if err := consensus.ValidateHeader(h.s.cm.TipState(), bh); err != nil {
-		h.s.ban(origin, err)
-		return
-	} else if _, err := h.s.cm.Block(bh.ParentID); err != nil {
+	} else if _, ok := h.s.cm.Block(bh.ParentID); !ok {
 		// trigger a resync
 		h.s.mu.Lock()
 		h.s.synced[origin.Addr] = false
 		h.s.mu.Unlock()
 		return
+	} else if cs := h.s.cm.TipState(); bh.ParentID != cs.Index.ID {
+		// block extends a sidechain; trigger a resync
+		h.s.mu.Lock()
+		h.s.synced[origin.Addr] = false
+		h.s.mu.Unlock()
+		return
+	} else if err := consensus.ValidateHeader(cs, bh); err != nil {
+		// peer relayed an invalid header
+		h.s.ban(origin, err)
+		return
 	}
 
-	// request + validate full block
+	// header is valid and attaches to our tip; request + validate full block
 	if b, err := origin.SendBlock(bh.ID(), h.s.config.SendBlockTimeout); err != nil {
 		h.s.ban(origin, err)
 		return
@@ -196,8 +203,9 @@ func (h *rpcHandler) RelayHeader(bh types.BlockHeader, origin *gateway.Peer) {
 }
 
 func (h *rpcHandler) RelayTransactionSet(txns []types.Transaction, origin *gateway.Peer) {
-	if err := h.s.tp.AddTransactionSet(txns); err != nil {
-		h.s.ban(origin, err)
+	if err := h.s.cm.AddPoolTransactions(txns); err != nil {
+		// NOTE: banning would be risky here; we probably just haven't finished
+		// syncing yet
 		return
 	}
 	h.s.relayTransactionSet(txns, origin) // non-blocking
@@ -205,7 +213,7 @@ func (h *rpcHandler) RelayTransactionSet(txns []types.Transaction, origin *gatew
 
 func (s *Syncer) ban(p *gateway.Peer, err error) {
 	p.SetErr(errors.New("banned"))
-	s.pm.Ban(p.Addr, 24*time.Hour)
+	s.pm.Ban(p.Addr, 24*time.Hour, err.Error())
 	s.log.LogBannedPeer(p, err)
 }
 
@@ -236,7 +244,7 @@ func (s *Syncer) runPeer(p *gateway.Peer) {
 		}
 		inflight <- struct{}{}
 		go func() {
-			defer s.Close()
+			defer stream.Close()
 			if err := p.HandleRPC(id, stream, h); err != nil {
 				s.ban(p, err)
 			}
@@ -295,12 +303,12 @@ func (s *Syncer) acceptLoop() error {
 		go func() {
 			defer conn.Close()
 			if err := allowConnect(conn.RemoteAddr().String()); err != nil {
-				s.log.LogFailedConnect(conn.RemoteAddr().String(), true, err)
+				s.log.LogConnect(conn.RemoteAddr().String(), true, err)
 				return
 			}
 			p, err := gateway.AcceptPeer(conn, s.header)
+			s.log.LogConnect(conn.RemoteAddr().String(), true, err)
 			if err != nil {
-				s.log.LogFailedConnect(conn.RemoteAddr().String(), true, err)
 				return
 			}
 			s.runPeer(p)
@@ -323,7 +331,12 @@ func (s *Syncer) peerLoop(closeChan <-chan struct{}) error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		// TODO: weighted random selection?
-		peers = s.pm.Peers()
+		for _, p := range s.pm.Peers() {
+			// TODO: don't include port in comparison
+			if _, ok := s.peers[p]; !ok {
+				peers = append(peers, p)
+			}
+		}
 		frand.Shuffle(len(peers), reflect.Swapper(peers))
 		if len(peers) > 8 {
 			peers = peers[:8]
@@ -374,9 +387,11 @@ func (s *Syncer) peerLoop(closeChan <-chan struct{}) error {
 			continue
 		}
 		for _, p := range candidates {
-			if _, err := s.Connect(p); err != nil {
-				s.log.LogFailedConnect(p, false, err)
+			if numOutbound() >= 8 {
+				break
 			}
+			_, err := s.Connect(p)
+			s.log.LogConnect(p, false, err)
 		}
 	}
 	return nil
@@ -433,11 +448,11 @@ func (s *Syncer) syncLoop(closeChan <-chan struct{}) error {
 
 			// if we extended our best chain, rebroadcast our new tip
 			if newTip := s.cm.Tip(); newTip != oldTip {
-				b, err := s.cm.Block(newTip.ID)
-				if err != nil {
+				b, ok := s.cm.Block(newTip.ID)
+				if !ok {
 					continue // shouldn't happen
 				}
-				s.relayHeader(b.Header(), nil) // non-blocking
+				s.relayHeader(b.Header(), p) // non-blocking
 			}
 		}
 	}
@@ -524,11 +539,18 @@ func (s *Syncer) Addr() string {
 
 // Close closes the Syncer.
 func (s *Syncer) Close() error {
-	return s.l.Close()
+	err := s.l.Close()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for addr, p := range s.peers {
+		p.Close()
+		delete(s.peers, addr)
+	}
+	return err
 }
 
 // New returns a new Syncer.
-func New(l net.Listener, cm ChainManager, tp TransactionPool, pm PeerManager, header gateway.Header, opts ...Option) *Syncer {
+func New(l net.Listener, cm ChainManager, pm PeerManager, header gateway.Header, opts ...Option) *Syncer {
 	config := config{
 		MaxInboundPeers:            8,
 		MaxOutboundPeers:           16,
@@ -548,7 +570,6 @@ func New(l net.Listener, cm ChainManager, tp TransactionPool, pm PeerManager, he
 	return &Syncer{
 		l:      l,
 		cm:     cm,
-		tp:     tp,
 		pm:     pm,
 		log:    config.Logger,
 		header: header,

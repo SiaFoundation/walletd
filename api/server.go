@@ -16,9 +16,14 @@ import (
 )
 
 type (
-	// A ChainManager manages blockchain state.
+	// A ChainManager manages blockchain and txpool state.
 	ChainManager interface {
 		TipState() consensus.State
+
+		RecommendedFee() types.Currency
+		PoolTransactions() []types.Transaction
+		AddPoolTransactions(txns []types.Transaction) error
+		UnconfirmedParents(txn types.Transaction) []types.Transaction
 	}
 
 	// A Syncer can connect to other peers and synchronize the blockchain.
@@ -27,14 +32,6 @@ type (
 		Peers() []*gateway.Peer
 		Connect(addr string) (*gateway.Peer, error)
 		BroadcastTransactionSet(txns []types.Transaction)
-	}
-
-	// A TransactionPool can validate and relay unconfirmed transactions.
-	TransactionPool interface {
-		RecommendedFee() types.Currency
-		Transactions() []types.Transaction
-		AddTransactionSet(txns []types.Transaction) error
-		UnconfirmedParents(txn types.Transaction) []types.Transaction
 	}
 
 	// A Wallet can spend and receive siacoins.
@@ -48,7 +45,6 @@ type (
 
 type server struct {
 	cm ChainManager
-	tp TransactionPool
 	s  Syncer
 	w  Wallet
 
@@ -83,7 +79,14 @@ func (s *server) syncerConnectHandler(jc jape.Context) {
 }
 
 func (s *server) txpoolTransactionsHandler(jc jape.Context) {
-	jc.Encode(s.tp.Transactions())
+	// TODO:
+	// type Transaction struct {
+	//     ID          types.TransactionID
+	//     Transaction types.Transaction
+	//     Spending    []types.Hash256 // parent IDs of inputs/fcs/sps
+	//     Receiving   []types.Address
+	// }
+	jc.Encode(s.cm.PoolTransactions())
 }
 
 func (s *server) txpoolBroadcastHandler(jc jape.Context) {
@@ -91,7 +94,7 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	if jc.Decode(&txnSet) != nil {
 		return
 	}
-	if jc.Check("invalid transaction set", s.tp.AddTransactionSet(txnSet)) != nil {
+	if jc.Check("invalid transaction set", s.cm.AddPoolTransactions(txnSet)) != nil {
 		return
 	}
 	s.s.BroadcastTransactionSet(txnSet)
@@ -203,11 +206,10 @@ func (s *server) walletReserveHandler(jc jape.Context) {
 }
 
 // NewServer returns an HTTP handler that serves the walletd API.
-func NewServer(cm ChainManager, s Syncer, tp TransactionPool, w Wallet) http.Handler {
+func NewServer(cm ChainManager, s Syncer, w Wallet) http.Handler {
 	srv := server{
 		cm: cm,
 		s:  s,
-		tp: tp,
 		w:  w,
 	}
 	return jape.Mux(map[string]jape.Handler{
