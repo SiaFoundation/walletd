@@ -14,6 +14,7 @@ import (
 	"go.sia.tech/jape"
 	"go.sia.tech/walletd/api"
 	"go.sia.tech/walletd/internal/walletutil"
+	"go.sia.tech/walletd/syncer"
 	"go.sia.tech/walletd/wallet"
 )
 
@@ -29,6 +30,7 @@ type mockSyncer struct{}
 
 func (mockSyncer) Addr() string                                     { return "" }
 func (mockSyncer) Peers() []*gateway.Peer                           { return nil }
+func (mockSyncer) PeerInfo(string) (i syncer.PeerInfo, ok bool)     { return }
 func (mockSyncer) Connect(addr string) (*gateway.Peer, error)       { return nil, nil }
 func (mockSyncer) BroadcastTransactionSet(txns []types.Transaction) {}
 

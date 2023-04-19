@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
+	"go.sia.tech/walletd/syncer"
 	"go.sia.tech/walletd/wallet"
 )
 
@@ -30,6 +32,7 @@ type (
 	Syncer interface {
 		Addr() string
 		Peers() []*gateway.Peer
+		PeerInfo(peer string) (syncer.PeerInfo, bool)
 		Connect(addr string) (*gateway.Peer, error)
 		BroadcastTransactionSet(txns []types.Transaction)
 	}
@@ -67,6 +70,15 @@ func (s *server) syncerPeersHandler(jc jape.Context) {
 		})
 	}
 	jc.Encode(peers)
+}
+
+func (s *server) syncerPeerAddrHandler(jc jape.Context) {
+	info, ok := s.s.PeerInfo(jc.PathParam("addr"))
+	if !ok {
+		jc.Error(errors.New("peer not found"), http.StatusNotFound)
+		return
+	}
+	jc.Encode(info)
 }
 
 func (s *server) syncerConnectHandler(jc jape.Context) {
@@ -215,8 +227,9 @@ func NewServer(cm ChainManager, s Syncer, w Wallet) http.Handler {
 	return jape.Mux(map[string]jape.Handler{
 		"GET  /consensus/tip": srv.consensusTipHandler,
 
-		"GET  /syncer/peers":   srv.syncerPeersHandler,
-		"POST /syncer/connect": srv.syncerConnectHandler,
+		"GET  /syncer/peers":      srv.syncerPeersHandler,
+		"GET  /syncer/peer/:addr": srv.syncerPeerAddrHandler,
+		"POST /syncer/connect":    srv.syncerConnectHandler,
 
 		"GET  /txpool/transactions": srv.txpoolTransactionsHandler,
 		"POST /txpool/broadcast":    srv.txpoolBroadcastHandler,

@@ -2,104 +2,25 @@ package syncer
 
 import (
 	"encoding/json"
-	"log"
 	"net"
 	"os"
 	"sync"
 	"time"
-
-	"go.sia.tech/core/gateway"
-	"go.sia.tech/core/types"
 )
 
-// A DiscardLogger discards all log messages.
-type DiscardLogger struct{}
-
-// LogConnect implements Logger.
-func (DiscardLogger) LogConnect(peer string, inbound bool, err error) {}
-
-// LogFailedRPC implements Logger.
-func (DiscardLogger) LogFailedRPC(p *gateway.Peer, rpc string, err error) {}
-
-// LogBannedPeer implements Logger.
-func (DiscardLogger) LogBannedPeer(p *gateway.Peer, err error) {}
-
-// LogDiscoveredNodes implements Logger.
-func (DiscardLogger) LogDiscoveredNodes(p *gateway.Peer, nodes []string) {}
-
-// LogSyncStart implements Logger.
-func (DiscardLogger) LogSyncStart(p *gateway.Peer) {}
-
-// LogSyncProgress implements Logger.
-func (DiscardLogger) LogSyncProgress(p *gateway.Peer, numBlocks int, tip types.ChainIndex) {}
-
-// LogSyncFinish implements Logger.
-func (DiscardLogger) LogSyncFinish(p *gateway.Peer) {}
-
-// A StdLogger logs messages to a *log.Logger.
-type StdLogger log.Logger
-
-func (l *StdLogger) printf(fmt string, args ...interface{}) {
-	(*log.Logger)(l).Printf(fmt, args...)
-}
-
-// LogConnect implements Logger.
-func (l *StdLogger) LogConnect(peer string, inbound bool, err error) {
-	switch {
-	case inbound && err == nil:
-		l.printf("accepted inbound connection from %v", peer)
-	case !inbound && err == nil:
-		l.printf("formed outbound connection to %v", peer)
-	case inbound && err != nil:
-		l.printf("failed to accept inbound connection from %v: %v", peer, err)
-	case !inbound && err != nil:
-		l.printf("failed to form outbound connection to %v: %v", peer, err)
-	}
-}
-
-// LogFailedRPC implements Logger.
-func (l *StdLogger) LogFailedRPC(p *gateway.Peer, rpc string, err error) {
-	l.printf("failed to call RPC %q on peer %v: %v", rpc, p, err)
-}
-
-// LogBannedPeer implements Logger.
-func (l *StdLogger) LogBannedPeer(p *gateway.Peer, err error) {
-	l.printf("banned peer %v: %v", p, err)
-}
-
-// LogDiscoveredNodes implements Logger.
-func (l *StdLogger) LogDiscoveredNodes(p *gateway.Peer, nodes []string) {
-	l.printf("discovered %v nodes via peer %v", len(nodes), p)
-}
-
-// LogSyncStart implements Logger.
-func (l *StdLogger) LogSyncStart(p *gateway.Peer) {
-	l.printf("starting sync with peer %v", p)
-}
-
-// LogSyncProgress implements Logger.
-func (l *StdLogger) LogSyncProgress(p *gateway.Peer, numBlocks int, tip types.ChainIndex) {
-	l.printf("synced %v blocks with peer %v (tip now %v)", numBlocks, p, tip)
-}
-
-// LogSyncFinish implements Logger.
-func (l *StdLogger) LogSyncFinish(p *gateway.Peer) {
-	l.printf("finished sync with peer %v", p)
-}
-
 type peerBan struct {
-	Expiry time.Time
-	Reason string
+	Expiry time.Time `json:"expiry"`
+	Reason string    `json:"reason"`
 }
 
-// EphemeralPeerManager implements PeerManager with an in-memory map.
-type EphemeralPeerManager struct {
-	peers map[string]struct{}
+// EphemeralPeerStore implements PeerStore with an in-memory map.
+type EphemeralPeerStore struct {
+	peers map[string]PeerInfo
 	bans  map[string]peerBan
 	mu    sync.Mutex
 }
 
-func (pm *EphemeralPeerManager) banned(peer string) bool {
+func (pm *EphemeralPeerStore) banned(peer string) bool {
 	host, _, err := net.SplitHostPort(peer)
 	if err != nil {
 		return false // shouldn't happen
@@ -132,8 +53,17 @@ func (pm *EphemeralPeerManager) banned(peer string) bool {
 	return false
 }
 
-// Peers implements PeerManager.
-func (pm *EphemeralPeerManager) Peers() []string {
+// AddPeer implements PeerStore.
+func (pm *EphemeralPeerStore) AddPeer(peer string) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if _, ok := pm.peers[peer]; !ok {
+		pm.peers[peer] = PeerInfo{FirstSeen: time.Now()}
+	}
+}
+
+// Peers implements PeerStore.
+func (pm *EphemeralPeerStore) Peers() []string {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	var peers []string
@@ -145,22 +75,28 @@ func (pm *EphemeralPeerManager) Peers() []string {
 	return peers
 }
 
-// AddPeer implements PeerManager.
-func (pm *EphemeralPeerManager) AddPeer(peer string) {
+// UpdatePeerInfo implements PeerStore.
+func (pm *EphemeralPeerStore) UpdatePeerInfo(peer string, fn func(*PeerInfo)) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	pm.peers[peer] = struct{}{}
+	info, ok := pm.peers[peer]
+	if !ok {
+		return
+	}
+	fn(&info)
+	pm.peers[peer] = info
 }
 
-// Banned implements PeerManager.
-func (pm *EphemeralPeerManager) Banned(peer string) bool {
+// PeerInfo implements PeerStore.
+func (pm *EphemeralPeerStore) PeerInfo(peer string) (PeerInfo, bool) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
-	return pm.banned(peer)
+	info, ok := pm.peers[peer]
+	return info, ok
 }
 
-// Ban implements PeerManager.
-func (pm *EphemeralPeerManager) Ban(peer string, duration time.Duration, reason string) {
+// Ban implements PeerStore.
+func (pm *EphemeralPeerStore) Ban(peer string, duration time.Duration, reason string) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	// canonicalize
@@ -170,36 +106,28 @@ func (pm *EphemeralPeerManager) Ban(peer string, duration time.Duration, reason 
 	pm.bans[peer] = peerBan{Expiry: time.Now().Add(duration), Reason: reason}
 }
 
-// NewEphemeralPeerManager initializes an EphemeralPeerManager with an initial
-// set of bootstrap peers.
-func NewEphemeralPeerManager(bootstrap []string) *EphemeralPeerManager {
-	peers := make(map[string]struct{})
-	for _, peer := range bootstrap {
-		peers[peer] = struct{}{}
-	}
-	return &EphemeralPeerManager{
-		peers: peers,
+// Banned implements PeerStore.
+func (pm *EphemeralPeerStore) Banned(peer string) bool {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.banned(peer)
+}
+
+// NewEphemeralPeerStore initializes an EphemeralPeerStore.
+func NewEphemeralPeerStore() *EphemeralPeerStore {
+	return &EphemeralPeerStore{
+		peers: make(map[string]PeerInfo),
 		bans:  make(map[string]peerBan),
 	}
 }
 
-type jsonPeer struct {
-	Addr string `json:"addr"`
-}
-
-type jsonBan struct {
-	Subnet string    `json:"subnet"`
-	Expiry time.Time `json:"expiry"`
-	Reason string    `json:"reason"`
-}
-
-// JSONPeerManager implements PeerManager with a JSON file on disk.
-type JSONPeerManager struct {
-	*EphemeralPeerManager
+// JSONPeerStore implements PeerStore with a JSON file on disk.
+type JSONPeerStore struct {
+	*EphemeralPeerStore
 	path string
 }
 
-func (pm *JSONPeerManager) load() error {
+func (pm *JSONPeerStore) load() error {
 	f, err := os.Open(pm.path)
 	if os.IsNotExist(err) {
 		return nil
@@ -209,35 +137,29 @@ func (pm *JSONPeerManager) load() error {
 	defer f.Close()
 
 	var p struct {
-		Peers []jsonPeer `json:"peers"`
-		Bans  []jsonBan  `json:"bans"`
+		Peers map[string]PeerInfo `json:"peers"`
+		Bans  map[string]peerBan  `json:"bans"`
 	}
 	if err := json.NewDecoder(f).Decode(&p); err != nil {
 		return err
 	}
-	for _, peer := range p.Peers {
-		pm.EphemeralPeerManager.peers[peer.Addr] = struct{}{}
-	}
-	for _, ban := range p.Bans {
-		if time.Until(ban.Expiry) > 0 {
-			pm.EphemeralPeerManager.bans[ban.Subnet] = peerBan{ban.Expiry, ban.Reason}
-		}
-	}
+	pm.EphemeralPeerStore.peers = p.Peers
+	pm.EphemeralPeerStore.bans = p.Bans
 	return nil
 }
 
-func (pm *JSONPeerManager) save() error {
-	pm.EphemeralPeerManager.mu.Lock()
-	defer pm.EphemeralPeerManager.mu.Unlock()
+func (pm *JSONPeerStore) save() error {
+	pm.EphemeralPeerStore.mu.Lock()
+	defer pm.EphemeralPeerStore.mu.Unlock()
 	var p struct {
-		Peers []jsonPeer `json:"peers"`
-		Bans  []jsonBan  `json:"bans"`
+		Peers map[string]PeerInfo `json:"peers"`
+		Bans  map[string]peerBan  `json:"bans"`
 	}
-	for addr := range pm.EphemeralPeerManager.peers {
-		p.Peers = append(p.Peers, jsonPeer{addr})
+	for addr, info := range pm.EphemeralPeerStore.peers {
+		p.Peers[addr] = info
 	}
-	for subnet, ban := range pm.EphemeralPeerManager.bans {
-		p.Bans = append(p.Bans, jsonBan{subnet, ban.Expiry, ban.Reason})
+	for subnet, ban := range pm.EphemeralPeerStore.bans {
+		p.Bans[subnet] = ban
 	}
 	js, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
@@ -260,23 +182,23 @@ func (pm *JSONPeerManager) save() error {
 	return nil
 }
 
-// AddPeer implements PeerManager.
-func (pm *JSONPeerManager) AddPeer(peer string) {
-	pm.EphemeralPeerManager.AddPeer(peer)
+// AddPeer implements PeerStore.
+func (pm *JSONPeerStore) AddPeer(peer string) {
+	pm.EphemeralPeerStore.AddPeer(peer)
 	pm.save()
 }
 
-// Ban implements PeerManager.
-func (pm *JSONPeerManager) Ban(peer string, duration time.Duration, reason string) {
-	pm.EphemeralPeerManager.Ban(peer, duration, reason)
+// Ban implements PeerStore.
+func (pm *JSONPeerStore) Ban(peer string, duration time.Duration, reason string) {
+	pm.EphemeralPeerStore.Ban(peer, duration, reason)
 	pm.save()
 }
 
-// NewJSONPeerManager returns a JSONPeerManager backed by the specified file.
-func NewJSONPeerManager(path string, bootstrap []string) (*JSONPeerManager, error) {
-	pm := &JSONPeerManager{
-		EphemeralPeerManager: NewEphemeralPeerManager(bootstrap),
-		path:                 path,
+// NewJSONPeerStore returns a JSONPeerStore backed by the specified file.
+func NewJSONPeerStore(path string) (*JSONPeerStore, error) {
+	pm := &JSONPeerStore{
+		EphemeralPeerStore: NewEphemeralPeerStore(),
+		path:               path,
 	}
 	return pm, pm.load()
 }
