@@ -14,26 +14,25 @@ import (
 	"go.sia.tech/jape"
 	"go.sia.tech/walletd/api"
 	"go.sia.tech/walletd/internal/walletutil"
+	"go.sia.tech/walletd/syncer"
 	"go.sia.tech/walletd/wallet"
 )
 
 type mockChainManager struct{}
 
-func (mockChainManager) TipState() (cs consensus.State) { return }
+func (mockChainManager) TipState() (cs consensus.State)                           { return }
+func (mockChainManager) RecommendedFee() (fee types.Currency)                     { return }
+func (mockChainManager) PoolTransactions() []types.Transaction                    { return nil }
+func (mockChainManager) AddPoolTransactions([]types.Transaction) error            { return nil }
+func (mockChainManager) UnconfirmedParents(types.Transaction) []types.Transaction { return nil }
 
 type mockSyncer struct{}
 
 func (mockSyncer) Addr() string                                     { return "" }
 func (mockSyncer) Peers() []*gateway.Peer                           { return nil }
+func (mockSyncer) PeerInfo(string) (i syncer.PeerInfo, ok bool)     { return }
 func (mockSyncer) Connect(addr string) (*gateway.Peer, error)       { return nil, nil }
 func (mockSyncer) BroadcastTransactionSet(txns []types.Transaction) {}
-
-type mockTxPool struct{}
-
-func (mockTxPool) RecommendedFee() (fee types.Currency)                     { return }
-func (mockTxPool) Transactions() []types.Transaction                        { return nil }
-func (mockTxPool) AddTransactionSet([]types.Transaction) error              { return nil }
-func (mockTxPool) UnconfirmedParents(types.Transaction) []types.Transaction { return nil }
 
 func sendTxn(s chain.Subscriber, txn types.Transaction) {
 	created := make([]consensus.SiacoinOutputDiff, len(txn.SiacoinOutputs))
@@ -73,7 +72,7 @@ func runServer(w api.Wallet) (*api.Client, func()) {
 		panic(err)
 	}
 	go func() {
-		srv := api.NewServer(mockChainManager{}, mockSyncer{}, mockTxPool{}, w)
+		srv := api.NewServer(mockChainManager{}, mockSyncer{}, w)
 		http.Serve(l, jape.BasicAuth("password")(srv))
 	}()
 	c := api.NewClient("http://"+l.Addr().String(), "password")

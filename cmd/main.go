@@ -12,27 +12,29 @@ import (
 	"golang.org/x/term"
 )
 
-var commit = func() string {
-	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, setting := range info.Settings {
-			if setting.Key == "vcs.revision" {
-				return setting.Value
-			}
-		}
-	}
-	return ""
-}()
+var commit = "?"
+var timestamp = "?"
 
-var timestamp = func() string {
-	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, setting := range info.Settings {
-			if setting.Key == "vcs.time" {
-				return setting.Value
-			}
+func init() {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	modified := false
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			commit = setting.Value[:8]
+		case "vcs.time":
+			timestamp = setting.Value
+		case "vcs.modified":
+			modified = setting.Value == "true"
 		}
 	}
-	return ""
-}()
+	if modified {
+		commit += " (modified)"
+	}
+}
 
 func check(context string, err error) {
 	if err != nil {
@@ -59,7 +61,7 @@ func getAPIPassword() string {
 
 func main() {
 	log.SetFlags(0)
-	gatewayAddr := flag.String("addr", ":0", "p2p address to listen on")
+	gatewayAddr := flag.String("addr", "localhost:9981", "p2p address to listen on")
 	apiAddr := flag.String("http", "localhost:9980", "address to serve API on")
 	dir := flag.String("dir", ".", "directory to store node state in")
 	flag.Parse()
@@ -82,7 +84,7 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Println("p2p: Listening on", n.s.Addr())
-	go n.s.Run()
+	stop := n.Start()
 	log.Println("api: Listening on", l.Addr())
 	go startWeb(l, n, apiPassword)
 
@@ -90,6 +92,5 @@ func main() {
 	signal.Notify(signalCh, os.Interrupt)
 	<-signalCh
 	log.Println("Shutting down...")
-	n.Close()
-	l.Close()
+	stop()
 }

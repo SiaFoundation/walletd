@@ -117,6 +117,7 @@ func (s *EphemeralStore) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, _ bool)
 		}
 	}
 
+	s.tip = cau.State.Index
 	return nil
 }
 
@@ -157,6 +158,7 @@ func (s *EphemeralStore) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error
 		}
 	}
 
+	s.tip = cru.State.Index
 	return nil
 }
 
@@ -223,7 +225,7 @@ func (s *JSONStore) load() error {
 	}
 	defer f.Close()
 	var p persistData
-	if err := json.NewDecoder(f).Decode(&s); err != nil {
+	if err := json.NewDecoder(f).Decode(&p); err != nil {
 		return err
 	}
 	s.tip = p.Tip
