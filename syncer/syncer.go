@@ -49,6 +49,15 @@ type PeerStore interface {
 	Banned(peer string) bool
 }
 
+// Subnet normalizes the provided CIDR subnet string.
+func Subnet(cidr string) string {
+	ip, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return "" // shouldn't happen
+	}
+	return ip.Mask(ipnet.Mask).String() + cidr
+}
+
 type config struct {
 	MaxInboundPeers            int
 	MaxOutboundPeers           int
@@ -141,9 +150,10 @@ type Syncer struct {
 	config config
 	log    *log.Logger // redundant, but convenient
 
-	mu     sync.Mutex
-	peers  map[string]*gateway.Peer
-	synced map[string]bool
+	mu      sync.Mutex
+	peers   map[string]*gateway.Peer
+	synced  map[string]bool
+	strikes map[string]int
 }
 
 type rpcHandler struct {
@@ -231,7 +241,31 @@ add:
 
 func (s *Syncer) ban(p *gateway.Peer, err error) {
 	p.SetErr(errors.New("banned"))
-	s.pm.Ban(p.Addr, 24*time.Hour, err.Error())
+	s.pm.Ban(p.ConnAddr, 24*time.Hour, err.Error())
+
+	host, _, err := net.SplitHostPort(p.ConnAddr)
+	if err != nil {
+		return // shouldn't happen
+	}
+	// add a strike to each subnet
+	for subnet, maxStrikes := range map[string]int{
+		Subnet(host + "/32"): 2,   // 1.2.3.4:*
+		Subnet(host + "/24"): 8,   // 1.2.3.*
+		Subnet(host + "/16"): 64,  // 1.2.*
+		Subnet(host + "/8"):  512, // 1.*
+	} {
+		s.mu.Lock()
+		ban := (s.strikes[subnet] + 1) >= maxStrikes
+		if ban {
+			delete(s.strikes, subnet)
+		} else {
+			s.strikes[subnet]++
+		}
+		s.mu.Unlock()
+		if ban {
+			s.pm.Ban(subnet, 24*time.Hour, "too many strikes")
+		}
+	}
 }
 
 func (s *Syncer) runPeer(p *gateway.Peer) {
@@ -501,7 +535,7 @@ func (s *Syncer) syncLoop(closeChan <-chan struct{}) error {
 // error occurs, upon which all connections are closed and goroutines are
 // terminated. To gracefully shutdown a Syncer, close its net.Listener.
 func (s *Syncer) Run() error {
-	errChan := make(chan error, 2)
+	errChan := make(chan error)
 	closeChan := make(chan struct{})
 	go func() { errChan <- s.acceptLoop() }()
 	go func() { errChan <- s.peerLoop(closeChan) }()
