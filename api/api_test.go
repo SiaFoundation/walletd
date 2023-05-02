@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"encoding/json"
 	"math"
 	"net"
 	"net/http"
@@ -18,23 +19,23 @@ import (
 	"go.sia.tech/walletd/wallet"
 )
 
-type mockChainManager struct{}
+type mockChainManager struct {
+	sub chain.Subscriber
+}
 
 func (mockChainManager) TipState() (cs consensus.State)                           { return }
 func (mockChainManager) RecommendedFee() (fee types.Currency)                     { return }
 func (mockChainManager) PoolTransactions() []types.Transaction                    { return nil }
 func (mockChainManager) AddPoolTransactions([]types.Transaction) error            { return nil }
 func (mockChainManager) UnconfirmedParents(types.Transaction) []types.Transaction { return nil }
+func (mockChainManager) BestIndex(height uint64) (i types.ChainIndex, ok bool)    { return i, true }
 
-type mockSyncer struct{}
+func (cm *mockChainManager) AddSubscriber(s chain.Subscriber, index types.ChainIndex) error {
+	cm.sub = s
+	return nil
+}
 
-func (mockSyncer) Addr() string                                     { return "" }
-func (mockSyncer) Peers() []*gateway.Peer                           { return nil }
-func (mockSyncer) PeerInfo(string) (i syncer.PeerInfo, ok bool)     { return }
-func (mockSyncer) Connect(addr string) (*gateway.Peer, error)       { return nil, nil }
-func (mockSyncer) BroadcastTransactionSet(txns []types.Transaction) {}
-
-func sendTxn(s chain.Subscriber, txn types.Transaction) {
+func (cm *mockChainManager) sendTxn(txn types.Transaction) {
 	created := make([]consensus.SiacoinOutputDiff, len(txn.SiacoinOutputs))
 	for i := range created {
 		created[i] = consensus.SiacoinOutputDiff{
@@ -52,7 +53,7 @@ func sendTxn(s chain.Subscriber, txn types.Transaction) {
 			},
 		}
 	}
-	s.ProcessChainApplyUpdate(&chain.ApplyUpdate{
+	cm.sub.ProcessChainApplyUpdate(&chain.ApplyUpdate{
 		Block: types.Block{
 			Timestamp:    types.CurrentTimestamp(),
 			Transactions: []types.Transaction{txn},
@@ -66,13 +67,21 @@ func sendTxn(s chain.Subscriber, txn types.Transaction) {
 	}, true)
 }
 
-func runServer(w api.Wallet) (*api.Client, func()) {
+type mockSyncer struct{}
+
+func (mockSyncer) Addr() string                                     { return "" }
+func (mockSyncer) Peers() []*gateway.Peer                           { return nil }
+func (mockSyncer) PeerInfo(string) (i syncer.PeerInfo, ok bool)     { return }
+func (mockSyncer) Connect(addr string) (*gateway.Peer, error)       { return nil, nil }
+func (mockSyncer) BroadcastTransactionSet(txns []types.Transaction) {}
+
+func runServer(wm api.WalletManager) (*api.Client, func()) {
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
 		panic(err)
 	}
 	go func() {
-		srv := api.NewServer(mockChainManager{}, mockSyncer{}, w)
+		srv := api.NewServer(mockChainManager{}, mockSyncer{}, wm)
 		http.Serve(l, jape.BasicAuth("password")(srv))
 	}()
 	c := api.NewClient("http://"+l.Addr().String(), "password")
@@ -80,13 +89,23 @@ func runServer(w api.Wallet) (*api.Client, func()) {
 }
 
 func TestWallet(t *testing.T) {
-	w := walletutil.NewEphemeralStore()
+	var cm mockChainManager
+	wm := walletutil.NewEphemeralWalletManager(&cm)
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
 
-	c, shutdown := runServer(w)
+	c, shutdown := runServer(wm)
 	defer shutdown()
 
-	balance, err := c.WalletBalance()
+	if err := c.AddWallet("primary", json.RawMessage(`{"type":"seed"}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	wc := c.Wallet("primary")
+	if err := wc.Subscribe(0); err != nil {
+		t.Fatal(err)
+	}
+
+	balance, err := wc.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Siacoins.IsZero() || balance.Siafunds != 0 {
@@ -94,7 +113,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// shouldn't have any events yet
-	events, err := c.WalletEvents(time.Time{}, math.MaxInt64)
+	events, err := wc.Events(time.Time{}, math.MaxInt64)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 0 {
@@ -102,7 +121,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// shouldn't have any addresses yet
-	addresses, err := c.WalletAddresses()
+	addresses, err := wc.Addresses()
 	if err != nil {
 		t.Fatal(err)
 	} else if len(addresses) != 0 {
@@ -111,12 +130,12 @@ func TestWallet(t *testing.T) {
 
 	// create and add an address
 	addr, info := sav.NewAddress("primary")
-	if err := c.WalletAddAddress(addr, info); err != nil {
+	if err := wc.AddAddress(addr, info); err != nil {
 		t.Fatal(err)
 	}
 
 	// should have an address now
-	addresses, err = c.WalletAddresses()
+	addresses, err = wc.Addresses()
 	if err != nil {
 		t.Fatal(err)
 	} else if _, ok := addresses[addr]; !ok || len(addresses) != 1 {
@@ -124,7 +143,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// simulate a transaction
-	sendTxn(w, types.Transaction{
+	cm.sendTxn(types.Transaction{
 		SiacoinOutputs: []types.SiacoinOutput{
 			{Address: addr, Value: types.Siacoins(1).Div64(2)},
 			{Address: addr, Value: types.Siacoins(1).Div64(2)},
@@ -132,7 +151,7 @@ func TestWallet(t *testing.T) {
 	})
 
 	// get new balance
-	balance, err = c.WalletBalance()
+	balance, err = wc.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Siacoins.Equals(types.Siacoins(1)) {
@@ -140,14 +159,14 @@ func TestWallet(t *testing.T) {
 	}
 
 	// transaction should appear in history
-	events, err = c.WalletEvents(time.Time{}, math.MaxInt64)
+	events, err = wc.Events(time.Time{}, math.MaxInt64)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) == 0 {
 		t.Fatal("transaction should appear in history")
 	}
 
-	outputs, _, err := c.WalletOutputs()
+	outputs, _, err := wc.Outputs()
 	if err != nil {
 		t.Fatal(err)
 	} else if len(outputs) != 2 {

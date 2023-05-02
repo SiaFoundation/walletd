@@ -87,7 +87,7 @@ func (tx boltTx) DeleteBucket(name []byte) error {
 type node struct {
 	cm *chain.Manager
 	s  *syncer.Syncer
-	w  *walletutil.JSONStore
+	wm *walletutil.JSONWalletManager
 
 	Start func() (stop func())
 }
@@ -122,17 +122,15 @@ func newNode(addr, dir string) (*node, error) {
 	}
 	s := syncer.New(l, cm, ps, header, syncer.WithLogger(log.Default()))
 
-	w, wtip, err := walletutil.NewJSONStore(dir)
+	wm, err := walletutil.NewJSONWalletManager(dir, cm)
 	if err != nil {
-		return nil, err
-	} else if err := cm.AddSubscriber(w, wtip); err != nil {
 		return nil, err
 	}
 
 	return &node{
 		cm: cm,
 		s:  s,
-		w:  w,
+		wm: wm,
 		Start: func() func() {
 			ch := make(chan struct{})
 			go func() {

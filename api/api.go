@@ -18,6 +18,11 @@ type GatewayPeer struct {
 	Addr    string `json:"addr"`
 	Inbound bool   `json:"inbound"`
 	Version string `json:"version"`
+
+	FirstSeen      time.Time     `json:"firstSeen"`
+	ConnectedSince time.Time     `json:"connectedSince"`
+	SyncedBlocks   uint64        `json:"syncedBlocks"`
+	SyncDuration   time.Duration `json:"syncDuration"`
 }
 
 // WalletBalanceResponse is the response to /wallet/balance.
@@ -36,7 +41,13 @@ type WalletOutputsResponse struct {
 type WalletReserveRequest struct {
 	SiacoinOutputs []types.SiacoinOutputID `json:"siacoinOutputs"`
 	SiafundOutputs []types.SiafundOutputID `json:"siafundOutputs"`
-	Timeout        time.Duration           `json:"timeout"`
+	Duration       time.Duration           `json:"duration"`
+}
+
+// WalletReleaseRequest is the request type for /wallet/release.
+type WalletReleaseRequest struct {
+	SiacoinOutputs []types.SiacoinOutputID `json:"siacoinOutputs"`
+	SiafundOutputs []types.SiafundOutputID `json:"siafundOutputs"`
 }
 
 // SeedSignRequest requests that a transaction be signed using the keys derived

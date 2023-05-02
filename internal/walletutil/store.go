@@ -174,7 +174,7 @@ func NewEphemeralStore() *EphemeralStore {
 // A JSONStore stores wallet state in memory, backed by a JSON file.
 type JSONStore struct {
 	*EphemeralStore
-	dir string
+	path string
 }
 
 type persistData struct {
@@ -197,8 +197,7 @@ func (s *JSONStore) save() error {
 		return err
 	}
 
-	dst := filepath.Join(s.dir, "wallet.json")
-	f, err := os.OpenFile(dst+"_tmp", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0660)
+	f, err := os.OpenFile(s.path+"_tmp", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0660)
 	if err != nil {
 		return err
 	}
@@ -209,14 +208,14 @@ func (s *JSONStore) save() error {
 		return err
 	} else if f.Close(); err != nil {
 		return err
-	} else if err := os.Rename(dst+"_tmp", dst); err != nil {
+	} else if err := os.Rename(s.path+"_tmp", s.path); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *JSONStore) load() error {
-	dst := filepath.Join(s.dir, "wallet.json")
+	dst := filepath.Join(s.path, "wallet.json")
 	f, err := os.Open(dst)
 	if os.IsNotExist(err) {
 		return nil
@@ -260,10 +259,10 @@ func (s *JSONStore) AddAddress(addr types.Address, info json.RawMessage) error {
 }
 
 // NewJSONStore returns a new JSONStore.
-func NewJSONStore(dir string) (*JSONStore, types.ChainIndex, error) {
+func NewJSONStore(path string) (*JSONStore, types.ChainIndex, error) {
 	s := &JSONStore{
 		EphemeralStore: NewEphemeralStore(),
-		dir:            dir,
+		path:           path,
 	}
 	err := s.load()
 	return s, s.tip, err

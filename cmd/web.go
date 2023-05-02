@@ -36,7 +36,7 @@ func createUIHandler() http.Handler {
 }
 
 func startWeb(l net.Listener, node *node, password string) error {
-	renter := api.NewServer(node.cm, node.s, node.w)
+	renter := api.NewServer(node.cm, node.s, node.wm)
 	api := jape.BasicAuth(password)(renter)
 	web := createUIHandler()
 	return http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
