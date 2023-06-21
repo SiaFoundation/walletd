@@ -59,6 +59,10 @@ type server struct {
 	used map[types.Hash256]bool
 }
 
+func (s *server) consensusNetworkHandler(jc jape.Context) {
+	jc.Encode(*s.cm.TipState().Network)
+}
+
 func (s *server) consensusTipHandler(jc jape.Context) {
 	jc.Encode(s.cm.TipState().Index)
 }
@@ -95,6 +99,10 @@ func (s *server) syncerConnectHandler(jc jape.Context) {
 
 func (s *server) txpoolTransactionsHandler(jc jape.Context) {
 	jc.Encode(s.cm.PoolTransactions())
+}
+
+func (s *server) txpoolFeeHandler(jc jape.Context) {
+	jc.Encode(s.cm.RecommendedFee())
 }
 
 func (s *server) txpoolBroadcastHandler(jc jape.Context) {
@@ -272,12 +280,14 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		wm: wm,
 	}
 	return jape.Mux(map[string]jape.Handler{
-		"GET  /consensus/tip": srv.consensusTipHandler,
+		"GET  /consensus/network": srv.consensusNetworkHandler,
+		"GET  /consensus/tip":     srv.consensusTipHandler,
 
 		"GET  /syncer/peers":   srv.syncerPeersHandler,
 		"POST /syncer/connect": srv.syncerConnectHandler,
 
 		"GET  /txpool/transactions": srv.txpoolTransactionsHandler,
+		"GET  /txpool/fee":          srv.txpoolFeeHandler,
 		"POST /txpool/broadcast":    srv.txpoolBroadcastHandler,
 
 		"GET  /wallets":                       srv.walletsHandler,

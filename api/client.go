@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/jape"
 	"go.sia.tech/walletd/wallet"
@@ -24,6 +25,19 @@ func (c *Client) TxpoolBroadcast(txns []types.Transaction) (err error) {
 // TxpoolTransactions returns all transactions in the transaction pool.
 func (c *Client) TxpoolTransactions() (resp []types.Transaction, err error) {
 	err = c.c.GET("/txpool/transactions", &resp)
+	return
+}
+
+// TxpoolFee returns the recommended fee (per weight unit) to ensure a high
+// probability of inclusion in the next block.
+func (c *Client) TxpoolFee() (resp types.Currency, err error) {
+	err = c.c.GET("/txpool/fee", &resp)
+	return
+}
+
+// ConsensusNetwork returns the node's network metadata.
+func (c *Client) ConsensusNetwork() (resp consensus.Network, err error) {
+	err = c.c.GET("/consensus/network", &resp)
 	return
 }
 
