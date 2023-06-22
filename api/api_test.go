@@ -34,6 +34,9 @@ func (cm *mockChainManager) AddSubscriber(s chain.Subscriber, index types.ChainI
 	cm.sub = s
 	return nil
 }
+func (cm *mockChainManager) RemoveSubscriber(s chain.Subscriber) {
+	cm.sub = nil
+}
 
 func (cm *mockChainManager) sendTxn(txn types.Transaction) {
 	created := make([]consensus.SiacoinOutputDiff, len(txn.SiacoinOutputs))

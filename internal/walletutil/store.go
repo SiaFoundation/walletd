@@ -43,6 +43,19 @@ func (s *EphemeralStore) Events(since time.Time, max int) (events []wallet.Event
 	return
 }
 
+// Annotate implements api.Wallet.
+func (s *EphemeralStore) Annotate(txns []types.Transaction) (ptxns []wallet.PoolTransaction) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, txn := range txns {
+		ptxn := wallet.Annotate(txn, s.ownsAddress)
+		if ptxn.Type != "unrelated" {
+			ptxns = append(ptxns, ptxn)
+		}
+	}
+	return
+}
+
 // UnspentOutputs implements api.Wallet.
 func (s *EphemeralStore) UnspentOutputs() (scos []wallet.SiacoinElement, sfos []wallet.SiafundElement, err error) {
 	s.mu.Lock()

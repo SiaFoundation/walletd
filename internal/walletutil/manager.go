@@ -17,6 +17,7 @@ var errNoWallet = errors.New("wallet does not exist")
 
 type ChainManager interface {
 	AddSubscriber(s chain.Subscriber, tip types.ChainIndex) error
+	RemoveSubscriber(s chain.Subscriber)
 	BestIndex(height uint64) (types.ChainIndex, bool)
 }
 
@@ -42,6 +43,14 @@ func (wm *EphemeralWalletManager) AddWallet(name string, info json.RawMessage) e
 	}
 	store := NewEphemeralStore()
 	wm.wallets[name] = &managedEphemeralWallet{store, info, false}
+	return nil
+}
+
+// DeleteWallet implements api.WalletManager.
+func (wm *EphemeralWalletManager) DeleteWallet(name string) error {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	delete(wm.wallets, name)
 	return nil
 }
 
@@ -87,6 +96,17 @@ func (wm *EphemeralWalletManager) Events(name string, since time.Time, max int) 
 		return nil, errNoWallet
 	}
 	return mw.w.Events(since, max)
+}
+
+// Annotate implements api.WalletManager.
+func (wm *EphemeralWalletManager) Annotate(name string, txns []types.Transaction) ([]wallet.PoolTransaction, error) {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	mw, ok := wm.wallets[name]
+	if !ok {
+		return nil, errNoWallet
+	}
+	return mw.w.Annotate(txns), nil
 }
 
 // UnspentOutputs implements api.WalletManager.
@@ -211,6 +231,19 @@ func (wm *JSONWalletManager) AddWallet(name string, info json.RawMessage) error 
 	return wm.save()
 }
 
+// DeleteWallet implements api.WalletManager.
+func (wm *JSONWalletManager) DeleteWallet(name string) error {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	mw, ok := wm.wallets[name]
+	if !ok {
+		return nil
+	}
+	wm.cm.RemoveSubscriber(mw.w)
+	delete(wm.wallets, name)
+	return os.RemoveAll(filepath.Join(wm.dir, name+".json"))
+}
+
 // Wallets implements api.WalletManager.
 func (wm *JSONWalletManager) Wallets() map[string]json.RawMessage {
 	wm.mu.Lock()
@@ -253,6 +286,17 @@ func (wm *JSONWalletManager) Events(name string, since time.Time, max int) ([]wa
 		return nil, errNoWallet
 	}
 	return mw.w.Events(since, max)
+}
+
+// Annotate implements api.WalletManager.
+func (wm *JSONWalletManager) Annotate(name string, txns []types.Transaction) ([]wallet.PoolTransaction, error) {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	mw, ok := wm.wallets[name]
+	if !ok {
+		return nil, errNoWallet
+	}
+	return mw.w.Annotate(txns), nil
 }
 
 // UnspentOutputs implements api.WalletManager.

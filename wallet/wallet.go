@@ -46,6 +46,105 @@ func SignTransaction(cs consensus.State, txn *types.Transaction, sigIndex int, k
 	tsig.Signature = sig[:]
 }
 
+// A PoolTransaction summarizes the wallet-relevant data in a txpool
+// transaction.
+type PoolTransaction struct {
+	ID       types.TransactionID
+	Raw      types.Transaction
+	Type     string
+	Sent     types.Currency
+	Received types.Currency
+	Locked   types.Currency
+}
+
+// Annotate annotates a txpool transaction.
+func Annotate(txn types.Transaction, ownsAddress func(types.Address) bool) PoolTransaction {
+	ptxn := PoolTransaction{ID: txn.ID(), Raw: txn, Type: "unknown"}
+
+	var totalValue types.Currency
+	for _, sco := range txn.SiacoinOutputs {
+		totalValue = totalValue.Add(sco.Value)
+	}
+	for _, fc := range txn.FileContracts {
+		totalValue = totalValue.Add(fc.Payout)
+	}
+	for _, fee := range txn.MinerFees {
+		totalValue = totalValue.Add(fee)
+	}
+
+	ins, outs := "none", "none"
+	for _, sci := range txn.SiacoinInputs {
+		if ownsAddress(sci.UnlockConditions.UnlockHash()) {
+			if ins == "none" {
+				ins = "all"
+			}
+		} else {
+			if ins == "all" {
+				ins = "some"
+			}
+		}
+	}
+	for _, sco := range txn.SiacoinOutputs {
+		if ownsAddress(sco.Address) {
+			if outs == "none" {
+				outs = "all"
+			}
+		} else {
+			if outs == "all" {
+				outs = "some"
+			}
+		}
+	}
+
+	switch {
+	case ins == "none" && outs == "none":
+		ptxn.Type = "unrelated"
+	case ins == "all":
+		ptxn.Sent = totalValue
+		switch {
+		case outs != "all":
+			ptxn.Type = "send"
+		case len(txn.FileContractRevisions) > 0:
+			ptxn.Type = "contract revision"
+		case len(txn.StorageProofs) > 0:
+			ptxn.Type = "storage proof"
+		case len(txn.ArbitraryData) > 0:
+			ptxn.Type = "announcement"
+		default:
+			ptxn.Type = "redistribution"
+		}
+	case ins == "none" && outs != "none":
+		ptxn.Type = "receive"
+		for _, sco := range txn.SiacoinOutputs {
+			if ownsAddress(sco.Address) {
+				ptxn.Received = ptxn.Received.Add(sco.Value)
+			}
+		}
+	case ins == "some" && len(txn.FileContracts) > 0:
+		ptxn.Type = "contract"
+		for _, fc := range txn.FileContracts {
+			var validLocked, missedLocked types.Currency
+			for _, sco := range fc.ValidProofOutputs {
+				if ownsAddress(sco.Address) {
+					validLocked = validLocked.Add(fc.Payout)
+				}
+			}
+			for _, sco := range fc.MissedProofOutputs {
+				if ownsAddress(sco.Address) {
+					missedLocked = missedLocked.Add(fc.Payout)
+				}
+			}
+			if validLocked.Cmp(missedLocked) > 0 {
+				ptxn.Locked = ptxn.Locked.Add(validLocked)
+			} else {
+				ptxn.Locked = ptxn.Locked.Add(missedLocked)
+			}
+		}
+	}
+
+	return ptxn
+}
+
 // An Event is something interesting that happened on the Sia blockchain.
 type Event struct {
 	Timestamp time.Time

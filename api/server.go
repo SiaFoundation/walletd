@@ -46,6 +46,7 @@ type (
 		Addresses(name string) (map[types.Address]json.RawMessage, error)
 		Events(name string, since time.Time, max int) ([]wallet.Event, error)
 		UnspentOutputs(name string) ([]wallet.SiacoinElement, []wallet.SiafundElement, error)
+		Annotate(name string, pool []types.Transaction) ([]wallet.PoolTransaction, error)
 	}
 )
 
@@ -200,6 +201,18 @@ func (s *server) walletsEventsHandler(jc jape.Context) {
 	jc.Encode(events)
 }
 
+func (s *server) walletsTxpoolHandler(jc jape.Context) {
+	var name string
+	if jc.DecodeParam("name", &name) != nil {
+		return
+	}
+	pool, err := s.wm.Annotate(name, s.cm.PoolTransactions())
+	if jc.Check("couldn't annotate pool", err) != nil {
+		return
+	}
+	jc.Encode(pool)
+}
+
 func (s *server) walletsOutputsHandler(jc jape.Context) {
 	var name string
 	if jc.DecodeParam("name", &name) != nil {
@@ -297,6 +310,7 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"GET  /wallets/:name/addresses":       srv.walletsAddressesHandlerGET,
 		"GET  /wallets/:name/balance":         srv.walletsBalanceHandler,
 		"GET  /wallets/:name/events":          srv.walletsEventsHandler,
+		"GET  /wallets/:name/txpool":          srv.walletsTxpoolHandler,
 		"GET  /wallets/:name/outputs":         srv.walletsOutputsHandler,
 		"POST /wallets/:name/reserve":         srv.walletsReserveHandler,
 		"POST /wallets/:name/release":         srv.walletsReleaseHandler,

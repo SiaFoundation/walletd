@@ -90,39 +90,45 @@ func (c *WalletClient) Subscribe(height uint64) (err error) {
 	return
 }
 
-// WalletAddAddress adds the specified address and associated metadata to the
+// AddAddress adds the specified address and associated metadata to the
 // wallet.
 func (c *WalletClient) AddAddress(addr types.Address, info json.RawMessage) (err error) {
 	err = c.c.PUT(fmt.Sprintf("/wallets/%v/addresses/%v", c.name, addr), info)
 	return
 }
 
-// WalletAddresses the addresses controlled by the wallet.
+// Addresses the addresses controlled by the wallet.
 func (c *WalletClient) Addresses() (resp map[types.Address]json.RawMessage, err error) {
 	err = c.c.GET(fmt.Sprintf("/wallets/%v/addresses", c.name), &resp)
 	return
 }
 
-// WalletBalance returns the current wallet balance.
+// Balance returns the current wallet balance.
 func (c *WalletClient) Balance() (resp WalletBalanceResponse, err error) {
 	err = c.c.GET(fmt.Sprintf("/wallets/%v/balance", c.name), &resp)
 	return
 }
 
-// WalletEvents returns all events relevant to the wallet.
+// Events returns all events relevant to the wallet.
 func (c *WalletClient) Events(since time.Time, max int) (resp []wallet.Event, err error) {
 	err = c.c.GET(fmt.Sprintf("/wallets/%v/events?since=%s&max=%d", c.name, paramTime(since), max), &resp)
 	return
 }
 
-// WalletOutputs returns the set of unspent outputs controlled by the wallet.
+// PoolTransactions returns all txpool transactions relevant to the wallet.
+func (c *WalletClient) PoolTransactions() (resp []wallet.PoolTransaction, err error) {
+	err = c.c.GET(fmt.Sprintf("/wallets/%v/txpool", c.name), &resp)
+	return
+}
+
+// Outputs returns the set of unspent outputs controlled by the wallet.
 func (c *WalletClient) Outputs() (sc []wallet.SiacoinElement, sf []wallet.SiafundElement, err error) {
 	var resp WalletOutputsResponse
 	err = c.c.GET(fmt.Sprintf("/wallets/%v/outputs", c.name), &resp)
 	return resp.SiacoinOutputs, resp.SiafundOutputs, err
 }
 
-// WalletReserve reserves a set outputs for use in a transaction.
+// Reserve reserves a set outputs for use in a transaction.
 func (c *WalletClient) Reserve(sc []types.SiacoinOutputID, sf []types.SiafundOutputID, duration time.Duration) (err error) {
 	err = c.c.POST(fmt.Sprintf("/wallets/%v/reserve", c.name), WalletReserveRequest{
 		SiacoinOutputs: sc,
@@ -132,7 +138,7 @@ func (c *WalletClient) Reserve(sc []types.SiacoinOutputID, sf []types.SiafundOut
 	return
 }
 
-// WalletRelease releases a set of previously-reserved outputs.
+// Release releases a set of previously-reserved outputs.
 func (c *WalletClient) Release(sc []types.SiacoinOutputID, sf []types.SiafundOutputID) (err error) {
 	err = c.c.POST(fmt.Sprintf("/wallets/%v/release", c.name), WalletReleaseRequest{
 		SiacoinOutputs: sc,
