@@ -64,6 +64,7 @@ func main() {
 	gatewayAddr := flag.String("addr", "localhost:9981", "p2p address to listen on")
 	apiAddr := flag.String("http", "localhost:9980", "address to serve API on")
 	dir := flag.String("dir", ".", "directory to store node state in")
+	zen := flag.Bool("zen", false, "connect to the Zen testnet instead of mainnet")
 	flag.Parse()
 
 	log.Println("walletd v0.1.0")
@@ -79,7 +80,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	n, err := newNode(*gatewayAddr, *dir)
+	n, err := newNode(*gatewayAddr, *dir, *zen)
 	if err != nil {
 		log.Fatal(err)
 	}

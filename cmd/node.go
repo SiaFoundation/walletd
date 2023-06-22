@@ -92,12 +92,15 @@ type node struct {
 	Start func() (stop func())
 }
 
-func newNode(addr, dir string) (*node, error) {
+func newNode(addr, dir string, zen bool) (*node, error) {
 	bdb, err := bolt.Open("consensus.db", 0600, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	network, genesisBlock := chain.Mainnet()
+	if zen {
+		network, genesisBlock = chain.TestnetZen()
+	}
 	dbstore, tip, err := chain.NewDBStore(boltDB{bdb}, network, genesisBlock)
 	if err != nil {
 		return nil, err
