@@ -386,12 +386,14 @@ func (s *Syncer) peerLoop(closeChan <-chan struct{}) error {
 		}
 		return
 	}
+
+	lastTried := make(map[string]time.Time)
 	peersForConnect := func() (peers []string) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		for _, p := range s.pm.Peers() {
 			// TODO: don't include port in comparison
-			if _, ok := s.peers[p]; !ok {
+			if _, ok := s.peers[p]; !ok && time.Since(lastTried[p]) > 5*time.Minute {
 				peers = append(peers, p)
 			}
 		}
@@ -449,6 +451,7 @@ func (s *Syncer) peerLoop(closeChan <-chan struct{}) error {
 			} else {
 				s.log.Printf("failed to form outbound connection to %v: %v", p, err)
 			}
+			lastTried[p] = time.Now()
 		}
 	}
 	return nil
