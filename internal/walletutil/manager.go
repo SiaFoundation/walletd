@@ -223,7 +223,7 @@ func (wm *JSONWalletManager) AddWallet(name string, info json.RawMessage) error 
 	if _, ok := wm.wallets[name]; ok {
 		return errors.New("wallet already exists")
 	}
-	store, _, err := NewJSONStore(filepath.Join(wm.dir, name+".json"))
+	store, _, err := NewJSONStore(filepath.Join(wm.dir, "wallets", name+".json"))
 	if err != nil {
 		return err
 	}
@@ -241,7 +241,7 @@ func (wm *JSONWalletManager) DeleteWallet(name string) error {
 	}
 	wm.cm.RemoveSubscriber(mw.w)
 	delete(wm.wallets, name)
-	return os.RemoveAll(filepath.Join(wm.dir, name+".json"))
+	return os.RemoveAll(filepath.Join(wm.dir, "wallets", name+".json"))
 }
 
 // Wallets implements api.WalletManager.
