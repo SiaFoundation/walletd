@@ -12,7 +12,7 @@ import (
 	"go.sia.tech/walletd/syncer"
 )
 
-var bootstrapPeers = []string{
+var mainnetBootstrap = []string{
 	"108.227.62.195:9981",
 	"139.162.81.190:9991",
 	"144.217.7.188:9981",
@@ -42,6 +42,12 @@ var bootstrapPeers = []string{
 	"93.105.88.181:9981",
 	"93.180.191.86:9981",
 	"94.130.220.162:9981",
+}
+
+var zenBootstrap = []string{
+	"147.135.16.182:9881",
+	"147.135.39.109:9881",
+	"51.81.208.10:9881",
 }
 
 type boltDB struct {
@@ -114,6 +120,10 @@ func newNode(addr, dir string, zen bool) (*node, error) {
 	ps, err := syncerutil.NewJSONPeerStore("peers.json")
 	if err != nil {
 		log.Fatal(err)
+	}
+	bootstrapPeers := mainnetBootstrap
+	if zen {
+		bootstrapPeers = zenBootstrap
 	}
 	for _, peer := range bootstrapPeers {
 		ps.AddPeer(peer)
