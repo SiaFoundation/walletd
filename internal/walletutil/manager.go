@@ -220,8 +220,10 @@ func (wm *JSONWalletManager) load() error {
 func (wm *JSONWalletManager) AddWallet(name string, info json.RawMessage) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
-	if _, ok := wm.wallets[name]; ok {
-		return errors.New("wallet already exists")
+	if mw, ok := wm.wallets[name]; ok {
+		// update existing wallet
+		mw.info = info
+		return wm.save()
 	}
 	store, _, err := NewJSONStore(filepath.Join(wm.dir, "wallets", name+".json"))
 	if err != nil {
