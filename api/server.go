@@ -39,6 +39,7 @@ type (
 	// A WalletManager manages wallets, keyed by name.
 	WalletManager interface {
 		AddWallet(name string, info json.RawMessage) error
+		DeleteWallet(name string) error
 		Wallets() map[string]json.RawMessage
 		SubscribeWallet(name string, startHeight uint64) error
 
@@ -121,12 +122,21 @@ func (s *server) walletsHandler(jc jape.Context) {
 	jc.Encode(s.wm.Wallets())
 }
 
-func (s *server) walletsNameHandler(jc jape.Context) {
+func (s *server) walletsNameHandlerPUT(jc jape.Context) {
 	var name string
 	var info json.RawMessage
 	if jc.DecodeParam("name", &name) != nil || jc.Decode(&info) != nil {
 		return
 	} else if jc.Check("couldn't add wallet", s.wm.AddWallet(name, info)) != nil {
+		return
+	}
+}
+
+func (s *server) walletsNameHandlerDELETE(jc jape.Context) {
+	var name string
+	if jc.DecodeParam("name", &name) != nil {
+		return
+	} else if jc.Check("couldn't remove wallet", s.wm.DeleteWallet(name)) != nil {
 		return
 	}
 }
@@ -293,26 +303,27 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		wm: wm,
 	}
 	return jape.Mux(map[string]jape.Handler{
-		"GET  /consensus/network": srv.consensusNetworkHandler,
-		"GET  /consensus/tip":     srv.consensusTipHandler,
+		"GET    /consensus/network": srv.consensusNetworkHandler,
+		"GET    /consensus/tip":     srv.consensusTipHandler,
 
-		"GET  /syncer/peers":   srv.syncerPeersHandler,
-		"POST /syncer/connect": srv.syncerConnectHandler,
+		"GET    /syncer/peers":   srv.syncerPeersHandler,
+		"POST   /syncer/connect": srv.syncerConnectHandler,
 
-		"GET  /txpool/transactions": srv.txpoolTransactionsHandler,
-		"GET  /txpool/fee":          srv.txpoolFeeHandler,
-		"POST /txpool/broadcast":    srv.txpoolBroadcastHandler,
+		"GET    /txpool/transactions": srv.txpoolTransactionsHandler,
+		"GET    /txpool/fee":          srv.txpoolFeeHandler,
+		"POST   /txpool/broadcast":    srv.txpoolBroadcastHandler,
 
-		"GET  /wallets":                       srv.walletsHandler,
-		"PUT  /wallets/:name":                 srv.walletsNameHandler,
-		"POST /wallets/:name/subscribe":       srv.walletsSubscribeHandler,
-		"PUT  /wallets/:name/addresses/:addr": srv.walletsAddressHandlerPUT,
-		"GET  /wallets/:name/addresses":       srv.walletsAddressesHandlerGET,
-		"GET  /wallets/:name/balance":         srv.walletsBalanceHandler,
-		"GET  /wallets/:name/events":          srv.walletsEventsHandler,
-		"GET  /wallets/:name/txpool":          srv.walletsTxpoolHandler,
-		"GET  /wallets/:name/outputs":         srv.walletsOutputsHandler,
-		"POST /wallets/:name/reserve":         srv.walletsReserveHandler,
-		"POST /wallets/:name/release":         srv.walletsReleaseHandler,
+		"GET    /wallets":                       srv.walletsHandler,
+		"PUT    /wallets/:name":                 srv.walletsNameHandlerPUT,
+		"DELETE /wallets/:name":                 srv.walletsNameHandlerDELETE,
+		"POST   /wallets/:name/subscribe":       srv.walletsSubscribeHandler,
+		"PUT    /wallets/:name/addresses/:addr": srv.walletsAddressHandlerPUT,
+		"GET    /wallets/:name/addresses":       srv.walletsAddressesHandlerGET,
+		"GET    /wallets/:name/balance":         srv.walletsBalanceHandler,
+		"GET    /wallets/:name/events":          srv.walletsEventsHandler,
+		"GET    /wallets/:name/txpool":          srv.walletsTxpoolHandler,
+		"GET    /wallets/:name/outputs":         srv.walletsOutputsHandler,
+		"POST   /wallets/:name/reserve":         srv.walletsReserveHandler,
+		"POST   /wallets/:name/release":         srv.walletsReleaseHandler,
 	})
 }

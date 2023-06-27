@@ -71,6 +71,13 @@ func (c *Client) AddWallet(name string, info json.RawMessage) (err error) {
 	return
 }
 
+// RemoveWallet deletes a wallet. If the wallet is currently subscribed, it will
+// be unsubscribed.
+func (c *Client) RemoveWallet(name string) (err error) {
+	err = c.c.DELETE(fmt.Sprintf("/wallets/%v", name))
+	return
+}
+
 // Wallet returns a client for interacting with the specified wallet.
 func (c *Client) Wallet(name string) *WalletClient {
 	return &WalletClient{c: c.c, name: name}
