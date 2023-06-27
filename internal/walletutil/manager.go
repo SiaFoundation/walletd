@@ -350,8 +350,11 @@ func NewJSONWalletManager(dir string, cm ChainManager) (*JSONWalletManager, erro
 		store, tip, err := NewJSONStore(filepath.Join(dir, "wallets", name+".json"))
 		if err != nil {
 			return nil, err
-		} else if err := cm.AddSubscriber(store, tip); err != nil {
-			return nil, err
+		}
+		if mw.subscribed {
+			if err := cm.AddSubscriber(store, tip); err != nil {
+				return nil, err
+			}
 		}
 		mw.w = store
 	}

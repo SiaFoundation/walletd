@@ -3,7 +3,6 @@ package walletutil
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -228,8 +227,7 @@ func (s *JSONStore) save() error {
 }
 
 func (s *JSONStore) load() error {
-	dst := filepath.Join(s.path, "wallet.json")
-	f, err := os.Open(dst)
+	f, err := os.Open(s.path)
 	if os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
