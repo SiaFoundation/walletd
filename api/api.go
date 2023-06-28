@@ -7,12 +7,6 @@ import (
 	"go.sia.tech/walletd/wallet"
 )
 
-// for encoding/decoding time.Time values in API params
-type paramTime time.Time
-
-func (t paramTime) String() string                { return (time.Time)(t).Format(time.RFC3339) }
-func (t *paramTime) UnmarshalText(b []byte) error { return (*time.Time)(t).UnmarshalText(b) }
-
 // A GatewayPeer is a currently-connected peer.
 type GatewayPeer struct {
 	Addr    string `json:"addr"`
