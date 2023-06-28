@@ -89,6 +89,98 @@ func (s *EphemeralStore) AddAddress(addr types.Address, info json.RawMessage) er
 	return nil
 }
 
+// RemoveAddress implements api.Wallet.
+func (s *EphemeralStore) RemoveAddress(addr types.Address) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.addrs[addr]; !ok {
+		return nil
+	}
+	delete(s.addrs, addr)
+
+	// filter outputs
+	for scoid, sco := range s.scos {
+		if sco.Address == addr {
+			delete(s.scos, scoid)
+		}
+	}
+	for sfoid, sfo := range s.sfos {
+		if sfo.Address == addr {
+			delete(s.sfos, sfoid)
+		}
+	}
+
+	// filter events
+	relevantElements := func(sces []wallet.SiacoinElement) bool {
+		for _, sce := range sces {
+			if s.ownsAddress(sce.Address) {
+				return true
+			}
+		}
+		return false
+	}
+	relevantContract := func(fc types.FileContract) bool {
+		for _, sco := range fc.ValidProofOutputs {
+			if s.ownsAddress(sco.Address) {
+				return true
+			}
+		}
+		for _, sco := range fc.MissedProofOutputs {
+			if s.ownsAddress(sco.Address) {
+				return true
+			}
+		}
+		return false
+	}
+	relevantEvent := func(e wallet.Event) bool {
+		switch e := e.Val.(type) {
+		case wallet.EventBlockReward:
+			return s.ownsAddress(e.Output.Address)
+		case wallet.EventFoundationSubsidy:
+			return s.ownsAddress(e.Output.Address)
+		case wallet.EventSiacoinMaturation:
+			return s.ownsAddress(e.Output.Address)
+		case wallet.EventSiacoinTransfer:
+			return relevantElements(e.Inputs) || relevantElements(e.Outputs)
+		case wallet.EventSiafundTransfer:
+			for _, sci := range e.Inputs {
+				if s.ownsAddress(sci.Address) {
+					return true
+				}
+			}
+			for _, sco := range e.Outputs {
+				if s.ownsAddress(sco.Address) {
+					return true
+				}
+			}
+			return false
+		case wallet.EventFileContractFormation:
+			return relevantContract(e.Contract)
+		case wallet.EventFileContractRevision:
+			return relevantContract(e.OldContract) || relevantContract(e.NewContract)
+		case wallet.EventFileContractResolutionValid:
+			return s.ownsAddress(e.Output.Address)
+		case wallet.EventFileContractResolutionMissed:
+			return s.ownsAddress(e.Output.Address)
+		case wallet.EventHostAnnouncement:
+			return relevantElements(e.Inputs)
+		case wallet.EventTransaction:
+			return true // TODO
+		default:
+			panic("unhandled event type")
+		}
+	}
+
+	rem := s.events[:0]
+	for _, e := range s.events {
+		if relevantEvent(e) {
+			rem = append(rem, e)
+		}
+	}
+	s.events = rem
+	return nil
+}
+
 // ProcessChainApplyUpdate implements chain.Subscriber.
 func (s *EphemeralStore) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, _ bool) error {
 	s.mu.Lock()
@@ -260,6 +352,14 @@ func (s *JSONStore) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
 // AddAddress implements api.Wallet.
 func (s *JSONStore) AddAddress(addr types.Address, info json.RawMessage) error {
 	if err := s.EphemeralStore.AddAddress(addr, info); err != nil {
+		return err
+	}
+	return s.save()
+}
+
+// RemoveAddress implements api.Wallet.
+func (s *JSONStore) RemoveAddress(addr types.Address) error {
+	if err := s.EphemeralStore.RemoveAddress(addr); err != nil {
 		return err
 	}
 	return s.save()

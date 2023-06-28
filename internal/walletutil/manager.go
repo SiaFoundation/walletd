@@ -75,6 +75,17 @@ func (wm *EphemeralWalletManager) AddAddress(name string, addr types.Address, in
 	return mw.w.AddAddress(addr, info)
 }
 
+// RemoveAddress implements api.WalletManager.
+func (wm *EphemeralWalletManager) RemoveAddress(name string, addr types.Address) error {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	mw, ok := wm.wallets[name]
+	if !ok {
+		return errNoWallet
+	}
+	return mw.w.RemoveAddress(addr)
+}
+
 // Addresses implements api.WalletManager.
 func (wm *EphemeralWalletManager) Addresses(name string) (map[types.Address]json.RawMessage, error) {
 	wm.mu.Lock()
@@ -265,6 +276,17 @@ func (wm *JSONWalletManager) AddAddress(name string, addr types.Address, info js
 		return errNoWallet
 	}
 	return mw.w.AddAddress(addr, info)
+}
+
+// RemoveAddress implements api.WalletManager.
+func (wm *JSONWalletManager) RemoveAddress(name string, addr types.Address) error {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	mw, ok := wm.wallets[name]
+	if !ok {
+		return errNoWallet
+	}
+	return mw.w.RemoveAddress(addr)
 }
 
 // Addresses implements api.WalletManager.

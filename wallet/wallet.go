@@ -307,6 +307,7 @@ type EventHostAnnouncement struct {
 	TransactionID types.TransactionID
 	PublicKey     types.PublicKey
 	NetAddress    string
+	Inputs        []SiacoinElement
 }
 
 // EventTransaction represents a generic transaction.
@@ -498,6 +499,7 @@ func DiffEvents(b types.Block, diff consensus.BlockDiff, index types.ChainIndex,
 						TransactionID: txid,
 						PublicKey:     pubkey,
 						NetAddress:    netAddress,
+						Inputs:        scInputs,
 					})
 				}
 			}

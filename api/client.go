@@ -104,6 +104,12 @@ func (c *WalletClient) AddAddress(addr types.Address, info json.RawMessage) (err
 	return
 }
 
+// RemoveAddress removes the specified address from the wallet.
+func (c *WalletClient) RemoveAddress(addr types.Address) (err error) {
+	err = c.c.DELETE(fmt.Sprintf("/wallets/%v/addresses/%v", c.name, addr))
+	return
+}
+
 // Addresses the addresses controlled by the wallet.
 func (c *WalletClient) Addresses() (resp map[types.Address]json.RawMessage, err error) {
 	err = c.c.GET(fmt.Sprintf("/wallets/%v/addresses", c.name), &resp)

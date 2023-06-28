@@ -44,6 +44,7 @@ type (
 		SubscribeWallet(name string, startHeight uint64) error
 
 		AddAddress(name string, addr types.Address, info json.RawMessage) error
+		RemoveAddress(name string, addr types.Address) error
 		Addresses(name string) (map[types.Address]json.RawMessage, error)
 		Events(name string, offset, limit int) ([]wallet.Event, error)
 		UnspentOutputs(name string) ([]wallet.SiacoinElement, []wallet.SiafundElement, error)
@@ -157,7 +158,17 @@ func (s *server) walletsAddressHandlerPUT(jc jape.Context) {
 	var info json.RawMessage
 	if jc.DecodeParam("name", &name) != nil || jc.DecodeParam("addr", &addr) != nil || jc.Decode(&info) != nil {
 		return
-	} else if jc.Check("couldn't watch address", s.wm.AddAddress(name, addr, info)) != nil {
+	} else if jc.Check("couldn't add address", s.wm.AddAddress(name, addr, info)) != nil {
+		return
+	}
+}
+
+func (s *server) walletsAddressHandlerDELETE(jc jape.Context) {
+	var name string
+	var addr types.Address
+	if jc.DecodeParam("name", &name) != nil || jc.DecodeParam("addr", &addr) != nil {
+		return
+	} else if jc.Check("couldn't remove address", s.wm.RemoveAddress(name, addr)) != nil {
 		return
 	}
 }
@@ -317,6 +328,7 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"DELETE /wallets/:name":                 srv.walletsNameHandlerDELETE,
 		"POST   /wallets/:name/subscribe":       srv.walletsSubscribeHandler,
 		"PUT    /wallets/:name/addresses/:addr": srv.walletsAddressHandlerPUT,
+		"DELETE /wallets/:name/addresses/:addr": srv.walletsAddressHandlerDELETE,
 		"GET    /wallets/:name/addresses":       srv.walletsAddressesHandlerGET,
 		"GET    /wallets/:name/balance":         srv.walletsBalanceHandler,
 		"GET    /wallets/:name/events":          srv.walletsEventsHandler,
