@@ -2,11 +2,9 @@ package api_test
 
 import (
 	"encoding/json"
-	"math"
 	"net"
 	"net/http"
 	"testing"
-	"time"
 
 	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
@@ -116,7 +114,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// shouldn't have any events yet
-	events, err := wc.Events(time.Time{}, math.MaxInt64)
+	events, err := wc.Events(0, -1)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 0 {
@@ -162,7 +160,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// transaction should appear in history
-	events, err = wc.Events(time.Time{}, math.MaxInt64)
+	events, err = wc.Events(0, -1)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) == 0 {

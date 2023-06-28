@@ -45,7 +45,7 @@ type (
 
 		AddAddress(name string, addr types.Address, info json.RawMessage) error
 		Addresses(name string) (map[types.Address]json.RawMessage, error)
-		Events(name string, since time.Time, max int) ([]wallet.Event, error)
+		Events(name string, offset, limit int) ([]wallet.Event, error)
 		UnspentOutputs(name string) ([]wallet.SiacoinElement, []wallet.SiafundElement, error)
 		Annotate(name string, pool []types.Transaction) ([]wallet.PoolTransaction, error)
 	}
@@ -199,12 +199,11 @@ func (s *server) walletsBalanceHandler(jc jape.Context) {
 
 func (s *server) walletsEventsHandler(jc jape.Context) {
 	var name string
-	var since time.Time
-	max := -1
-	if jc.DecodeParam("name", &name) != nil || jc.DecodeForm("since", (*paramTime)(&since)) != nil || jc.DecodeForm("max", &max) != nil {
+	offset, limit := 0, -1
+	if jc.DecodeParam("name", &name) != nil || jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
 		return
 	}
-	events, err := s.wm.Events(name, since, max)
+	events, err := s.wm.Events(name, offset, limit)
 	if jc.Check("couldn't load events", err) != nil {
 		return
 	}

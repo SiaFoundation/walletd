@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"go.sia.tech/core/chain"
 	"go.sia.tech/core/types"
@@ -88,14 +87,14 @@ func (wm *EphemeralWalletManager) Addresses(name string) (map[types.Address]json
 }
 
 // Events implements api.WalletManager.
-func (wm *EphemeralWalletManager) Events(name string, since time.Time, max int) ([]wallet.Event, error) {
+func (wm *EphemeralWalletManager) Events(name string, offset, limit int) ([]wallet.Event, error) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	mw, ok := wm.wallets[name]
 	if !ok {
 		return nil, errNoWallet
 	}
-	return mw.w.Events(since, max)
+	return mw.w.Events(offset, limit)
 }
 
 // Annotate implements api.WalletManager.
@@ -280,14 +279,14 @@ func (wm *JSONWalletManager) Addresses(name string) (map[types.Address]json.RawM
 }
 
 // Events implements api.WalletManager.
-func (wm *JSONWalletManager) Events(name string, since time.Time, max int) ([]wallet.Event, error) {
+func (wm *JSONWalletManager) Events(name string, offset, limit int) ([]wallet.Event, error) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	mw, ok := wm.wallets[name]
 	if !ok {
 		return nil, errNoWallet
 	}
-	return mw.w.Events(since, max)
+	return mw.w.Events(offset, limit)
 }
 
 // Annotate implements api.WalletManager.

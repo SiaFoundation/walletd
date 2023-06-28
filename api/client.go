@@ -117,8 +117,8 @@ func (c *WalletClient) Balance() (resp WalletBalanceResponse, err error) {
 }
 
 // Events returns all events relevant to the wallet.
-func (c *WalletClient) Events(since time.Time, max int) (resp []wallet.Event, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/events?since=%s&max=%d", c.name, paramTime(since), max), &resp)
+func (c *WalletClient) Events(offset, limit int) (resp []wallet.Event, err error) {
+	err = c.c.GET(fmt.Sprintf("/wallets/%v/events?offset=%d&limit=%d", c.name, offset, limit), &resp)
 	return
 }
 

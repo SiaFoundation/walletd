@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"sync"
-	"time"
 
 	"go.sia.tech/core/chain"
 	"go.sia.tech/core/types"
@@ -27,19 +26,16 @@ func (s *EphemeralStore) ownsAddress(addr types.Address) bool {
 }
 
 // Events implements api.Wallet.
-func (s *EphemeralStore) Events(since time.Time, max int) (events []wallet.Event, err error) {
+func (s *EphemeralStore) Events(offset, limit int) (events []wallet.Event, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, event := range s.events {
-		if max == 0 {
-			return
-		} else if !event.Timestamp.After(since) {
-			continue
-		}
-		events = append(events, event)
-		max--
+	if offset > len(s.events) {
+		offset = len(s.events)
 	}
-	return
+	if offset+limit > len(s.events) {
+		limit = len(s.events) - offset
+	}
+	return s.events[offset:][:limit], nil
 }
 
 // Annotate implements api.Wallet.
