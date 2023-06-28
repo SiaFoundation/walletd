@@ -35,7 +35,12 @@ func (s *EphemeralStore) Events(offset, limit int) (events []wallet.Event, err e
 	if offset+limit > len(s.events) {
 		limit = len(s.events) - offset
 	}
-	return s.events[offset:][:limit], nil
+	// reverse
+	es := make([]wallet.Event, limit)
+	for i, e := range s.events[offset:][:limit] {
+		es[len(es)-i-1] = e
+	}
+	return es, nil
 }
 
 // Annotate implements api.Wallet.
