@@ -72,28 +72,33 @@ func Annotate(txn types.Transaction, ownsAddress func(types.Address) bool) PoolT
 		totalValue = totalValue.Add(fee)
 	}
 
-	ins, outs := "none", "none"
+	var ownedIn, ownedOut int
 	for _, sci := range txn.SiacoinInputs {
 		if ownsAddress(sci.UnlockConditions.UnlockHash()) {
-			if ins == "none" {
-				ins = "all"
-			}
-		} else {
-			if ins == "all" {
-				ins = "some"
-			}
+			ownedIn++
 		}
 	}
 	for _, sco := range txn.SiacoinOutputs {
 		if ownsAddress(sco.Address) {
-			if outs == "none" {
-				outs = "all"
-			}
-		} else {
-			if outs == "all" {
-				outs = "some"
-			}
+			ownedOut++
 		}
+	}
+	var ins, outs string
+	switch {
+	case ownedIn == 0:
+		ins = "none"
+	case ownedIn < len(txn.SiacoinInputs):
+		ins = "some"
+	case ownedIn == len(txn.SiacoinInputs):
+		ins = "all"
+	}
+	switch {
+	case ownedOut == 0:
+		ins = "none"
+	case ownedOut < len(txn.SiacoinOutputs):
+		ins = "some"
+	case ownedOut == len(txn.SiacoinOutputs):
+		ins = "all"
 	}
 
 	switch {
@@ -102,8 +107,8 @@ func Annotate(txn types.Transaction, ownsAddress func(types.Address) bool) PoolT
 	case ins == "all":
 		ptxn.Sent = totalValue
 		switch {
-		case outs != "all":
-			ptxn.Type = "send"
+		case outs == "all":
+			ptxn.Type = "redistribution"
 		case len(txn.FileContractRevisions) > 0:
 			ptxn.Type = "contract revision"
 		case len(txn.StorageProofs) > 0:
@@ -111,7 +116,7 @@ func Annotate(txn types.Transaction, ownsAddress func(types.Address) bool) PoolT
 		case len(txn.ArbitraryData) > 0:
 			ptxn.Type = "announcement"
 		default:
-			ptxn.Type = "redistribution"
+			ptxn.Type = "send"
 		}
 	case ins == "none" && outs != "none":
 		ptxn.Type = "receive"
