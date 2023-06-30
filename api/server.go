@@ -73,6 +73,10 @@ func (s *server) consensusTipHandler(jc jape.Context) {
 	jc.Encode(s.cm.TipState().Index)
 }
 
+func (s *server) consensusTipStateHandler(jc jape.Context) {
+	jc.Encode(s.cm.TipState())
+}
+
 func (s *server) syncerPeersHandler(jc jape.Context) {
 	var peers []GatewayPeer
 	for _, p := range s.s.Peers() {
@@ -389,8 +393,9 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		used: make(map[types.Hash256]bool),
 	}
 	return jape.Mux(map[string]jape.Handler{
-		"GET    /consensus/network": srv.consensusNetworkHandler,
-		"GET    /consensus/tip":     srv.consensusTipHandler,
+		"GET    /consensus/network":  srv.consensusNetworkHandler,
+		"GET    /consensus/tip":      srv.consensusTipHandler,
+		"GET    /consensus/tipstate": srv.consensusTipStateHandler,
 
 		"GET    /syncer/peers":   srv.syncerPeersHandler,
 		"POST   /syncer/connect": srv.syncerConnectHandler,

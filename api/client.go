@@ -47,6 +47,12 @@ func (c *Client) ConsensusTip() (resp types.ChainIndex, err error) {
 	return
 }
 
+// ConsensusTipState returns the current tip state.
+func (c *Client) ConsensusTipState() (resp consensus.State, err error) {
+	err = c.c.GET("/consensus/tipstate", &resp)
+	return
+}
+
 // SyncerPeers returns the current peers of the syncer.
 func (c *Client) SyncerPeers() (resp []GatewayPeer, err error) {
 	err = c.c.GET("/syncer/peers", &resp)
