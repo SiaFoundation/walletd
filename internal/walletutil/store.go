@@ -40,8 +40,8 @@ func (s *EphemeralStore) Events(offset, limit int) (events []wallet.Event, err e
 	}
 	// reverse
 	es := make([]wallet.Event, limit)
-	for i, e := range s.events[offset:][:limit] {
-		es[len(es)-i-1] = e
+	for i := range es {
+		es[i] = s.events[len(s.events)-offset-i-1]
 	}
 	return es, nil
 }
