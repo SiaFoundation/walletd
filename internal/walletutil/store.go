@@ -29,6 +29,9 @@ func (s *EphemeralStore) ownsAddress(addr types.Address) bool {
 func (s *EphemeralStore) Events(offset, limit int) (events []wallet.Event, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if limit == -1 {
+		limit = len(s.events)
+	}
 	if offset > len(s.events) {
 		offset = len(s.events)
 	}
