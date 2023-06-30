@@ -2,12 +2,15 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sync"
 	"time"
 
 	"go.sia.tech/jape"
+	"lukechampine.com/frand"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
@@ -305,6 +308,78 @@ func (s *server) walletsReleaseHandler(jc jape.Context) {
 	}
 }
 
+func (s *server) walletsFundHandler(jc jape.Context) {
+	fundTxn := func(txn *types.Transaction, amount types.Currency, utxos []wallet.SiacoinElement, changeAddr types.Address, pool []types.Transaction) ([]types.Hash256, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if amount.IsZero() {
+			return nil, nil
+		}
+		inPool := make(map[types.Hash256]bool)
+		for _, ptxn := range pool {
+			for _, in := range ptxn.SiacoinInputs {
+				inPool[types.Hash256(in.ParentID)] = true
+			}
+		}
+		frand.Shuffle(len(utxos), reflect.Swapper(utxos))
+		var outputSum types.Currency
+		var fundingElements []wallet.SiacoinElement
+		for _, sce := range utxos {
+			if s.used[types.Hash256(sce.ID)] || inPool[types.Hash256(sce.ID)] {
+				continue
+			}
+			fundingElements = append(fundingElements, sce)
+			outputSum = outputSum.Add(sce.Value)
+			if outputSum.Cmp(amount) >= 0 {
+				break
+			}
+		}
+		if outputSum.Cmp(amount) < 0 {
+			return nil, errors.New("insufficient balance")
+		} else if outputSum.Cmp(amount) > 0 {
+			txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
+				Value:   outputSum.Sub(amount),
+				Address: changeAddr,
+			})
+		}
+
+		toSign := make([]types.Hash256, len(fundingElements))
+		for i, sce := range fundingElements {
+			txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
+				ParentID: types.SiacoinOutputID(sce.ID),
+				// UnlockConditions left empty for client to fill in
+			})
+			toSign[i] = types.Hash256(sce.ID)
+			s.used[types.Hash256(sce.ID)] = true
+		}
+
+		return toSign, nil
+	}
+
+	var name string
+	var wfr WalletFundRequest
+	if jc.DecodeParam("name", &name) != nil || jc.Decode(&wfr) != nil {
+		return
+	}
+	utxos, _, err := s.wm.UnspentOutputs(name)
+	if jc.Check("couldn't get utxos to fund transaction", err) != nil {
+		return
+	}
+
+	txn := wfr.Transaction
+	fee := s.cm.RecommendedFee().Mul64(s.cm.TipState().TransactionWeight(txn))
+	txn.MinerFees = []types.Currency{fee}
+	toSign, err := fundTxn(&txn, wfr.Amount.Add(txn.MinerFees[0]), utxos, wfr.ChangeAddress, s.cm.PoolTransactions())
+	if jc.Check("couldn't fund transaction", err) != nil {
+		return
+	}
+	jc.Encode(WalletFundResponse{
+		Transaction: txn,
+		ToSign:      toSign,
+		DependsOn:   s.cm.UnconfirmedParents(txn),
+	})
+}
+
 // NewServer returns an HTTP handler that serves the walletd API.
 func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 	srv := server{
@@ -336,5 +411,6 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"GET    /wallets/:name/outputs":         srv.walletsOutputsHandler,
 		"POST   /wallets/:name/reserve":         srv.walletsReserveHandler,
 		"POST   /wallets/:name/release":         srv.walletsReleaseHandler,
+		"POST   /wallets/:name/fund":            srv.walletsFundHandler,
 	})
 }
