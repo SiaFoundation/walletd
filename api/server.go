@@ -383,9 +383,10 @@ func (s *server) walletsFundHandler(jc jape.Context) {
 // NewServer returns an HTTP handler that serves the walletd API.
 func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 	srv := server{
-		cm: cm,
-		s:  s,
-		wm: wm,
+		cm:   cm,
+		s:    s,
+		wm:   wm,
+		used: make(map[types.Hash256]bool),
 	}
 	return jape.Mux(map[string]jape.Handler{
 		"GET    /consensus/network": srv.consensusNetworkHandler,
