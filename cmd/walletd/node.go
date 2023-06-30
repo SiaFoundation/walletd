@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net"
+	"path/filepath"
 
 	bolt "go.etcd.io/bbolt"
 	"go.sia.tech/core/chain"
@@ -99,7 +100,7 @@ type node struct {
 }
 
 func newNode(addr, dir string, zen bool) (*node, error) {
-	bdb, err := bolt.Open("consensus.db", 0600, nil)
+	bdb, err := bolt.Open(filepath.Join(dir, "consensus.db"), 0600, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -117,7 +118,7 @@ func newNode(addr, dir string, zen bool) (*node, error) {
 	if err != nil {
 		return nil, err
 	}
-	ps, err := syncerutil.NewJSONPeerStore("peers.json")
+	ps, err := syncerutil.NewJSONPeerStore(filepath.Join(dir, "peers.json"))
 	if err != nil {
 		log.Fatal(err)
 	}
