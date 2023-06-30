@@ -371,9 +371,7 @@ func (s *server) walletsFundHandler(jc jape.Context) {
 	}
 
 	txn := wfr.Transaction
-	fee := s.cm.RecommendedFee().Mul64(s.cm.TipState().TransactionWeight(txn))
-	txn.MinerFees = []types.Currency{fee}
-	toSign, err := fundTxn(&txn, wfr.Amount.Add(txn.MinerFees[0]), utxos, wfr.ChangeAddress, s.cm.PoolTransactions())
+	toSign, err := fundTxn(&txn, wfr.Amount, utxos, wfr.ChangeAddress, s.cm.PoolTransactions())
 	if jc.Check("couldn't fund transaction", err) != nil {
 		return
 	}
