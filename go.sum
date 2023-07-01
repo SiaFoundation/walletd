@@ -11,6 +11,10 @@ go.sia.tech/core v0.1.12-0.20230623163824-788ed8e10817 h1:2cAVfksJnxQpYIZK8MRbdm
 go.sia.tech/core v0.1.12-0.20230623163824-788ed8e10817/go.mod h1:D17UWSn99SEfQnEaR9G9n6Kz9+BwqMoUgZ6Cl424LsQ=
 go.sia.tech/jape v0.9.0 h1:kWgMFqALYhLMJYOwWBgJda5ko/fi4iZzRxHRP7pp8NY=
 go.sia.tech/jape v0.9.0/go.mod h1:4QqmBB+t3W7cNplXPj++ZqpoUb2PeiS66RLpXmEGap4=
+go.sia.tech/web v0.0.0-20230628194305-c6e1696bad89 h1:wB/JRFeTEs6gviB6k7QARY7Goh54ufkADsdBdn0ZhRo=
+go.sia.tech/web v0.0.0-20230628194305-c6e1696bad89/go.mod h1:RKODSdOmR3VtObPAcGwQqm4qnqntDVFylbvOBbWYYBU=
+go.sia.tech/web/walletd v0.6.0 h1:vhj2LkaZf7Bu350kcSGSaehSwJeuYqVefxkzqTNonU4=
+go.sia.tech/web/walletd v0.6.0/go.mod h1:zfiPJGTwHjYyYGJNhjYTFn3OSJPPQkVL4nXp1M/Lhmg=
 golang.org/x/crypto v0.0.0-20220507011949-2cf3adece122 h1:NvGWuYG8dkDHFSKksI1P9faiVJ9rayE6l0+ouWVIDs8=
 golang.org/x/crypto v0.0.0-20220507011949-2cf3adece122/go.mod h1:IxCIyHEi3zRg3s0A5j5BB6A9Jmi73HwBIUl50j+osU4=
 golang.org/x/mod v0.9.0 h1:KENHtAZL2y3NLMYZeHY9DW8HW8V+kQyJsY/V9JlKvCs=
