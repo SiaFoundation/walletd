@@ -52,43 +52,68 @@ var zenBootstrap = []string{
 }
 
 type boltDB struct {
+	tx *bolt.Tx
 	db *bolt.DB
 }
 
-func (db boltDB) View(fn func(chain.DBTx) error) error {
-	return db.db.View(func(tx *bolt.Tx) error {
-		return fn(boltTx{tx})
-	})
+func (db *boltDB) newTx() (err error) {
+	if db.tx == nil {
+		db.tx, err = db.db.Begin(true)
+	}
+	return
 }
 
-func (db boltDB) Update(fn func(chain.DBTx) error) error {
-	return db.db.Update(func(tx *bolt.Tx) error {
-		return fn(boltTx{tx})
-	})
-}
+func (db *boltDB) Bucket(name []byte) chain.DBBucket {
+	if err := db.newTx(); err != nil {
+		panic(err)
+	}
 
-type boltTx struct {
-	tx *bolt.Tx
-}
-
-func (tx boltTx) Bucket(name []byte) chain.DBBucket {
-	b := tx.tx.Bucket(name)
+	b := db.tx.Bucket(name)
 	if b == nil {
 		return nil
 	}
 	return b
 }
 
-func (tx boltTx) CreateBucket(name []byte) (chain.DBBucket, error) {
-	b, err := tx.tx.CreateBucket(name)
+func (db *boltDB) CreateBucket(name []byte) (chain.DBBucket, error) {
+	if err := db.newTx(); err != nil {
+		return nil, err
+	}
+
+	b, err := db.tx.CreateBucket(name)
 	if b == nil {
 		return nil, err
 	}
 	return b, nil
 }
 
-func (tx boltTx) DeleteBucket(name []byte) error {
-	return tx.tx.DeleteBucket(name)
+func (db *boltDB) DeleteBucket(name []byte) error {
+	if err := db.newTx(); err != nil {
+		return err
+	}
+
+	return db.tx.DeleteBucket(name)
+}
+
+func (db *boltDB) Flush() error {
+	if db.tx == nil {
+		return nil
+	}
+
+	if err := db.tx.Commit(); err != nil {
+		return err
+	}
+	db.tx = nil
+	return nil
+}
+
+func (db *boltDB) Cancel() {
+	if db.tx == nil {
+		return
+	}
+
+	db.tx.Rollback()
+	db.tx = nil
 }
 
 type node struct {
@@ -108,7 +133,7 @@ func newNode(addr, dir string, zen bool) (*node, error) {
 	if zen {
 		network, genesisBlock = chain.TestnetZen()
 	}
-	dbstore, tip, err := chain.NewDBStore(boltDB{bdb}, network, genesisBlock)
+	dbstore, tip, err := chain.NewDBStore(&boltDB{db: bdb}, network, genesisBlock)
 	if err != nil {
 		return nil, err
 	}
