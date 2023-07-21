@@ -87,14 +87,6 @@ func (db *boltDB) CreateBucket(name []byte) (chain.DBBucket, error) {
 	return b, nil
 }
 
-func (db *boltDB) DeleteBucket(name []byte) error {
-	if err := db.newTx(); err != nil {
-		return err
-	}
-
-	return db.tx.DeleteBucket(name)
-}
-
 func (db *boltDB) Flush() error {
 	if db.tx == nil {
 		return nil
