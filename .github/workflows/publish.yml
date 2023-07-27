@@ -1,12 +1,12 @@
 name: Publish
 
-# Controls when the action will run. 
+# Controls when the action will run.
 on:
   # Triggers the workflow on new SemVer tags
   push:
     branches:
       - master
-    tags: 
+    tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-**'
 
@@ -41,7 +41,7 @@ jobs:
         name: generate tags
         id: meta
         with:
-          images: ghcr.io/SiaFoundation/walletd
+          images: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
           tags: |
             type=ref,event=branch
             type=sha,prefix=
@@ -92,7 +92,7 @@ jobs:
         with:
           name: walletd
           path: release/
-  build-mac: 
+  build-mac:
     runs-on: macos-latest
     needs: [ test ]
     steps:
@@ -177,7 +177,7 @@ jobs:
         with:
           name: walletd
           path: release/
-  build-windows: 
+  build-windows:
     runs-on: windows-latest
     needs: [ test ]
     steps:
