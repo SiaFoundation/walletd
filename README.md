@@ -2,11 +2,12 @@
 
 [![GoDoc](https://godoc.org/go.sia.tech/walletd?status.svg)](https://godoc.org/go.sia.tech/walletd)
 
-A new wallet for Sia.
-
-`walletd` is a watch-only wallet server. It does not have access to any private
-keys, only addresses derived from those keys. Its role is to watch the
-blockchain for events relevant to particular addresses. The server therefore
-knows which outputs are spendable by the wallet at any given time, and can
-assist in constructing and broadcasting transactions spending those outputs.
-However, *signing* transactions is the sole responsibility of the client.
+`walletd` is the flagship Sia wallet, suitable for miners, exchanges, and
+everyday hodlers. Its client-server architecture gives you the flexibility
+to access your funds from anywhere, on any device, without compromising the
+security of your private keys. The server is agnostic, so you can derive
+those keys from a 12-word seed phrase, a legacy (`siad`) 28-word phrase, a
+Ledger hardware wallet, or another preferred method. Like other Foundation
+node software, `walletd` ships with a slick embedded UI, but developers can
+easily build headless integrations leveraging its powerful JSON API. Whether
+you're using a single address or millions, `walletd` scales to your needs.
