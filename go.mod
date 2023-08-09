@@ -6,7 +6,7 @@ require (
 	go.etcd.io/bbolt v1.3.7
 	go.sia.tech/core v0.1.12-0.20230719234329-9075f197844e
 	go.sia.tech/jape v0.9.0
-	go.sia.tech/web/walletd v0.8.0
+	go.sia.tech/web/walletd v0.9.0
 	golang.org/x/term v0.6.0
 	lukechampine.com/frand v1.4.2
 )
