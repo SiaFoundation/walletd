@@ -43,9 +43,9 @@ func check(context string, err error) {
 }
 
 func getAPIPassword() string {
-	apiPassword := os.Getenv("SIA_API_PASSWORD")
+	apiPassword := os.Getenv("WALLETD_API_PASSWORD")
 	if apiPassword != "" {
-		fmt.Println("Using SIA_API_PASSWORD environment variable.")
+		fmt.Println("Using WALLETD_API_PASSWORD environment variable.")
 	} else {
 		fmt.Print("Enter API password: ")
 		pw, err := term.ReadPassword(int(os.Stdin.Fd()))
