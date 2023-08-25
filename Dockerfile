@@ -16,7 +16,7 @@ LABEL maintainer="The Sia Foundation <info@sia.tech>" \
 ENV PUID=0
 ENV PGID=0
 
-ENV SIA_API_PASSWORD=
+ENV WALLETD_API_PASSWORD=
 
 # copy binary and prepare data dir.
 COPY --from=builder /walletd/bin/* /usr/bin/
