@@ -94,11 +94,11 @@ func Annotate(txn types.Transaction, ownsAddress func(types.Address) bool) PoolT
 	}
 	switch {
 	case ownedOut == 0:
-		ins = "none"
+		outs = "none"
 	case ownedOut < len(txn.SiacoinOutputs):
-		ins = "some"
+		outs = "some"
 	case ownedOut == len(txn.SiacoinOutputs):
-		ins = "all"
+		outs = "all"
 	}
 
 	switch {
