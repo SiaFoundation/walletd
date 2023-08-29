@@ -2,6 +2,7 @@ package walletutil
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sync"
 
@@ -175,7 +176,7 @@ func (s *EphemeralStore) RemoveAddress(addr types.Address) error {
 		case wallet.EventTransaction:
 			return true // TODO
 		default:
-			panic("unhandled event type")
+			panic(fmt.Sprintf("unhandled event type %T", e))
 		}
 	}
 
