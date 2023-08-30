@@ -187,27 +187,27 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	e.Timestamp = s.Timestamp
 	e.Index = s.Index
 	switch s.Type {
-	case (EventBlockReward{}).eventType():
+	case (*EventBlockReward)(nil).eventType():
 		e.Val = new(EventBlockReward)
-	case (EventFoundationSubsidy{}).eventType():
+	case (*EventFoundationSubsidy)(nil).eventType():
 		e.Val = new(EventFoundationSubsidy)
-	case (EventSiacoinMaturation{}).eventType():
+	case (*EventSiacoinMaturation)(nil).eventType():
 		e.Val = new(EventSiacoinMaturation)
-	case (EventSiacoinTransfer{}).eventType():
+	case (*EventSiacoinTransfer)(nil).eventType():
 		e.Val = new(EventSiacoinTransfer)
-	case (EventSiafundTransfer{}).eventType():
+	case (*EventSiafundTransfer)(nil).eventType():
 		e.Val = new(EventSiafundTransfer)
-	case (EventFileContractFormation{}).eventType():
+	case (*EventFileContractFormation)(nil).eventType():
 		e.Val = new(EventFileContractFormation)
-	case (EventFileContractRevision{}).eventType():
+	case (*EventFileContractRevision)(nil).eventType():
 		e.Val = new(EventFileContractRevision)
-	case (EventFileContractResolutionValid{}).eventType():
+	case (*EventFileContractResolutionValid)(nil).eventType():
 		e.Val = new(EventFileContractResolutionValid)
-	case (EventFileContractResolutionMissed{}).eventType():
+	case (*EventFileContractResolutionMissed)(nil).eventType():
 		e.Val = new(EventFileContractResolutionMissed)
-	case (EventHostAnnouncement{}).eventType():
+	case (*EventHostAnnouncement)(nil).eventType():
 		e.Val = new(EventHostAnnouncement)
-	case (EventTransaction{}).eventType():
+	case (*EventTransaction)(nil).eventType():
 		e.Val = new(EventTransaction)
 	}
 	if e.Val == nil {
@@ -216,19 +216,21 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(s.Val, e.Val)
 }
 
-func (EventBlockReward) eventType() string                 { return "block reward" }
-func (EventFoundationSubsidy) eventType() string           { return "foundation subsidy" }
-func (EventSiacoinMaturation) eventType() string           { return "siacoin maturation" }
-func (EventSiacoinTransfer) eventType() string             { return "siacoin transfer" }
-func (EventSiafundTransfer) eventType() string             { return "siafund transfer" }
-func (EventFileContractFormation) eventType() string       { return "file contract formation" }
-func (EventFileContractRevision) eventType() string        { return "file contract revision" }
-func (EventFileContractResolutionValid) eventType() string { return "file contract resolution (valid)" }
-func (EventFileContractResolutionMissed) eventType() string {
+func (*EventBlockReward) eventType() string           { return "block reward" }
+func (*EventFoundationSubsidy) eventType() string     { return "foundation subsidy" }
+func (*EventSiacoinMaturation) eventType() string     { return "siacoin maturation" }
+func (*EventSiacoinTransfer) eventType() string       { return "siacoin transfer" }
+func (*EventSiafundTransfer) eventType() string       { return "siafund transfer" }
+func (*EventFileContractFormation) eventType() string { return "file contract formation" }
+func (*EventFileContractRevision) eventType() string  { return "file contract revision" }
+func (*EventFileContractResolutionValid) eventType() string {
+	return "file contract resolution (valid)"
+}
+func (*EventFileContractResolutionMissed) eventType() string {
 	return "file contract resolution (missed)"
 }
-func (EventHostAnnouncement) eventType() string { return "host announcement" }
-func (EventTransaction) eventType() string      { return "transaction" }
+func (*EventHostAnnouncement) eventType() string { return "host announcement" }
+func (*EventTransaction) eventType() string      { return "transaction" }
 
 // EventBlockReward represents a block reward.
 type EventBlockReward struct {
@@ -419,7 +421,7 @@ func DiffEvents(b types.Block, diff consensus.BlockDiff, index types.ChainIndex,
 			fee = fee.Add(c)
 		}
 		if len(scInputs) > 0 || len(scOutputs) > 0 {
-			addEvent(EventSiacoinTransfer{
+			addEvent(&EventSiacoinTransfer{
 				TransactionID: txid,
 				Inputs:        scInputs,
 				Outputs:       scOutputs,
@@ -445,7 +447,7 @@ func DiffEvents(b types.Block, diff consensus.BlockDiff, index types.ChainIndex,
 			}
 		}
 		if len(sfInputs) > 0 || len(sfOutputs) > 0 {
-			addEvent(EventSiafundTransfer{
+			addEvent(&EventSiafundTransfer{
 				TransactionID: txid,
 				Inputs:        sfInputs,
 				Outputs:       sfOutputs,
@@ -454,7 +456,7 @@ func DiffEvents(b types.Block, diff consensus.BlockDiff, index types.ChainIndex,
 
 		for _, fcd := range tdiff.CreatedFileContracts {
 			if relevantContract(fcd.Contract) {
-				addEvent(EventFileContractFormation{
+				addEvent(&EventFileContractFormation{
 					TransactionID: txid,
 					ContractID:    fcd.ID,
 					Contract:      fcd.Contract,
@@ -463,7 +465,7 @@ func DiffEvents(b types.Block, diff consensus.BlockDiff, index types.ChainIndex,
 		}
 		for _, fcrd := range tdiff.RevisedFileContracts {
 			if relevantContract(fcrd.OldContract) || relevantContract(fcrd.NewContract) {
-				addEvent(EventFileContractRevision{
+				addEvent(&EventFileContractRevision{
 					TransactionID: txid,
 					ContractID:    fcrd.ID,
 					OldContract:   fcrd.OldContract,
@@ -473,7 +475,7 @@ func DiffEvents(b types.Block, diff consensus.BlockDiff, index types.ChainIndex,
 		}
 		for _, fcd := range tdiff.ValidFileContracts {
 			if relevantContract(fcd.Contract) {
-				addEvent(EventFileContractResolutionValid{
+				addEvent(&EventFileContractResolutionValid{
 					TransactionID: txid,
 					ContractID:    fcd.ID,
 					Contract:      fcd.Contract,
@@ -500,7 +502,7 @@ func DiffEvents(b types.Block, diff consensus.BlockDiff, index types.ChainIndex,
 			}
 			for _, arb := range txn.ArbitraryData {
 				if pubkey, netAddress, ok := decodeAnnouncement(arb); ok {
-					addEvent(EventHostAnnouncement{
+					addEvent(&EventHostAnnouncement{
 						TransactionID: txid,
 						PublicKey:     pubkey,
 						NetAddress:    netAddress,
@@ -513,7 +515,7 @@ func DiffEvents(b types.Block, diff consensus.BlockDiff, index types.ChainIndex,
 		if len(events) == oldLen {
 			// transaction is relevant, but doesn't map to any predefined
 			// event categories
-			addEvent(EventTransaction{
+			addEvent(&EventTransaction{
 				TransactionID: txid,
 				Transaction:   txn,
 			})
@@ -522,7 +524,7 @@ func DiffEvents(b types.Block, diff consensus.BlockDiff, index types.ChainIndex,
 
 	for _, dscod := range diff.MaturedSiacoinOutputs {
 		if relevant(dscod.Output.Address) {
-			addEvent(EventSiacoinMaturation{
+			addEvent(&EventSiacoinMaturation{
 				OutputID: dscod.ID,
 				Output:   dscod.Output,
 				Source:   dscod.Source,
@@ -533,19 +535,19 @@ func DiffEvents(b types.Block, diff consensus.BlockDiff, index types.ChainIndex,
 		if relevant(dscod.Output.Address) {
 			switch dscod.Source {
 			case consensus.OutputSourceMiner:
-				addEvent(EventBlockReward{
+				addEvent(&EventBlockReward{
 					OutputID:       dscod.ID,
 					Output:         dscod.Output,
 					MaturityHeight: dscod.MaturityHeight,
 				})
 			case consensus.OutputSourceMissedContract:
-				addEvent(EventFileContractResolutionMissed{
+				addEvent(&EventFileContractResolutionMissed{
 					OutputID:       dscod.ID,
 					Output:         dscod.Output,
 					MaturityHeight: dscod.MaturityHeight,
 				})
 			case consensus.OutputSourceFoundation:
-				addEvent(EventBlockReward{
+				addEvent(&EventBlockReward{
 					OutputID:       dscod.ID,
 					Output:         dscod.Output,
 					MaturityHeight: dscod.MaturityHeight,
@@ -556,7 +558,7 @@ func DiffEvents(b types.Block, diff consensus.BlockDiff, index types.ChainIndex,
 	for _, fcd := range diff.MissedFileContracts {
 		for i, sco := range fcd.Contract.MissedProofOutputs {
 			if relevant(sco.Address) {
-				addEvent(EventFileContractResolutionMissed{
+				addEvent(&EventFileContractResolutionMissed{
 					Contract:       fcd.Contract,
 					OutputID:       fcd.ID.MissedOutputID(i),
 					Output:         sco,

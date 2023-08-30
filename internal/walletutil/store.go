@@ -143,15 +143,15 @@ func (s *EphemeralStore) RemoveAddress(addr types.Address) error {
 	}
 	relevantEvent := func(e wallet.Event) bool {
 		switch e := e.Val.(type) {
-		case wallet.EventBlockReward:
+		case *wallet.EventBlockReward:
 			return s.ownsAddress(e.Output.Address)
-		case wallet.EventFoundationSubsidy:
+		case *wallet.EventFoundationSubsidy:
 			return s.ownsAddress(e.Output.Address)
-		case wallet.EventSiacoinMaturation:
+		case *wallet.EventSiacoinMaturation:
 			return s.ownsAddress(e.Output.Address)
-		case wallet.EventSiacoinTransfer:
+		case *wallet.EventSiacoinTransfer:
 			return relevantElements(e.Inputs) || relevantElements(e.Outputs)
-		case wallet.EventSiafundTransfer:
+		case *wallet.EventSiafundTransfer:
 			for _, sci := range e.Inputs {
 				if s.ownsAddress(sci.Address) {
 					return true
@@ -163,17 +163,17 @@ func (s *EphemeralStore) RemoveAddress(addr types.Address) error {
 				}
 			}
 			return false
-		case wallet.EventFileContractFormation:
+		case *wallet.EventFileContractFormation:
 			return relevantContract(e.Contract)
-		case wallet.EventFileContractRevision:
+		case *wallet.EventFileContractRevision:
 			return relevantContract(e.OldContract) || relevantContract(e.NewContract)
-		case wallet.EventFileContractResolutionValid:
+		case *wallet.EventFileContractResolutionValid:
 			return s.ownsAddress(e.Output.Address)
-		case wallet.EventFileContractResolutionMissed:
+		case *wallet.EventFileContractResolutionMissed:
 			return s.ownsAddress(e.Output.Address)
-		case wallet.EventHostAnnouncement:
+		case *wallet.EventHostAnnouncement:
 			return relevantElements(e.Inputs)
-		case wallet.EventTransaction:
+		case *wallet.EventTransaction:
 			return true // TODO
 		default:
 			panic(fmt.Sprintf("unhandled event type %T", e))
