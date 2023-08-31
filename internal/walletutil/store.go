@@ -15,8 +15,8 @@ import (
 type EphemeralStore struct {
 	tip    types.ChainIndex
 	addrs  map[types.Address]json.RawMessage
-	scos   map[types.SiacoinOutputID]types.SiacoinOutput
-	sfos   map[types.SiafundOutputID]types.SiafundOutput
+	sces   map[types.SiacoinOutputID]types.SiacoinElement
+	sfes   map[types.SiafundOutputID]types.SiafundElement
 	events []wallet.Event
 	mu     sync.Mutex
 }
@@ -61,20 +61,14 @@ func (s *EphemeralStore) Annotate(txns []types.Transaction) (ptxns []wallet.Pool
 }
 
 // UnspentOutputs implements api.Wallet.
-func (s *EphemeralStore) UnspentOutputs() (scos []wallet.SiacoinElement, sfos []wallet.SiafundElement, err error) {
+func (s *EphemeralStore) UnspentOutputs() (sces []types.SiacoinElement, sfes []types.SiafundElement, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for id, sco := range s.scos {
-		scos = append(scos, wallet.SiacoinElement{
-			ID:            id,
-			SiacoinOutput: sco,
-		})
+	for _, sco := range s.sces {
+		sces = append(sces, sco)
 	}
-	for id, sfo := range s.sfos {
-		sfos = append(sfos, wallet.SiafundElement{
-			ID:            id,
-			SiafundOutput: sfo,
-		})
+	for _, sfo := range s.sfes {
+		sfes = append(sfes, sfo)
 	}
 	return
 }
@@ -108,26 +102,18 @@ func (s *EphemeralStore) RemoveAddress(addr types.Address) error {
 	delete(s.addrs, addr)
 
 	// filter outputs
-	for scoid, sco := range s.scos {
-		if sco.Address == addr {
-			delete(s.scos, scoid)
+	for scoid, sce := range s.sces {
+		if sce.SiacoinOutput.Address == addr {
+			delete(s.sces, scoid)
 		}
 	}
-	for sfoid, sfo := range s.sfos {
-		if sfo.Address == addr {
-			delete(s.sfos, sfoid)
+	for sfoid, sfe := range s.sfes {
+		if sfe.SiafundOutput.Address == addr {
+			delete(s.sfes, sfoid)
 		}
 	}
 
 	// filter events
-	relevantElements := func(sces []wallet.SiacoinElement) bool {
-		for _, sce := range sces {
-			if s.ownsAddress(sce.Address) {
-				return true
-			}
-		}
-		return false
-	}
 	relevantContract := func(fc types.FileContract) bool {
 		for _, sco := range fc.ValidProofOutputs {
 			if s.ownsAddress(sco.Address) {
@@ -141,40 +127,65 @@ func (s *EphemeralStore) RemoveAddress(addr types.Address) error {
 		}
 		return false
 	}
+	relevantV2Contract := func(fc types.V2FileContract) bool {
+		return s.ownsAddress(fc.RenterOutput.Address) || s.ownsAddress(fc.HostOutput.Address)
+	}
 	relevantEvent := func(e wallet.Event) bool {
 		switch e := e.Val.(type) {
-		case *wallet.EventBlockReward:
-			return s.ownsAddress(e.Output.Address)
-		case *wallet.EventFoundationSubsidy:
-			return s.ownsAddress(e.Output.Address)
-		case *wallet.EventSiacoinMaturation:
-			return s.ownsAddress(e.Output.Address)
-		case *wallet.EventSiacoinTransfer:
-			return relevantElements(e.Inputs) || relevantElements(e.Outputs)
-		case *wallet.EventSiafundTransfer:
-			for _, sci := range e.Inputs {
-				if s.ownsAddress(sci.Address) {
+		case *wallet.EventTransaction:
+			for _, sce := range e.SiacoinInputs {
+				if s.ownsAddress(sce.SiacoinOutput.Address) {
 					return true
 				}
 			}
-			for _, sco := range e.Outputs {
-				if s.ownsAddress(sco.Address) {
+			for _, sce := range e.SiacoinOutputs {
+				if s.ownsAddress(sce.SiacoinOutput.Address) {
+					return true
+				}
+			}
+			for _, sfe := range e.SiafundInputs {
+				if s.ownsAddress(sfe.SiafundElement.SiafundOutput.Address) ||
+					s.ownsAddress(sfe.ClaimElement.SiacoinOutput.Address) {
+					return true
+				}
+			}
+			for _, sfe := range e.SiafundOutputs {
+				if s.ownsAddress(sfe.SiafundOutput.Address) {
+					return true
+				}
+			}
+			for _, fc := range e.FileContracts {
+				if relevantContract(fc.FileContract.FileContract) || (fc.Revision != nil && relevantContract(*fc.Revision)) {
+					return true
+				}
+			}
+			for _, fc := range e.V2FileContracts {
+				if relevantV2Contract(fc.FileContract.V2FileContract) || (fc.Revision != nil && relevantV2Contract(*fc.Revision)) {
+					return true
+				}
+				if fc.Resolution != nil {
+					switch r := fc.Resolution.(type) {
+					case *types.V2FileContractFinalization:
+						if relevantV2Contract(types.V2FileContract(*r)) {
+							return true
+						}
+					case *types.V2FileContractRenewal:
+						if relevantV2Contract(r.FinalRevision) || relevantV2Contract(r.InitialRevision) {
+							return true
+						}
+					}
+				}
+			}
+			return false
+		case *wallet.EventMinerPayout:
+			return s.ownsAddress(e.SiacoinOutput.SiacoinOutput.Address)
+		case *wallet.EventMissedFileContract:
+			for _, sce := range e.MissedOutputs {
+				if s.ownsAddress(sce.SiacoinOutput.Address) {
 					return true
 				}
 			}
 			return false
-		case *wallet.EventFileContractFormation:
-			return relevantContract(e.Contract)
-		case *wallet.EventFileContractRevision:
-			return relevantContract(e.OldContract) || relevantContract(e.NewContract)
-		case *wallet.EventFileContractResolutionValid:
-			return s.ownsAddress(e.Output.Address)
-		case *wallet.EventFileContractResolutionMissed:
-			return s.ownsAddress(e.Output.Address)
-		case *wallet.EventHostAnnouncement:
-			return relevantElements(e.Inputs)
-		case *wallet.EventTransaction:
-			return true // TODO
 		default:
 			panic(fmt.Sprintf("unhandled event type %T", e))
 		}
@@ -195,36 +206,40 @@ func (s *EphemeralStore) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, _ bool)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	events := wallet.DiffEvents(cau.Block, cau.Diff, cau.State.Index, s.ownsAddress)
+	events := wallet.AppliedEvents(cau.State, cau.Block, cau, s.ownsAddress)
 	s.events = append(s.events, events...)
 
-	for _, tdiff := range cau.Diff.Transactions {
-		for _, scod := range tdiff.SpentSiacoinOutputs {
-			if s.ownsAddress(scod.Output.Address) {
-				delete(s.scos, scod.ID)
-			}
-		}
-		for _, scod := range tdiff.CreatedSiacoinOutputs {
-			if s.ownsAddress(scod.Output.Address) {
-				s.scos[scod.ID] = scod.Output
-			}
-		}
-		for _, sfod := range tdiff.SpentSiafundOutputs {
-			if s.ownsAddress(sfod.Output.Address) {
-				delete(s.sfos, sfod.ID)
-			}
-		}
-		for _, sfod := range tdiff.CreatedSiafundOutputs {
-			if s.ownsAddress(sfod.Output.Address) {
-				s.sfos[sfod.ID] = sfod.Output
-			}
-		}
+	// update proofs
+	for id, sce := range s.sces {
+		cau.UpdateElementProof(&sce.StateElement)
+		s.sces[id] = sce
 	}
-	for _, scod := range cau.Diff.MaturedSiacoinOutputs {
-		if s.ownsAddress(scod.Output.Address) {
-			s.scos[scod.ID] = scod.Output
-		}
+	for id, sfe := range s.sfes {
+		cau.UpdateElementProof(&sfe.StateElement)
+		s.sfes[id] = sfe
 	}
+
+	// add/remove outputs
+	cau.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+		if s.ownsAddress(sce.SiacoinOutput.Address) {
+			if spent {
+				delete(s.sces, types.SiacoinOutputID(sce.ID))
+			} else {
+				sce.MerkleProof = append([]types.Hash256(nil), sce.MerkleProof...)
+				s.sces[types.SiacoinOutputID(sce.ID)] = sce
+			}
+		}
+	})
+	cau.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+		if s.ownsAddress(sfe.SiafundOutput.Address) {
+			if spent {
+				delete(s.sfes, types.SiafundOutputID(sfe.ID))
+			} else {
+				sfe.MerkleProof = append([]types.Hash256(nil), sfe.MerkleProof...)
+				s.sfes[types.SiafundOutputID(sfe.ID)] = sfe
+			}
+		}
+	})
 
 	s.tip = cau.State.Index
 	return nil
@@ -235,38 +250,39 @@ func (s *EphemeralStore) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// TODO: kinda wasteful
-	events := wallet.DiffEvents(cru.Block, cru.Diff, cru.State.Index, s.ownsAddress)
-	s.events = s.events[:len(s.events)-len(events)]
+	// terribly inefficient, but not a big deal because reverts are infrequent
+	numEvents := len(wallet.AppliedEvents(cru.State, cru.Block, cru, s.ownsAddress))
+	s.events = s.events[:len(s.events)-numEvents]
 
-	for _, tdiff := range cru.Diff.Transactions {
-		for _, scod := range tdiff.SpentSiacoinOutputs {
-			if s.ownsAddress(scod.Output.Address) {
-				s.scos[scod.ID] = scod.Output
-			}
-		}
-		for _, scod := range tdiff.CreatedSiacoinOutputs {
-			if s.ownsAddress(scod.Output.Address) {
-				delete(s.scos, scod.ID)
-			}
-		}
-		for _, sfod := range tdiff.SpentSiafundOutputs {
-			if s.ownsAddress(sfod.Output.Address) {
-				s.sfos[sfod.ID] = sfod.Output
-			}
-		}
-		for _, sfod := range tdiff.CreatedSiafundOutputs {
-			if s.ownsAddress(sfod.Output.Address) {
-				delete(s.sfos, sfod.ID)
-			}
-		}
+	for id, sce := range s.sces {
+		cru.UpdateElementProof(&sce.StateElement)
+		s.sces[id] = sce
 	}
-	for _, scod := range cru.Diff.MaturedSiacoinOutputs {
-		if s.ownsAddress(scod.Output.Address) {
-			delete(s.scos, scod.ID)
-		}
+	for id, sfe := range s.sfes {
+		cru.UpdateElementProof(&sfe.StateElement)
+		s.sfes[id] = sfe
 	}
 
+	cru.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
+		if s.ownsAddress(sce.SiacoinOutput.Address) {
+			if !spent {
+				delete(s.sces, types.SiacoinOutputID(sce.ID))
+			} else {
+				sce.MerkleProof = append([]types.Hash256(nil), sce.MerkleProof...)
+				s.sces[types.SiacoinOutputID(sce.ID)] = sce
+			}
+		}
+	})
+	cru.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
+		if s.ownsAddress(sfe.SiafundOutput.Address) {
+			if !spent {
+				delete(s.sfes, types.SiafundOutputID(sfe.ID))
+			} else {
+				sfe.MerkleProof = append([]types.Hash256(nil), sfe.MerkleProof...)
+				s.sfes[types.SiafundOutputID(sfe.ID)] = sfe
+			}
+		}
+	})
 	s.tip = cru.State.Index
 	return nil
 }
@@ -275,8 +291,8 @@ func (s *EphemeralStore) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error
 func NewEphemeralStore() *EphemeralStore {
 	return &EphemeralStore{
 		addrs: make(map[types.Address]json.RawMessage),
-		scos:  make(map[types.SiacoinOutputID]types.SiacoinOutput),
-		sfos:  make(map[types.SiafundOutputID]types.SiafundOutput),
+		sces:  make(map[types.SiacoinOutputID]types.SiacoinElement),
+		sfes:  make(map[types.SiafundOutputID]types.SiafundElement),
 	}
 }
 
@@ -287,20 +303,20 @@ type JSONStore struct {
 }
 
 type persistData struct {
-	Tip            types.ChainIndex
-	Addresses      map[types.Address]json.RawMessage
-	SiacoinOutputs map[types.SiacoinOutputID]types.SiacoinOutput
-	SiafundOutputs map[types.SiafundOutputID]types.SiafundOutput
-	Events         []wallet.Event
+	Tip             types.ChainIndex
+	Addresses       map[types.Address]json.RawMessage
+	SiacoinElements map[types.SiacoinOutputID]types.SiacoinElement
+	SiafundElements map[types.SiafundOutputID]types.SiafundElement
+	Events          []wallet.Event
 }
 
 func (s *JSONStore) save() error {
 	js, err := json.MarshalIndent(persistData{
-		Tip:            s.tip,
-		Addresses:      s.addrs,
-		SiacoinOutputs: s.scos,
-		SiafundOutputs: s.sfos,
-		Events:         s.events,
+		Tip:             s.tip,
+		Addresses:       s.addrs,
+		SiacoinElements: s.sces,
+		SiafundElements: s.sfes,
+		Events:          s.events,
 	}, "", "  ")
 	if err != nil {
 		return err
@@ -337,8 +353,8 @@ func (s *JSONStore) load() error {
 	}
 	s.tip = p.Tip
 	s.addrs = p.Addresses
-	s.scos = p.SiacoinOutputs
-	s.sfos = p.SiafundOutputs
+	s.sces = p.SiacoinElements
+	s.sfes = p.SiafundElements
 	s.events = p.Events
 	return nil
 }

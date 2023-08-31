@@ -53,7 +53,7 @@ type SeedAddressVault struct {
 
 func (sav *SeedAddressVault) gen(index uint64) {
 	for index > uint64(len(sav.addrs)) {
-		sav.addrs[sav.seed.PublicKey(uint64(len(sav.addrs))).StandardAddress()] = uint64(len(sav.addrs))
+		sav.addrs[types.StandardAddress(sav.seed.PublicKey(uint64(len(sav.addrs))))] = uint64(len(sav.addrs))
 	}
 }
 
@@ -75,7 +75,7 @@ func (sav *SeedAddressVault) NewAddress(desc string) (types.Address, json.RawMes
 	defer sav.mu.Unlock()
 	index := uint64(len(sav.addrs)) - sav.lookahead + 1
 	sav.gen(index + sav.lookahead)
-	addr := sav.seed.PublicKey(index).StandardAddress()
+	addr := types.StandardAddress(sav.seed.PublicKey(index))
 	return addr, json.RawMessage(fmt.Sprintf(`{"desc":"%s","keyIndex":%d}`, desc, index))
 }
 

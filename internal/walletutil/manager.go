@@ -120,7 +120,7 @@ func (wm *EphemeralWalletManager) Annotate(name string, txns []types.Transaction
 }
 
 // UnspentOutputs implements api.WalletManager.
-func (wm *EphemeralWalletManager) UnspentOutputs(name string) ([]wallet.SiacoinElement, []wallet.SiafundElement, error) {
+func (wm *EphemeralWalletManager) UnspentOutputs(name string) ([]types.SiacoinElement, []types.SiafundElement, error) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	mw, ok := wm.wallets[name]
@@ -333,7 +333,7 @@ func (wm *JSONWalletManager) Annotate(name string, txns []types.Transaction) ([]
 }
 
 // UnspentOutputs implements api.WalletManager.
-func (wm *JSONWalletManager) UnspentOutputs(name string) ([]wallet.SiacoinElement, []wallet.SiafundElement, error) {
+func (wm *JSONWalletManager) UnspentOutputs(name string) ([]types.SiacoinElement, []types.SiafundElement, error) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	mw, ok := wm.wallets[name]
