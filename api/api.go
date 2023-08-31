@@ -51,6 +51,14 @@ type WalletFundRequest struct {
 	ChangeAddress types.Address     `json:"changeAddress"`
 }
 
+// WalletFundSFRequest is the request type for /wallets/:name/fundsf.
+type WalletFundSFRequest struct {
+	Transaction   types.Transaction `json:"transaction"`
+	Amount        uint64            `json:"amount"`
+	ChangeAddress types.Address     `json:"changeAddress"`
+	ClaimAddress  types.Address     `json:"claimAddress"`
+}
+
 // WalletFundResponse is the response type for /wallets/:name/fund.
 type WalletFundResponse struct {
 	Transaction types.Transaction   `json:"transaction"`

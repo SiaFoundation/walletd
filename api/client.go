@@ -166,6 +166,27 @@ func (c *WalletClient) Release(sc []types.SiacoinOutputID, sf []types.SiafundOut
 	return
 }
 
+// Fund funds a siacoin transaction.
+func (c *WalletClient) Fund(txn types.Transaction, amount types.Currency, changeAddr types.Address) (resp WalletFundResponse, err error) {
+	err = c.c.POST(fmt.Sprintf("/wallets/%v/fund", c.name), WalletFundRequest{
+		Transaction:   txn,
+		Amount:        amount,
+		ChangeAddress: changeAddr,
+	}, &resp)
+	return
+}
+
+// FundSF funds a siafund transaction.
+func (c *WalletClient) FundSF(txn types.Transaction, amount uint64, changeAddr, claimAddr types.Address) (resp WalletFundResponse, err error) {
+	err = c.c.POST(fmt.Sprintf("/wallets/%v/fundsf", c.name), WalletFundSFRequest{
+		Transaction:   txn,
+		Amount:        amount,
+		ChangeAddress: changeAddr,
+		ClaimAddress:  claimAddr,
+	}, &resp)
+	return
+}
+
 // NewClient returns a client that communicates with a walletd server listening
 // on the specified address.
 func NewClient(addr, password string) *Client {
