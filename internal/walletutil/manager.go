@@ -139,9 +139,19 @@ func (wm *EphemeralWalletManager) SubscribeWallet(name string, startHeight uint6
 		return errNoWallet
 	} else if mw.subscribed {
 		return errors.New("already subscribed")
-	} else if index, ok := wm.cm.BestIndex(startHeight); !ok {
-		return errors.New("invalid height")
-	} else if err := wm.cm.AddSubscriber(mw.w, index); err != nil {
+	}
+	// AddSubscriber applies each block *after* index, but we want to *include*
+	// the block at startHeight, so subtract one.
+	//
+	// NOTE: if subscribing from height 0, we must pass an empty index in order
+	// to receive the genesis block.
+	var index types.ChainIndex
+	if startHeight > 0 {
+		if index, ok = wm.cm.BestIndex(startHeight - 1); !ok {
+			return errors.New("invalid height")
+		}
+	}
+	if err := wm.cm.AddSubscriber(mw.w, index); err != nil {
 		return err
 	}
 	mw.subscribed = true
@@ -343,9 +353,16 @@ func (wm *JSONWalletManager) SubscribeWallet(name string, startHeight uint64) er
 	} else if mw.subscribed {
 		return errors.New("already subscribed")
 	}
-	index, ok := wm.cm.BestIndex(startHeight)
-	if !ok {
-		return errors.New("invalid height")
+	// AddSubscriber applies each block *after* index, but we want to *include*
+	// the block at startHeight, so subtract one.
+	//
+	// NOTE: if subscribing from height 0, we must pass an empty index in order
+	// to receive the genesis block.
+	var index types.ChainIndex
+	if startHeight > 0 {
+		if index, ok = wm.cm.BestIndex(startHeight - 1); !ok {
+			return errors.New("invalid height")
+		}
 	}
 	if err := wm.cm.AddSubscriber(mw.w, index); err != nil {
 		return err
