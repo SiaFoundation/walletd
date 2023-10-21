@@ -209,16 +209,6 @@ func (s *EphemeralStore) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, _ bool)
 	events := wallet.AppliedEvents(cau.State, cau.Block, cau, s.ownsAddress)
 	s.events = append(s.events, events...)
 
-	// update proofs
-	for id, sce := range s.sces {
-		cau.UpdateElementProof(&sce.StateElement)
-		s.sces[id] = sce
-	}
-	for id, sfe := range s.sfes {
-		cau.UpdateElementProof(&sfe.StateElement)
-		s.sfes[id] = sfe
-	}
-
 	// add/remove outputs
 	cau.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
 		if s.ownsAddress(sce.SiacoinOutput.Address) {
@@ -241,6 +231,16 @@ func (s *EphemeralStore) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, _ bool)
 		}
 	})
 
+	// update proofs
+	for id, sce := range s.sces {
+		cau.UpdateElementProof(&sce.StateElement)
+		s.sces[id] = sce
+	}
+	for id, sfe := range s.sfes {
+		cau.UpdateElementProof(&sfe.StateElement)
+		s.sfes[id] = sfe
+	}
+
 	s.tip = cau.State.Index
 	return nil
 }
@@ -253,15 +253,6 @@ func (s *EphemeralStore) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error
 	// terribly inefficient, but not a big deal because reverts are infrequent
 	numEvents := len(wallet.AppliedEvents(cru.State, cru.Block, cru, s.ownsAddress))
 	s.events = s.events[:len(s.events)-numEvents]
-
-	for id, sce := range s.sces {
-		cru.UpdateElementProof(&sce.StateElement)
-		s.sces[id] = sce
-	}
-	for id, sfe := range s.sfes {
-		cru.UpdateElementProof(&sfe.StateElement)
-		s.sfes[id] = sfe
-	}
 
 	cru.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
 		if s.ownsAddress(sce.SiacoinOutput.Address) {
@@ -283,6 +274,17 @@ func (s *EphemeralStore) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error
 			}
 		}
 	})
+
+	// update proofs
+	for id, sce := range s.sces {
+		cru.UpdateElementProof(&sce.StateElement)
+		s.sces[id] = sce
+	}
+	for id, sfe := range s.sfes {
+		cru.UpdateElementProof(&sfe.StateElement)
+		s.sfes[id] = sfe
+	}
+
 	s.tip = cru.State.Index
 	return nil
 }

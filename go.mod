@@ -4,11 +4,12 @@ go 1.18
 
 require (
 	go.etcd.io/bbolt v1.3.7
-	go.sia.tech/core v0.1.12-0.20230915021325-3ca4ff703dc6
+	go.sia.tech/core v0.1.12-0.20231021194448-f1e65eb9f0d0
 	go.sia.tech/jape v0.9.0
 	go.sia.tech/web/walletd v0.9.0
 	golang.org/x/term v0.6.0
 	lukechampine.com/frand v1.4.2
+	lukechampine.com/upnp v0.2.0
 )
 
 require (

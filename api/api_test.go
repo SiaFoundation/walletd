@@ -57,11 +57,11 @@ func TestWallet(t *testing.T) {
 	}
 
 	// create wallets
-	dbstore, tip, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm := chain.NewManager(dbstore, tip.State)
+	cm := chain.NewManager(dbstore, tipState)
 	wm := walletutil.NewEphemeralWalletManager(cm)
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
 	c, shutdown := runServer(cm, nil, wm)
@@ -179,11 +179,11 @@ func TestV2(t *testing.T) {
 	secondaryAddress := types.StandardUnlockHash(secondaryPrivateKey.PublicKey())
 
 	// create wallets
-	dbstore, tip, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm := chain.NewManager(dbstore, tip.State)
+	cm := chain.NewManager(dbstore, tipState)
 	wm := walletutil.NewEphemeralWalletManager(cm)
 	c, shutdown := runServer(cm, nil, wm)
 	defer shutdown()
@@ -383,11 +383,11 @@ func TestP2P(t *testing.T) {
 	secondaryAddress := types.StandardUnlockHash(secondaryPrivateKey.PublicKey())
 
 	// create wallets
-	dbstore1, tip, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	dbstore1, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm1 := chain.NewManager(dbstore1, tip.State)
+	cm1 := chain.NewManager(dbstore1, tipState)
 	wm1 := walletutil.NewEphemeralWalletManager(cm1)
 	l1, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -413,11 +413,11 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dbstore2, tip, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	dbstore2, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm2 := chain.NewManager(dbstore2, tip.State)
+	cm2 := chain.NewManager(dbstore2, tipState)
 	wm2 := walletutil.NewEphemeralWalletManager(cm2)
 	l2, err := net.Listen("tcp", ":0")
 	if err != nil {
