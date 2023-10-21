@@ -58,6 +58,10 @@ var zenBootstrap = []string{
 	"51.81.208.10:9881",
 }
 
+var anagamiBootstrap = []string{
+	"147.135.16.182:9781",
+}
+
 type boltDB struct {
 	tx *bolt.Tx
 	db *bolt.DB
@@ -139,8 +143,11 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 	case "zen":
 		network, genesisBlock = chain.TestnetZen()
 		bootstrapPeers = zenBootstrap
+	case "anagami":
+		network, genesisBlock = TestnetAnagami()
+		bootstrapPeers = anagamiBootstrap
 	default:
-		return nil, errors.New("invalid network: must be one of 'mainnet' or 'zen'")
+		return nil, errors.New("invalid network: must be one of 'mainnet', 'zen', or 'anagami'")
 	}
 
 	bdb, err := bolt.Open(filepath.Join(dir, "consensus.db"), 0600, nil)

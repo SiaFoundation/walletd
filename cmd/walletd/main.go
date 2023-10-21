@@ -1,15 +1,19 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 
+	"go.sia.tech/core/types"
+	"go.sia.tech/walletd/wallet"
 	"golang.org/x/term"
+	"lukechampine.com/flagg"
+	"lukechampine.com/frand"
 )
 
 var commit = "?"
@@ -59,40 +63,176 @@ func getAPIPassword() string {
 	return apiPassword
 }
 
+var (
+	rootUsage = `Usage:
+    walletd [flags] [action]
+
+Run 'walletd' with no arguments to start the blockchain node and API server.
+
+Actions:
+    version     print walletd version
+
+Testnet Actions:
+    seed        generate a seed
+    mine        run CPU miner
+    balance     view wallet balance
+    send        send a simple transaction
+    txns        view transaction history
+`
+	versionUsage = `Usage:
+    walletd version
+
+Prints the version of the walletd binary.
+`
+	seedUsage = `Usage:
+    walletd seed
+
+Generates a secure testnet seed.
+`
+	mineUsage = `Usage:
+    walletd mine
+
+Runs a testnet CPU miner.
+`
+	balanceUsage = `Usage:
+    walletd balance
+
+Displays testnet balance.
+`
+	sendUsage = `Usage:
+    walletd send [flags] [amount] [address]
+
+Sends a simple testnet transaction.
+`
+	txnsUsage = `Usage:
+    walletd txns
+
+Lists testnet transactions and miner rewards.
+`
+)
+
 func main() {
 	log.SetFlags(0)
-	gatewayAddr := flag.String("addr", ":9981", "p2p address to listen on")
-	apiAddr := flag.String("http", "localhost:9980", "address to serve API on")
-	dir := flag.String("dir", ".", "directory to store node state in")
-	network := flag.String("network", "mainnet", "network to connect to")
-	upnp := flag.Bool("upnp", true, "attempt to forward ports and discover IP with UPnP")
-	flag.Parse()
+
+	var gatewayAddr, apiAddr, dir, network, seed string
+	var upnp, v2 bool
+
+	rootCmd := flagg.Root
+	rootCmd.Usage = flagg.SimpleUsage(rootCmd, rootUsage)
+	rootCmd.StringVar(&gatewayAddr, "addr", ":9981", "p2p address to listen on")
+	rootCmd.StringVar(&apiAddr, "http", "localhost:9980", "address to serve API on")
+	rootCmd.StringVar(&dir, "dir", ".", "directory to store node state in")
+	rootCmd.StringVar(&network, "network", "mainnet", "network to connect to")
+	rootCmd.BoolVar(&upnp, "upnp", true, "attempt to forward ports and discover IP with UPnP")
+	rootCmd.StringVar(&seed, "seed", "", "testnet seed")
+	versionCmd := flagg.New("version", versionUsage)
+	seedCmd := flagg.New("seed", seedUsage)
+	mineCmd := flagg.New("mine", mineUsage)
+	balanceCmd := flagg.New("balance", balanceUsage)
+	sendCmd := flagg.New("send", sendUsage)
+	sendCmd.BoolVar(&v2, "v2", false, "send a v2 transaction")
+	txnsCmd := flagg.New("txns", txnsUsage)
+
+	cmd := flagg.Parse(flagg.Tree{
+		Cmd: rootCmd,
+		Sub: []flagg.Tree{
+			{Cmd: versionCmd},
+			{Cmd: seedCmd},
+			{Cmd: mineCmd},
+			{Cmd: balanceCmd},
+			{Cmd: sendCmd},
+			{Cmd: txnsCmd},
+		},
+	})
 
 	log.Println("walletd v0.1.0")
-	if flag.Arg(0) == "version" {
+	switch cmd {
+	case rootCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
+		apiPassword := getAPIPassword()
+		l, err := net.Listen("tcp", apiAddr)
+		if err != nil {
+			log.Fatal(err)
+		}
+		n, err := newNode(gatewayAddr, dir, network, upnp)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Println("p2p: Listening on", n.s.Addr())
+		stop := n.Start()
+		log.Println("api: Listening on", l.Addr())
+		go startWeb(l, n, apiPassword)
+		signalCh := make(chan os.Signal, 1)
+		signal.Notify(signalCh, os.Interrupt)
+		<-signalCh
+		log.Println("Shutting down...")
+		stop()
+
+	case versionCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
 		log.Println("Commit Hash:", commit)
 		log.Println("Commit Date:", timestamp)
-		return
-	}
 
-	apiPassword := getAPIPassword()
-	l, err := net.Listen("tcp", *apiAddr)
-	if err != nil {
-		log.Fatal(err)
-	}
+	case seedCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
+		seed := frand.Bytes(8)
+		var entropy [32]byte
+		copy(entropy[:], seed)
+		addr := types.StandardUnlockHash(wallet.NewSeedFromEntropy(&entropy).PublicKey(0))
+		fmt.Printf("Seed:    %x\n", seed)
+		fmt.Printf("Address: %v\n", strings.TrimPrefix(addr.String(), "addr:"))
 
-	n, err := newNode(*gatewayAddr, *dir, *network, *upnp)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Println("p2p: Listening on", n.s.Addr())
-	stop := n.Start()
-	log.Println("api: Listening on", l.Addr())
-	go startWeb(l, n, apiPassword)
+	case mineCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
+		seed := loadTestnetSeed(seed)
+		c := initTestnetClient(apiAddr, network, seed)
+		runTestnetMiner(c, seed)
 
-	signalCh := make(chan os.Signal, 1)
-	signal.Notify(signalCh, os.Interrupt)
-	<-signalCh
-	log.Println("Shutting down...")
-	stop()
+	case balanceCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
+		seed := loadTestnetSeed(seed)
+		c := initTestnetClient(apiAddr, network, seed)
+		b, err := c.Wallet("primary").Balance()
+		check("Couldn't get balance:", err)
+		fmt.Println(b.Siacoins)
+
+	case sendCmd:
+		if len(cmd.Args()) != 2 {
+			cmd.Usage()
+			return
+		}
+		seed := loadTestnetSeed(seed)
+		c := initTestnetClient(apiAddr, network, seed)
+		amount, err := types.ParseCurrency(cmd.Arg(0))
+		check("Couldn't parse amount:", err)
+		dest, err := types.ParseAddress(cmd.Arg(1))
+		check("Couldn't parse recipient address:", err)
+		sendTestnet(c, seed, amount, dest, v2)
+
+	case txnsCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
+		seed := loadTestnetSeed(seed)
+		c := initTestnetClient(apiAddr, network, seed)
+		events, err := c.Wallet("primary").Events(0, -1)
+		check("Couldn't get events:", err)
+		printTestnetEvents(seed, events)
+	}
 }
