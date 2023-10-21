@@ -14,18 +14,20 @@ import (
 // A Client provides methods for interacting with a walletd API server.
 type Client struct {
 	c jape.Client
+	n *consensus.Network // for ConsensusTipState
 }
 
 // TxpoolBroadcast broadcasts a set of transaction to the network.
-func (c *Client) TxpoolBroadcast(txns []types.Transaction) (err error) {
-	err = c.c.POST("/txpool/broadcast", txns, nil)
+func (c *Client) TxpoolBroadcast(txns []types.Transaction, v2txns []types.V2Transaction) (err error) {
+	err = c.c.POST("/txpool/broadcast", TxpoolBroadcastRequest{txns, v2txns}, nil)
 	return
 }
 
 // TxpoolTransactions returns all transactions in the transaction pool.
-func (c *Client) TxpoolTransactions() (resp []types.Transaction, err error) {
+func (c *Client) TxpoolTransactions() (txns []types.Transaction, v2txns []types.V2Transaction, err error) {
+	var resp TxpoolTransactionsResponse
 	err = c.c.GET("/txpool/transactions", &resp)
-	return
+	return resp.Transactions, resp.V2Transactions, err
 }
 
 // TxpoolFee returns the recommended fee (per weight unit) to ensure a high
@@ -36,8 +38,9 @@ func (c *Client) TxpoolFee() (resp types.Currency, err error) {
 }
 
 // ConsensusNetwork returns the node's network metadata.
-func (c *Client) ConsensusNetwork() (resp consensus.Network, err error) {
-	err = c.c.GET("/consensus/network", &resp)
+func (c *Client) ConsensusNetwork() (resp *consensus.Network, err error) {
+	resp = new(consensus.Network)
+	err = c.c.GET("/consensus/network", resp)
 	return
 }
 
@@ -49,7 +52,14 @@ func (c *Client) ConsensusTip() (resp types.ChainIndex, err error) {
 
 // ConsensusTipState returns the current tip state.
 func (c *Client) ConsensusTipState() (resp consensus.State, err error) {
+	if c.n == nil {
+		c.n, err = c.ConsensusNetwork()
+		if err != nil {
+			return
+		}
+	}
 	err = c.c.GET("/consensus/tipstate", &resp)
+	resp.Network = c.n
 	return
 }
 
@@ -62,6 +72,12 @@ func (c *Client) SyncerPeers() (resp []GatewayPeer, err error) {
 // SyncerConnect adds the address as a peer of the syncer.
 func (c *Client) SyncerConnect(addr string) (err error) {
 	err = c.c.POST("/syncer/connect", addr, nil)
+	return
+}
+
+// SyncerBroadcastBlock broadcasts a block to all peers.
+func (c *Client) SyncerBroadcastBlock(b types.Block) (err error) {
+	err = c.c.POST("/syncer/broadcast/block", b, nil)
 	return
 }
 
@@ -141,7 +157,7 @@ func (c *WalletClient) PoolTransactions() (resp []wallet.PoolTransaction, err er
 }
 
 // Outputs returns the set of unspent outputs controlled by the wallet.
-func (c *WalletClient) Outputs() (sc []wallet.SiacoinElement, sf []wallet.SiafundElement, err error) {
+func (c *WalletClient) Outputs() (sc []types.SiacoinElement, sf []types.SiafundElement, err error) {
 	var resp WalletOutputsResponse
 	err = c.c.GET(fmt.Sprintf("/wallets/%v/outputs", c.name), &resp)
 	return resp.SiacoinOutputs, resp.SiafundOutputs, err
@@ -190,7 +206,7 @@ func (c *WalletClient) FundSF(txn types.Transaction, amount uint64, changeAddr, 
 // NewClient returns a client that communicates with a walletd server listening
 // on the specified address.
 func NewClient(addr, password string) *Client {
-	return &Client{jape.Client{
+	return &Client{c: jape.Client{
 		BaseURL:  addr,
 		Password: password,
 	}}

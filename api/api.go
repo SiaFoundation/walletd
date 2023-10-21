@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/walletd/wallet"
 )
 
 // A GatewayPeer is a currently-connected peer.
@@ -19,6 +18,18 @@ type GatewayPeer struct {
 	SyncDuration   time.Duration `json:"syncDuration"`
 }
 
+// TxpoolBroadcastRequest is the request type for /txpool/broadcast.
+type TxpoolBroadcastRequest struct {
+	Transactions   []types.Transaction   `json:"transactions"`
+	V2Transactions []types.V2Transaction `json:"v2transactions"`
+}
+
+// TxpoolTransactionsResponse is the response type for /txpool/transactions.
+type TxpoolTransactionsResponse struct {
+	Transactions   []types.Transaction   `json:"transactions"`
+	V2Transactions []types.V2Transaction `json:"v2transactions"`
+}
+
 // WalletBalanceResponse is the response type for /wallets/:name/balance.
 type WalletBalanceResponse struct {
 	Siacoins types.Currency `json:"siacoins"`
@@ -27,8 +38,8 @@ type WalletBalanceResponse struct {
 
 // WalletOutputsResponse is the response type for /wallets/:name/outputs.
 type WalletOutputsResponse struct {
-	SiacoinOutputs []wallet.SiacoinElement `json:"siacoinOutputs"`
-	SiafundOutputs []wallet.SiafundElement `json:"siafundOutputs"`
+	SiacoinOutputs []types.SiacoinElement `json:"siacoinOutputs"`
+	SiafundOutputs []types.SiafundElement `json:"siafundOutputs"`
 }
 
 // WalletReserveRequest is the request type for /wallets/:name/reserve.

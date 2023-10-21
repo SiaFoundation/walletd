@@ -23,10 +23,12 @@ type (
 	// A ChainManager manages blockchain and txpool state.
 	ChainManager interface {
 		TipState() consensus.State
-
+		AddBlocks([]types.Block) error
 		RecommendedFee() types.Currency
 		PoolTransactions() []types.Transaction
+		V2PoolTransactions() []types.V2Transaction
 		AddPoolTransactions(txns []types.Transaction) error
+		AddV2PoolTransactions(txns []types.V2Transaction) error
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 	}
 
@@ -36,7 +38,10 @@ type (
 		Peers() []*gateway.Peer
 		PeerInfo(peer string) (syncer.PeerInfo, bool)
 		Connect(addr string) (*gateway.Peer, error)
+		BroadcastHeader(bh gateway.BlockHeader)
 		BroadcastTransactionSet(txns []types.Transaction)
+		BroadcastV2TransactionSet(txns []types.V2Transaction)
+		BroadcastV2BlockOutline(bo gateway.V2BlockOutline)
 	}
 
 	// A WalletManager manages wallets, keyed by name.
@@ -50,7 +55,7 @@ type (
 		RemoveAddress(name string, addr types.Address) error
 		Addresses(name string) (map[types.Address]json.RawMessage, error)
 		Events(name string, offset, limit int) ([]wallet.Event, error)
-		UnspentOutputs(name string) ([]wallet.SiacoinElement, []wallet.SiafundElement, error)
+		UnspentOutputs(name string) ([]types.SiacoinElement, []types.SiafundElement, error)
 		Annotate(name string, pool []types.Transaction) ([]wallet.PoolTransaction, error)
 	}
 )
@@ -107,8 +112,30 @@ func (s *server) syncerConnectHandler(jc jape.Context) {
 	jc.Check("couldn't connect to peer", err)
 }
 
+func (s *server) syncerBroadcastBlockHandler(jc jape.Context) {
+	var b types.Block
+	if jc.Decode(&b) != nil {
+		return
+	} else if jc.Check("block is invalid", s.cm.AddBlocks([]types.Block{b})) != nil {
+		return
+	}
+	if b.V2 == nil {
+		s.s.BroadcastHeader(gateway.BlockHeader{
+			ParentID:   b.ParentID,
+			Nonce:      b.Nonce,
+			Timestamp:  b.Timestamp,
+			MerkleRoot: b.MerkleRoot(),
+		})
+	} else {
+		s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions()))
+	}
+}
+
 func (s *server) txpoolTransactionsHandler(jc jape.Context) {
-	jc.Encode(s.cm.PoolTransactions())
+	jc.Encode(TxpoolTransactionsResponse{
+		Transactions:   s.cm.PoolTransactions(),
+		V2Transactions: s.cm.V2PoolTransactions(),
+	})
 }
 
 func (s *server) txpoolFeeHandler(jc jape.Context) {
@@ -116,14 +143,22 @@ func (s *server) txpoolFeeHandler(jc jape.Context) {
 }
 
 func (s *server) txpoolBroadcastHandler(jc jape.Context) {
-	var txnSet []types.Transaction
-	if jc.Decode(&txnSet) != nil {
+	var tbr TxpoolBroadcastRequest
+	if jc.Decode(&tbr) != nil {
 		return
 	}
-	if jc.Check("invalid transaction set", s.cm.AddPoolTransactions(txnSet)) != nil {
-		return
+	if len(tbr.Transactions) != 0 {
+		if jc.Check("invalid transaction set", s.cm.AddPoolTransactions(tbr.Transactions)) != nil {
+			return
+		}
+		s.s.BroadcastTransactionSet(tbr.Transactions)
 	}
-	s.s.BroadcastTransactionSet(txnSet)
+	if len(tbr.V2Transactions) != 0 {
+		if jc.Check("invalid v2 transaction set", s.cm.AddV2PoolTransactions(tbr.V2Transactions)) != nil {
+			return
+		}
+		s.s.BroadcastV2TransactionSet(tbr.V2Transactions)
+	}
 }
 
 func (s *server) walletsHandler(jc jape.Context) {
@@ -204,10 +239,10 @@ func (s *server) walletsBalanceHandler(jc jape.Context) {
 	var sc types.Currency
 	var sf uint64
 	for _, sco := range scos {
-		sc = sc.Add(sco.Value)
+		sc = sc.Add(sco.SiacoinOutput.Value)
 	}
 	for _, sfo := range sfos {
-		sf += sfo.Value
+		sf += sfo.SiafundOutput.Value
 	}
 	jc.Encode(WalletBalanceResponse{
 		Siacoins: sc,
@@ -313,7 +348,7 @@ func (s *server) walletsReleaseHandler(jc jape.Context) {
 }
 
 func (s *server) walletsFundHandler(jc jape.Context) {
-	fundTxn := func(txn *types.Transaction, amount types.Currency, utxos []wallet.SiacoinElement, changeAddr types.Address, pool []types.Transaction) ([]types.Hash256, error) {
+	fundTxn := func(txn *types.Transaction, amount types.Currency, utxos []types.SiacoinElement, changeAddr types.Address, pool []types.Transaction) ([]types.Hash256, error) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if amount.IsZero() {
@@ -327,13 +362,13 @@ func (s *server) walletsFundHandler(jc jape.Context) {
 		}
 		frand.Shuffle(len(utxos), reflect.Swapper(utxos))
 		var outputSum types.Currency
-		var fundingElements []wallet.SiacoinElement
+		var fundingElements []types.SiacoinElement
 		for _, sce := range utxos {
 			if s.used[types.Hash256(sce.ID)] || inPool[types.Hash256(sce.ID)] {
 				continue
 			}
 			fundingElements = append(fundingElements, sce)
-			outputSum = outputSum.Add(sce.Value)
+			outputSum = outputSum.Add(sce.SiacoinOutput.Value)
 			if outputSum.Cmp(amount) >= 0 {
 				break
 			}
@@ -383,7 +418,7 @@ func (s *server) walletsFundHandler(jc jape.Context) {
 }
 
 func (s *server) walletsFundSFHandler(jc jape.Context) {
-	fundTxn := func(txn *types.Transaction, amount uint64, utxos []wallet.SiafundElement, changeAddr, claimAddr types.Address, pool []types.Transaction) ([]types.Hash256, error) {
+	fundTxn := func(txn *types.Transaction, amount uint64, utxos []types.SiafundElement, changeAddr, claimAddr types.Address, pool []types.Transaction) ([]types.Hash256, error) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if amount == 0 {
@@ -397,13 +432,13 @@ func (s *server) walletsFundSFHandler(jc jape.Context) {
 		}
 		frand.Shuffle(len(utxos), reflect.Swapper(utxos))
 		var outputSum uint64
-		var fundingElements []wallet.SiafundElement
+		var fundingElements []types.SiafundElement
 		for _, sfe := range utxos {
 			if s.used[types.Hash256(sfe.ID)] || inPool[types.Hash256(sfe.ID)] {
 				continue
 			}
 			fundingElements = append(fundingElements, sfe)
-			outputSum += sfe.Value
+			outputSum += sfe.SiafundOutput.Value
 			if outputSum >= amount {
 				break
 			}
@@ -466,8 +501,9 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"GET    /consensus/tip":      srv.consensusTipHandler,
 		"GET    /consensus/tipstate": srv.consensusTipStateHandler,
 
-		"GET    /syncer/peers":   srv.syncerPeersHandler,
-		"POST   /syncer/connect": srv.syncerConnectHandler,
+		"GET    /syncer/peers":           srv.syncerPeersHandler,
+		"POST   /syncer/connect":         srv.syncerConnectHandler,
+		"POST   /syncer/broadcast/block": srv.syncerBroadcastBlockHandler,
 
 		"GET    /txpool/transactions": srv.txpoolTransactionsHandler,
 		"GET    /txpool/fee":          srv.txpoolFeeHandler,

@@ -1,16 +1,23 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	bolt "go.etcd.io/bbolt"
 	"go.sia.tech/core/chain"
+	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
+	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/internal/syncerutil"
 	"go.sia.tech/walletd/internal/walletutil"
 	"go.sia.tech/walletd/syncer"
+	"lukechampine.com/upnp"
 )
 
 var mainnetBootstrap = []string{
@@ -108,6 +115,11 @@ func (db *boltDB) Cancel() {
 	db.tx = nil
 }
 
+func (db *boltDB) Close() error {
+	db.Flush()
+	return db.db.Close()
+}
+
 type node struct {
 	cm *chain.Manager
 	s  *syncer.Syncer
@@ -116,32 +128,64 @@ type node struct {
 	Start func() (stop func())
 }
 
-func newNode(addr, dir string, zen bool) (*node, error) {
+func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error) {
+	var network *consensus.Network
+	var genesisBlock types.Block
+	var bootstrapPeers []string
+	switch chainNetwork {
+	case "mainnet":
+		network, genesisBlock = chain.Mainnet()
+		bootstrapPeers = mainnetBootstrap
+	case "zen":
+		network, genesisBlock = chain.TestnetZen()
+		bootstrapPeers = zenBootstrap
+	default:
+		return nil, errors.New("invalid network: must be one of 'mainnet' or 'zen'")
+	}
+
 	bdb, err := bolt.Open(filepath.Join(dir, "consensus.db"), 0600, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	network, genesisBlock := chain.Mainnet()
-	if zen {
-		network, genesisBlock = chain.TestnetZen()
-	}
-	dbstore, tip, err := chain.NewDBStore(&boltDB{db: bdb}, network, genesisBlock)
+	db := &boltDB{db: bdb}
+	dbstore, tipState, err := chain.NewDBStore(db, network, genesisBlock)
 	if err != nil {
 		return nil, err
 	}
-	cm := chain.NewManager(dbstore, tip.State)
+	cm := chain.NewManager(dbstore, tipState)
 
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
+	syncerAddr := l.Addr().String()
+	if useUPNP {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if d, err := upnp.Discover(ctx); err != nil {
+			log.Println("WARN: couldn't discover UPnP device:", err)
+		} else {
+			_, portStr, _ := net.SplitHostPort(addr)
+			port, _ := strconv.Atoi(portStr)
+			if !d.IsForwarded(uint16(port), "TCP") {
+				if err := d.Forward(uint16(port), "TCP", "walletd"); err != nil {
+					log.Println("WARN: couldn't forward port:", err)
+				} else {
+					log.Println("p2p: Forwarded port", port)
+				}
+			}
+			if ip, err := d.ExternalIP(); err != nil {
+				log.Println("WARN: couldn't determine external IP:", err)
+			} else {
+				log.Println("p2p: External IP is", ip)
+				syncerAddr = net.JoinHostPort(ip, portStr)
+			}
+		}
+	}
+
 	ps, err := syncerutil.NewJSONPeerStore(filepath.Join(dir, "peers.json"))
 	if err != nil {
 		log.Fatal(err)
-	}
-	bootstrapPeers := mainnetBootstrap
-	if zen {
-		bootstrapPeers = zenBootstrap
 	}
 	for _, peer := range bootstrapPeers {
 		ps.AddPeer(peer)
@@ -149,7 +193,7 @@ func newNode(addr, dir string, zen bool) (*node, error) {
 	header := gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
-		NetAddress: l.Addr().String(),
+		NetAddress: syncerAddr,
 	}
 	s := syncer.New(l, cm, ps, header, syncer.WithLogger(log.Default()))
 
@@ -171,7 +215,7 @@ func newNode(addr, dir string, zen bool) (*node, error) {
 			return func() {
 				l.Close()
 				<-ch
-				bdb.Close()
+				db.Close()
 			}
 		},
 	}, nil
