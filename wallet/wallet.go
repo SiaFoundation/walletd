@@ -37,12 +37,12 @@ func SignTransaction(cs consensus.State, txn *types.Transaction, sigIndex int, k
 // A PoolTransaction summarizes the wallet-relevant data in a txpool
 // transaction.
 type PoolTransaction struct {
-	ID       types.TransactionID
-	Raw      types.Transaction
-	Type     string
-	Sent     types.Currency
-	Received types.Currency
-	Locked   types.Currency
+	ID       types.TransactionID `json:"id"`
+	Raw      types.Transaction   `json:"raw"`
+	Type     string              `json:"type"`
+	Sent     types.Currency      `json:"sent"`
+	Received types.Currency      `json:"received"`
+	Locked   types.Currency      `json:"locked"`
 }
 
 // Annotate annotates a txpool transaction.
@@ -199,8 +199,8 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 
 // A HostAnnouncement represents a host announcement within an EventTransaction.
 type HostAnnouncement struct {
-	PublicKey  types.PublicKey
-	NetAddress string
+	PublicKey  types.PublicKey `json:"publicKey"`
+	NetAddress string          `json:"netAddress"`
 }
 
 // A SiafundInput represents a siafund input within an EventTransaction.
