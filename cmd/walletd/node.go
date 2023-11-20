@@ -182,6 +182,10 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 			}
 		}
 	}
+	if host, port, _ := net.SplitHostPort(syncerAddr); host == "" {
+		// peers will reject us if our hostname is empty, so use loopback
+		syncerAddr = net.JoinHostPort("127.0.0.1", port)
+	}
 
 	ps, err := syncerutil.NewJSONPeerStore(filepath.Join(dir, "peers.json"))
 	if err != nil {
