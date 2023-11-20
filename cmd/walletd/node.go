@@ -182,8 +182,9 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 			}
 		}
 	}
-	if host, port, _ := net.SplitHostPort(syncerAddr); host == "" {
-		// peers will reject us if our hostname is empty, so use loopback
+	// peers will reject us if our hostname is empty or unspecified, so use loopback
+	host, port, _ := net.SplitHostPort(syncerAddr)
+	if ip := net.ParseIP(host); ip == nil || ip.IsUnspecified() {
 		syncerAddr = net.JoinHostPort("127.0.0.1", port)
 	}
 
