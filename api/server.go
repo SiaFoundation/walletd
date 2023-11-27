@@ -376,6 +376,9 @@ func (s *server) walletsFundHandler(jc jape.Context) {
 		if outputSum.Cmp(amount) < 0 {
 			return nil, errors.New("insufficient balance")
 		} else if outputSum.Cmp(amount) > 0 {
+			if changeAddr == types.VoidAddress {
+				return nil, errors.New("change address must be specified")
+			}
 			txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
 				Value:   outputSum.Sub(amount),
 				Address: changeAddr,
@@ -446,6 +449,9 @@ func (s *server) walletsFundSFHandler(jc jape.Context) {
 		if outputSum < amount {
 			return nil, errors.New("insufficient balance")
 		} else if outputSum > amount {
+			if changeAddr == types.VoidAddress {
+				return nil, errors.New("change address must be specified")
+			}
 			txn.SiafundOutputs = append(txn.SiafundOutputs, types.SiafundOutput{
 				Value:   outputSum - amount,
 				Address: changeAddr,
