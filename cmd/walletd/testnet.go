@@ -136,7 +136,7 @@ outer:
 		n := big.NewInt(int64(hashes))
 		n.Mul(n, big.NewInt(int64(24*time.Hour)))
 		d, _ := new(big.Int).SetString(cs.Difficulty.String(), 10)
-		d.Mul(d, big.NewInt(int64(elapsed)))
+		d.Mul(d, big.NewInt(int64(1+elapsed)))
 		r, _ := new(big.Rat).SetFrac(n, d).Float64()
 		log.Printf("Mining...(%.2f kH/s, %.2f blocks/day (expected: %.2f), difficulty %v)", hashes/elapsed.Seconds()/1000, float64(blocks)*float64(24*time.Hour)/float64(elapsed), r, cs.Difficulty)
 
