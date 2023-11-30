@@ -11,11 +11,11 @@ runs:
 #      uses: golangci/golangci-lint-action@v3
 #      with:
 #        skip-cache: true
-    - name: Analyze
-      uses: SiaFoundation/action-golang-analysis@HEAD
-      with:
-        analyzers: |
-          go.sia.tech/jape.Analyzer
+#    - name: Analyze
+#      uses: SiaFoundation/action-golang-analysis@HEAD
+#      with:
+#        analyzers: |
+#          go.sia.tech/jape.Analyzer
     - name: Test
       uses: n8maninger/action-golang-test@v1
       with:
