@@ -281,7 +281,7 @@ func printTestnetEvents(seed wallet.Seed, events []wallet.Event) {
 	for _, e := range events {
 		switch t := e.Val.(type) {
 		case *wallet.EventTransaction:
-			if len(t.SiafundInputs) == 0 || len(t.SiacoinOutputs) == 0 {
+			if len(t.SiacoinInputs) == 0 || len(t.SiacoinOutputs) == 0 {
 				continue
 			}
 			sco := t.SiacoinOutputs[0].SiacoinOutput
