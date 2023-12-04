@@ -338,7 +338,7 @@ func (h *rpcHandler) RelayV2Header(bh gateway.V2BlockHeader, origin *gateway.Pee
 
 func (h *rpcHandler) RelayV2BlockOutline(bo gateway.V2BlockOutline, origin *gateway.Peer) {
 	if _, ok := h.s.cm.Block(bo.ParentID); !ok {
-		h.s.log.Printf("peer %v relayed a header with unknown parent (%v); triggering a resync", origin, bo.ParentID)
+		h.s.log.Printf("peer %v relayed a v2 outline with unknown parent (%v); triggering a resync", origin, bo.ParentID)
 		h.s.mu.Lock()
 		h.s.synced[origin.Addr] = false
 		h.s.mu.Unlock()
@@ -352,13 +352,13 @@ func (h *rpcHandler) RelayV2BlockOutline(bo gateway.V2BlockOutline, origin *gate
 	} else if bo.ParentID != cs.Index.ID {
 		// block extends a sidechain, which peer (if honest) believes to be the
 		// heaviest chain
-		h.s.log.Printf("peer %v relayed a header that does not attach to our tip; triggering a resync", origin)
+		h.s.log.Printf("peer %v relayed a v2 outline that does not attach to our tip; triggering a resync", origin)
 		h.s.mu.Lock()
 		h.s.synced[origin.Addr] = false
 		h.s.mu.Unlock()
 		return
 	} else if bid.CmpWork(cs.ChildTarget) < 0 {
-		h.s.ban(origin, errors.New("peer sent header with insufficient work"))
+		h.s.ban(origin, errors.New("peer sent v2 outline with insufficient work"))
 		return
 	}
 
@@ -747,7 +747,7 @@ func (s *Syncer) syncLoop(closeChan <-chan struct{}) error {
 						blocks, rem, err := p.SendV2Blocks(history, s.config.MaxSendBlocks, s.config.SendBlocksTimeout)
 						if err != nil {
 							return err
-						} else if addBlocks(blocks); err != nil {
+						} else if err := addBlocks(blocks); err != nil {
 							return err
 						} else if rem == 0 {
 							return nil
