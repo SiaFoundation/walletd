@@ -910,13 +910,14 @@ func New(l net.Listener, cm ChainManager, pm PeerStore, header gateway.Header, o
 		opt(&config)
 	}
 	return &Syncer{
-		l:      l,
-		cm:     cm,
-		pm:     pm,
-		header: header,
-		config: config,
-		log:    config.Logger,
-		peers:  make(map[string]*gateway.Peer),
-		synced: make(map[string]bool),
+		l:       l,
+		cm:      cm,
+		pm:      pm,
+		header:  header,
+		config:  config,
+		log:     config.Logger,
+		peers:   make(map[string]*gateway.Peer),
+		synced:  make(map[string]bool),
+		strikes: make(map[string]int),
 	}
 }
