@@ -109,6 +109,12 @@ Sends a simple testnet transaction.
 
 Lists testnet transactions and miner rewards.
 `
+	txpoolUsage = `Usage:
+    walletd txpool
+
+Lists unconfirmed testnet transactions in the txpool.
+Note that only transactions relevant to the wallet are shown.
+`
 )
 
 func main() {
@@ -132,6 +138,7 @@ func main() {
 	sendCmd := flagg.New("send", sendUsage)
 	sendCmd.BoolVar(&v2, "v2", false, "send a v2 transaction")
 	txnsCmd := flagg.New("txns", txnsUsage)
+	txpoolCmd := flagg.New("txpool", txpoolUsage)
 
 	cmd := flagg.Parse(flagg.Tree{
 		Cmd: rootCmd,
@@ -142,6 +149,7 @@ func main() {
 			{Cmd: balanceCmd},
 			{Cmd: sendCmd},
 			{Cmd: txnsCmd},
+			{Cmd: txpoolCmd},
 		},
 	})
 
@@ -231,8 +239,15 @@ func main() {
 		}
 		seed := loadTestnetSeed(seed)
 		c := initTestnetClient(apiAddr, network, seed)
-		events, err := c.Wallet("primary").Events(0, -1)
-		check("Couldn't get events:", err)
-		printTestnetEvents(seed, events)
+		printTestnetEvents(c, seed)
+
+	case txpoolCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
+		seed := loadTestnetSeed(seed)
+		c := initTestnetClient(apiAddr, network, seed)
+		printTestnetTxpool(c, seed)
 	}
 }

@@ -276,24 +276,63 @@ func sendTestnet(c *api.Client, seed wallet.Seed, amount types.Currency, dest ty
 	}
 }
 
-func printTestnetEvents(seed wallet.Seed, events []wallet.Event) {
+func printTestnetEvents(c *api.Client, seed wallet.Seed) {
 	ourAddr := types.StandardUnlockHash(seed.PublicKey(0))
-	for _, e := range events {
+	events, err := c.Wallet("primary").Events(0, -1)
+	check("Couldn't get events:", err)
+	for i := range events {
+		e := events[len(events)-1-i]
 		switch t := e.Val.(type) {
 		case *wallet.EventTransaction:
 			if len(t.SiacoinInputs) == 0 || len(t.SiacoinOutputs) == 0 {
 				continue
 			}
-			sco := t.SiacoinOutputs[0].SiacoinOutput
 			sci := t.SiacoinInputs[0].SiacoinOutput
+			sco := t.SiacoinOutputs[0].SiacoinOutput
 			if sci.Address == ourAddr {
-				fmt.Printf("%v: Sent %v (+ %v fee) to %v\n", e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, t.Fee, sco.Address)
+				fmt.Printf("%v (%v): Sent %v (+ %v fee) to %v\n", e.Index, e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, t.Fee, sco.Address)
 			} else {
-				fmt.Printf("%v: Received %v from %v\n", e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, sci.Address)
+				fmt.Printf("%v (%v): Received %v from %v\n", e.Index, e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, sci.Address)
 			}
 		case *wallet.EventMinerPayout:
 			sco := t.SiacoinOutput.SiacoinOutput
-			fmt.Printf("%v: Earned %v miner payout from block %v\n", e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, e.Index)
+			fmt.Printf("%v (%v): Earned %v miner payout from block %v\n", e.Index, e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, e.Index)
+		}
+	}
+}
+
+func printTestnetTxpool(c *api.Client, seed wallet.Seed) {
+	ourAddr := types.StandardUnlockHash(seed.PublicKey(0))
+	txns, v2txns, err := c.TxpoolTransactions()
+	check("Couldn't get txpool transactions:", err)
+	if len(txns) == 0 && len(v2txns) == 0 {
+		fmt.Println("No transactions in txpool.")
+		return
+	}
+	for _, txn := range txns {
+		if len(txn.SiacoinInputs) == 0 || len(txn.SiacoinOutputs) == 0 {
+			continue
+		}
+		id := txn.ID()
+		sci := txn.SiacoinInputs[0]
+		sco := txn.SiacoinOutputs[0]
+		if sci.UnlockConditions.UnlockHash() == ourAddr {
+			fmt.Printf("%x (v1): Sending %v (+ %v fee) to %v\n", id[:4], sco.Value, txn.TotalFees(), sco.Address)
+		} else if sco.Address == ourAddr {
+			fmt.Printf("%x (v1): Receiving %v from %v\n", id[:4], sco.Value, sci.UnlockConditions.UnlockHash())
+		}
+	}
+	for _, txn := range v2txns {
+		if len(txn.SiacoinInputs) == 0 || len(txn.SiacoinOutputs) == 0 {
+			continue
+		}
+		id := txn.ID()
+		sci := txn.SiacoinInputs[0].Parent.SiacoinOutput
+		sco := txn.SiacoinOutputs[0]
+		if sci.Address == ourAddr {
+			fmt.Printf("%x (v2): Sending %v (+ %v fee) to %v\n", id[:4], sco.Value, txn.MinerFee, sco.Address)
+		} else if sco.Address == ourAddr {
+			fmt.Printf("%x (v2): Receiving %v from %v\n", id[:4], sco.Value, sci.Address)
 		}
 	}
 }
