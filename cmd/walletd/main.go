@@ -6,9 +6,13 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 
+	bolt "go.etcd.io/bbolt"
+	"go.sia.tech/core/chain"
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/wallet"
 	"golang.org/x/term"
@@ -139,6 +143,7 @@ func main() {
 	sendCmd.BoolVar(&v2, "v2", false, "send a v2 transaction")
 	txnsCmd := flagg.New("txns", txnsUsage)
 	txpoolCmd := flagg.New("txpool", txpoolUsage)
+	commitmentCmd := flagg.New("commitment", "")
 
 	cmd := flagg.Parse(flagg.Tree{
 		Cmd: rootCmd,
@@ -150,6 +155,7 @@ func main() {
 			{Cmd: sendCmd},
 			{Cmd: txnsCmd},
 			{Cmd: txpoolCmd},
+			{Cmd: commitmentCmd},
 		},
 	})
 
@@ -249,5 +255,23 @@ func main() {
 		seed := loadTestnetSeed(seed)
 		c := initTestnetClient(apiAddr, network, seed)
 		printTestnetTxpool(c, seed)
+
+	case commitmentCmd:
+		if len(cmd.Args()) != 1 {
+			cmd.Usage()
+			return
+		}
+		height, err := strconv.ParseUint(cmd.Arg(0), 10, 64)
+		check("Couldn't parse height:", err)
+		bdb, err := bolt.Open(filepath.Join(dir, "consensus.db"), 0600, nil)
+		check("Couldn't open consensus.db:", err)
+		db := &boltDB{db: bdb}
+		network, genesisBlock := TestnetAnagami()
+		dbstore, tipState, err := chain.NewDBStore(db, network, genesisBlock)
+		check("Couldn't load chain DB:", err)
+		cm := chain.NewManager(dbstore, tipState)
+		index, _ := cm.BestIndex(height + 1)
+		b, cs, _ := cm.SyncCheckpoint(index)
+		fmt.Println(cs.DebugCommitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address))
 	}
 }
