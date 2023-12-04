@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -271,7 +272,8 @@ func main() {
 		check("Couldn't load chain DB:", err)
 		cm := chain.NewManager(dbstore, tipState)
 		index, _ := cm.BestIndex(height + 1)
-		b, cs, _ := cm.SyncCheckpoint(index)
-		fmt.Println(cs.DebugCommitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address))
+		_, cs, _ := cm.SyncCheckpoint(index)
+		js, _ := json.MarshalIndent(cs, "", "  ")
+		fmt.Println(string(js))
 	}
 }
