@@ -195,18 +195,33 @@ func sendTestnet(c *api.Client, seed wallet.Seed, amount types.Currency, dest ty
 	ourUC := types.StandardUnlockConditions(seed.PublicKey(0))
 	ourAddr := types.StandardUnlockHash(seed.PublicKey(0))
 
-	cs, _ := c.ConsensusTipState()
+	cs, err := c.ConsensusTipState()
+	check("Couldn't get consensus tip state:", err)
 	utxos, _, err := c.Wallet("primary").Outputs()
+	check("Couldn't get outputs:", err)
+	txns, v2txns, err := c.TxpoolTransactions()
 	if err != nil {
 		log.Fatal(err)
 	}
+	inPool := make(map[types.Hash256]bool)
+	for _, ptxn := range txns {
+		for _, in := range ptxn.SiacoinInputs {
+			inPool[types.Hash256(in.ParentID)] = true
+		}
+	}
+	for _, ptxn := range v2txns {
+		for _, in := range ptxn.SiacoinInputs {
+			inPool[in.Parent.ID] = true
+		}
+	}
+
 	frand.Shuffle(len(utxos), reflect.Swapper(utxos))
 	var inputSum types.Currency
 	rem := utxos[:0]
 	for _, utxo := range utxos {
 		if inputSum.Cmp(amount) >= 0 {
 			break
-		} else if cs.Index.Height > utxo.MaturityHeight {
+		} else if cs.Index.Height > utxo.MaturityHeight && !inPool[utxo.ID] {
 			rem = append(rem, utxo)
 			inputSum = inputSum.Add(utxo.SiacoinOutput.Value)
 		}
