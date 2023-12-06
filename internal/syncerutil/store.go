@@ -22,7 +22,7 @@ type EphemeralPeerStore struct {
 	mu    sync.Mutex
 }
 
-func (eps *EphemeralPeerStore) banned(peer string) bool {
+func (eps *EphemeralPeerStore) peerBanned(peer string) bool {
 	host, _, err := net.SplitHostPort(peer)
 	if err != nil {
 		return false // shouldn't happen
@@ -60,7 +60,7 @@ func (eps *EphemeralPeerStore) Peers() []string {
 	defer eps.mu.Unlock()
 	var peers []string
 	for p := range eps.peers {
-		if !eps.banned(p) {
+		if !eps.peerBanned(p) {
 			peers = append(peers, p)
 		}
 	}
@@ -102,7 +102,7 @@ func (eps *EphemeralPeerStore) Ban(peer string, duration time.Duration, reason s
 func (eps *EphemeralPeerStore) Banned(peer string) bool {
 	eps.mu.Lock()
 	defer eps.mu.Unlock()
-	return eps.banned(peer)
+	return eps.peerBanned(peer)
 }
 
 // NewEphemeralPeerStore initializes an EphemeralPeerStore.

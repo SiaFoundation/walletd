@@ -14,6 +14,7 @@ import (
 
 var errNoWallet = errors.New("wallet does not exist")
 
+// A ChainManager manages blockchain state.
 type ChainManager interface {
 	AddSubscriber(s chain.Subscriber, tip types.ChainIndex) error
 	RemoveSubscriber(s chain.Subscriber)

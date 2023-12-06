@@ -228,6 +228,8 @@ type V2FileContract struct {
 	Outputs    []types.SiacoinElement             `json:"outputs,omitempty"`
 }
 
+// An EventTransaction is a relevant transaction that happened on the Sia
+// blockchain.
 type EventTransaction struct {
 	ID                types.TransactionID    `json:"id"`
 	SiacoinInputs     []types.SiacoinElement `json:"siacoinInputs"`
@@ -240,15 +242,21 @@ type EventTransaction struct {
 	Fee               types.Currency         `json:"fee"`
 }
 
+// An EventMinerPayout is a relevant miner payout that happened on the Sia
+// blockchain.
 type EventMinerPayout struct {
 	SiacoinOutput types.SiacoinElement `json:"siacoinOutput"`
 }
 
+// An EventMissedFileContract is a relevant missed file contract that happened
+// on the Sia blockchain.
 type EventMissedFileContract struct {
 	FileContract  types.FileContractElement `json:"fileContract"`
 	MissedOutputs []types.SiacoinElement    `json:"missedOutputs"`
 }
 
+// A ChainUpdate represents a series of updates to chain state from a block
+// being applied or reverted.
 type ChainUpdate interface {
 	ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool))
 	ForEachSiafundElement(func(sfe types.SiafundElement, spent bool))
