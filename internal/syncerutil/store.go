@@ -28,11 +28,11 @@ func (eps *EphemeralPeerStore) banned(peer string) bool {
 		return false // shouldn't happen
 	}
 	for _, s := range []string{
-		peer,                        //  1.2.3.4:5678
-		syncer.Subnet(host + "/32"), //  1.2.3.4:*
-		syncer.Subnet(host + "/24"), //  1.2.3.*
-		syncer.Subnet(host + "/16"), //  1.2.*
-		syncer.Subnet(host + "/8"),  //  1.*
+		peer,                       //  1.2.3.4:5678
+		syncer.Subnet(host, "/32"), //  1.2.3.4:*
+		syncer.Subnet(host, "/24"), //  1.2.3.*
+		syncer.Subnet(host, "/16"), //  1.2.*
+		syncer.Subnet(host, "/8"),  //  1.*
 	} {
 		if b, ok := eps.bans[s]; ok {
 			if time.Until(b.Expiry) <= 0 {

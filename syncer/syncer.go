@@ -55,12 +55,12 @@ type PeerStore interface {
 }
 
 // Subnet normalizes the provided CIDR subnet string.
-func Subnet(cidr string) string {
-	ip, ipnet, err := net.ParseCIDR(cidr)
+func Subnet(addr, mask string) string {
+	ip, ipnet, err := net.ParseCIDR(addr + mask)
 	if err != nil {
 		return "" // shouldn't happen
 	}
-	return ip.Mask(ipnet.Mask).String() + cidr
+	return ip.Mask(ipnet.Mask).String() + mask
 }
 
 type config struct {
@@ -419,6 +419,7 @@ add:
 }
 
 func (s *Syncer) ban(p *gateway.Peer, err error) {
+	s.log.Printf("banning %v: %v", p, err)
 	p.SetErr(errors.New("banned"))
 	s.pm.Ban(p.ConnAddr, 24*time.Hour, err.Error())
 
@@ -428,10 +429,10 @@ func (s *Syncer) ban(p *gateway.Peer, err error) {
 	}
 	// add a strike to each subnet
 	for subnet, maxStrikes := range map[string]int{
-		Subnet(host + "/32"): 2,   // 1.2.3.4:*
-		Subnet(host + "/24"): 8,   // 1.2.3.*
-		Subnet(host + "/16"): 64,  // 1.2.*
-		Subnet(host + "/8"):  512, // 1.*
+		Subnet(host, "/32"): 2,   // 1.2.3.4:*
+		Subnet(host, "/24"): 8,   // 1.2.3.*
+		Subnet(host, "/16"): 64,  // 1.2.*
+		Subnet(host, "/8"):  512, // 1.*
 	} {
 		s.mu.Lock()
 		ban := (s.strikes[subnet] + 1) >= maxStrikes
