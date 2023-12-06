@@ -7,15 +7,17 @@ runs:
     - name: Configure git # required for golangci-lint on Windows
       shell: bash
       run: git config --global core.autocrlf false
-   - name: Lint
-     uses: golangci/golangci-lint-action@v3
-     with:
-       skip-cache: true
+    - name: Lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        skip-cache: true
     - name: Analyze
       uses: SiaFoundation/action-golang-analysis@HEAD
       with:
         analyzers: |
           go.sia.tech/jape.Analyzer
+        directories: |
+          api
     - name: Test
       uses: n8maninger/action-golang-test@v1
       with:
