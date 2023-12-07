@@ -128,16 +128,14 @@ outer:
 	for _, parent := range toSign {
 		for sigIndex, sig := range txn.Signatures {
 			if sig.ParentID == parent {
-				addr, ok := sigAddr(parent)
-				if !ok {
+				if addr, ok := sigAddr(parent); !ok {
 					return fmt.Errorf("ID %v not present in transaction", parent)
-				}
-				index, ok := sav.addrs[addr]
-				if !ok {
+				} else if index, ok := sav.addrs[addr]; !ok {
 					return fmt.Errorf("missing key for ID %v", parent)
+				} else {
+					SignTransaction(cs, txn, sigIndex, sav.seed.PrivateKey(index))
+					continue outer
 				}
-				SignTransaction(cs, txn, sigIndex, sav.seed.PrivateKey(index))
-				continue outer
 			}
 		}
 		return fmt.Errorf("signature %v not present in transaction", parent)
