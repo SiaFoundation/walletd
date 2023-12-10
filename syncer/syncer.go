@@ -323,7 +323,7 @@ func (h *rpcHandler) RelayV2Header(bh gateway.V2BlockHeader, origin *gateway.Pee
 		h.s.mu.Unlock()
 		return
 	} else if bid.CmpWork(cs.ChildTarget) < 0 {
-		h.s.ban(origin, errors.New("peer sent header with insufficient work"))
+		h.s.ban(origin, errors.New("peer sent v2 header with insufficient work"))
 		return
 	}
 
@@ -725,10 +725,12 @@ func (s *Syncer) syncLoop(closeChan <-chan struct{}) error {
 			oldTime := time.Now()
 			lastPrint := time.Now()
 			startTime, startHeight := oldTime, oldTip.Height
+			var sentBlocks uint64
 			addBlocks := func(blocks []types.Block) error {
 				if err := s.cm.AddBlocks(blocks); err != nil {
 					return err
 				}
+				sentBlocks += uint64(len(blocks))
 				endTime, endHeight := time.Now(), s.cm.Tip().Height
 				s.pm.UpdatePeerInfo(p.Addr, func(info *PeerInfo) {
 					info.SyncedBlocks += endHeight - startHeight
@@ -765,7 +767,7 @@ func (s *Syncer) syncLoop(closeChan <-chan struct{}) error {
 			} else if newTip := s.cm.Tip(); newTip != oldTip {
 				s.log.Printf("finished syncing %v blocks with %v, tip now %v", totalBlocks, p, newTip)
 			} else {
-				s.log.Printf("finished syncing with %v, tip unchanged", p)
+				s.log.Printf("finished syncing %v blocks with %v, tip unchanged", sentBlocks, p)
 			}
 		}
 	}
