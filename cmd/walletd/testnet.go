@@ -38,7 +38,7 @@ func TestnetAnagami() (*consensus.Network, types.Block) {
 
 	n.HardforkOak.Height = 5
 	n.HardforkOak.FixHeight = 8
-	n.HardforkOak.GenesisTimestamp = time.Unix(1697100000, 0) // Oct 12, 2023 @ 08:40 GMT
+	n.HardforkOak.GenesisTimestamp = time.Unix(1702300000, 0) // Dec 11, 2023 @ 13:06 GMT
 
 	n.HardforkASIC.Height = 13
 	n.HardforkASIC.OakTime = 10 * time.Minute
