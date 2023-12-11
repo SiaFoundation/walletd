@@ -236,17 +236,23 @@ func (s *server) walletsBalanceHandler(jc jape.Context) {
 	if jc.Check("couldn't load outputs", err) != nil {
 		return
 	}
-	var sc types.Currency
+	height := s.cm.TipState().Index.Height
+	var sc, immature types.Currency
 	var sf uint64
 	for _, sco := range scos {
-		sc = sc.Add(sco.SiacoinOutput.Value)
+		if height >= sco.MaturityHeight {
+			sc = sc.Add(sco.SiacoinOutput.Value)
+		} else {
+			immature = immature.Add(sco.SiacoinOutput.Value)
+		}
 	}
 	for _, sfo := range sfos {
 		sf += sfo.SiafundOutput.Value
 	}
 	jc.Encode(WalletBalanceResponse{
-		Siacoins: sc,
-		Siafunds: sf,
+		Siacoins:         sc,
+		ImmatureSiacoins: immature,
+		Siafunds:         sf,
 	})
 }
 

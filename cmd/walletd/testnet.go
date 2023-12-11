@@ -316,6 +316,35 @@ func printTestnetEvents(c *api.Client, seed wallet.Seed) {
 	}
 }
 
+func testnetTxpoolBalance(c *api.Client, seed wallet.Seed) (gained, lost types.Currency) {
+	ourAddr := types.StandardUnlockHash(seed.PublicKey(0))
+	txns, v2txns, err := c.TxpoolTransactions()
+	check("Couldn't get txpool transactions:", err)
+	for _, txn := range txns {
+		if len(txn.SiacoinInputs) == 0 || len(txn.SiacoinOutputs) == 0 {
+			continue
+		}
+		sco := txn.SiacoinOutputs[0]
+		if txn.SiacoinInputs[0].UnlockConditions.UnlockHash() == ourAddr {
+			lost = lost.Add(sco.Value)
+		} else if sco.Address == ourAddr {
+			gained = gained.Add(sco.Value)
+		}
+	}
+	for _, txn := range v2txns {
+		if len(txn.SiacoinInputs) == 0 || len(txn.SiacoinOutputs) == 0 {
+			continue
+		}
+		sco := txn.SiacoinOutputs[0]
+		if txn.SiacoinInputs[0].Parent.SiacoinOutput.Address == ourAddr {
+			lost = lost.Add(sco.Value)
+		} else if sco.Address == ourAddr {
+			gained = gained.Add(sco.Value)
+		}
+	}
+	return
+}
+
 func printTestnetTxpool(c *api.Client, seed wallet.Seed) {
 	ourAddr := types.StandardUnlockHash(seed.PublicKey(0))
 	txns, v2txns, err := c.TxpoolTransactions()

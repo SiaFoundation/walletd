@@ -217,7 +217,19 @@ func main() {
 		c := initTestnetClient(apiAddr, network, seed)
 		b, err := c.Wallet("primary").Balance()
 		check("Couldn't get balance:", err)
-		fmt.Println(b.Siacoins)
+		out := fmt.Sprint(b.Siacoins)
+		if !b.ImmatureSiacoins.IsZero() {
+			out += fmt.Sprintf(" + %v immature", b.ImmatureSiacoins)
+		}
+		poolGained, poolLost := testnetTxpoolBalance(c, seed)
+		if !poolGained.IsZero() || !poolLost.IsZero() {
+			if poolGained.Cmp(poolLost) >= 0 {
+				out += fmt.Sprintf(" + %v unconfirmed", poolGained.Sub(poolLost))
+			} else {
+				out += fmt.Sprintf(" - %v unconfirmed", poolLost.Sub(poolGained))
+			}
+		}
+		fmt.Println(out)
 
 	case sendCmd:
 		if len(cmd.Args()) != 2 {

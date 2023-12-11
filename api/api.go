@@ -32,8 +32,9 @@ type TxpoolTransactionsResponse struct {
 
 // WalletBalanceResponse is the response type for /wallets/:name/balance.
 type WalletBalanceResponse struct {
-	Siacoins types.Currency `json:"siacoins"`
-	Siafunds uint64         `json:"siafunds"`
+	Siacoins         types.Currency `json:"siacoins"`
+	ImmatureSiacoins types.Currency `json:"immatureSiacoins"`
+	Siafunds         uint64         `json:"siafunds"`
 }
 
 // WalletOutputsResponse is the response type for /wallets/:name/outputs.
