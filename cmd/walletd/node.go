@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -226,7 +228,12 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
 	}
-	s := syncer.New(l, cm, ps, header, syncer.WithLogger(log.Default()))
+	logFile, err := os.OpenFile(filepath.Join(dir, "walletd.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
+	logger := log.New(io.MultiWriter(os.Stderr, logFile), "", log.LstdFlags)
+	s := syncer.New(l, cm, ps, header, syncer.WithLogger(logger))
 
 	wm, err := walletutil.NewJSONWalletManager(dir, cm)
 	if err != nil {
