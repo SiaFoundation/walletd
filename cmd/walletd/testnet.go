@@ -404,9 +404,6 @@ func printTestnetTxpool(c *api.Client, seed wallet.Seed) {
 }
 
 func testnetFixDBTree(dir string) {
-	if _, err := os.Stat(filepath.Join(dir, "consensus.db")); err != nil {
-		log.Fatal(err)
-	}
 	bdb, err := bolt.Open(filepath.Join(dir, "consensus.db"), 0600, nil)
 	if err != nil {
 		log.Fatal(err)
