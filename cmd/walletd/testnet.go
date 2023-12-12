@@ -6,9 +6,12 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"path/filepath"
 	"reflect"
 	"time"
 
+	bolt "go.etcd.io/bbolt"
+	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/api"
@@ -379,4 +382,59 @@ func printTestnetTxpool(c *api.Client, seed wallet.Seed) {
 			fmt.Printf("%x (v2): Receiving %v from %v\n", id[:4], sco.Value, sci.Address)
 		}
 	}
+}
+
+func testnetFixDBTree(dir string) {
+	if _, err := os.Stat(filepath.Join(dir, "consensus.db")); err != nil {
+		log.Fatal(err)
+	}
+	bdb, err := bolt.Open(filepath.Join(dir, "consensus.db"), 0600, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	db := &boltDB{db: bdb}
+	defer db.Close()
+	if db.Bucket([]byte("tree-fix")) != nil {
+		return
+	}
+
+	fmt.Print("Fixing consensus.db Merkle tree...")
+
+	network, genesisBlock := TestnetAnagami()
+	dbstore, tipState, err := chain.NewDBStore(db, network, genesisBlock)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	bdb2, err := bolt.Open(filepath.Join(dir, "consensus.db-fixed"), 0600, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	db2 := &boltDB{db: bdb2}
+	defer db2.Close()
+	dbstore2, tipState2, err := chain.NewDBStore(db2, network, genesisBlock)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cm2 := chain.NewManager(dbstore2, tipState2)
+
+	for cm2.Tip() != cm.Tip() {
+		index, _ := cm.BestIndex(cm2.Tip().Height + 1)
+		b, _ := cm.Block(index.ID)
+		if err := cm2.AddBlocks([]types.Block{b}); err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	if _, err := db2.CreateBucket([]byte("tree-fix")); err != nil {
+		log.Fatal(err)
+	} else if err := db.Close(); err != nil {
+		log.Fatal(err)
+	} else if err := db2.Close(); err != nil {
+		log.Fatal(err)
+	} else if err := os.Rename(filepath.Join(dir, "consensus.db-fixed"), filepath.Join(dir, "consensus.db")); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("done.")
 }
