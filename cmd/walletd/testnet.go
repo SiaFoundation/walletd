@@ -326,7 +326,7 @@ func testnetTxpoolBalance(c *api.Client, seed wallet.Seed) (gained, lost types.C
 		}
 		sco := txn.SiacoinOutputs[0]
 		if txn.SiacoinInputs[0].UnlockConditions.UnlockHash() == ourAddr {
-			lost = lost.Add(sco.Value)
+			lost = lost.Add(sco.Value).Add(txn.TotalFees())
 		} else if sco.Address == ourAddr {
 			gained = gained.Add(sco.Value)
 		}
@@ -337,7 +337,7 @@ func testnetTxpoolBalance(c *api.Client, seed wallet.Seed) (gained, lost types.C
 		}
 		sco := txn.SiacoinOutputs[0]
 		if txn.SiacoinInputs[0].Parent.SiacoinOutput.Address == ourAddr {
-			lost = lost.Add(sco.Value)
+			lost = lost.Add(sco.Value).Add(txn.MinerFee)
 		} else if sco.Address == ourAddr {
 			gained = gained.Add(sco.Value)
 		}
