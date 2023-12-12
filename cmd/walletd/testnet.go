@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -165,14 +166,27 @@ outer:
 			}
 			b.V2.Commitment = cs.Commitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address)
 		}
+
+		buf := make([]byte, 32+8+8+32)
+		binary.LittleEndian.PutUint64(buf[32:], b.Nonce)
+		binary.LittleEndian.PutUint64(buf[40:], uint64(b.Timestamp.Unix()))
+		if b.V2 != nil {
+			copy(buf[:32], "sia/id/block|")
+			copy(buf[48:], b.V2.Commitment[:])
+		} else {
+			root := b.MerkleRoot() // NOTE: expensive!
+			copy(buf[:32], b.ParentID[:])
+			copy(buf[48:], root[:])
+		}
 		startBlock := time.Now()
-		for b.ID().CmpWork(cs.ChildTarget) < 0 {
+		for types.BlockID(types.HashBytes(buf)).CmpWork(cs.ChildTarget) < 0 {
 			b.Nonce += cs.NonceFactor()
 			// ensure nonce meets factor requirement
 			for b.Nonce%cs.NonceFactor() != 0 {
 				b.Nonce++
 			}
 			hashes++
+			binary.LittleEndian.PutUint64(buf[32:], b.Nonce)
 			if time.Since(startBlock) > 30*time.Second {
 				continue outer
 			}
@@ -308,13 +322,13 @@ func printTestnetEvents(c *api.Client, seed wallet.Seed) {
 			sci := t.SiacoinInputs[0].SiacoinOutput
 			sco := t.SiacoinOutputs[0].SiacoinOutput
 			if sci.Address == ourAddr {
-				fmt.Printf("%v (%v): Sent %v (+ %v fee) to %v\n", e.Index, e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, t.Fee, sco.Address)
+				fmt.Printf("%14v (%v): Sent %v (+ %v fee) to %v\n", e.Index, e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, t.Fee, sco.Address)
 			} else {
-				fmt.Printf("%v (%v): Received %v from %v\n", e.Index, e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, sci.Address)
+				fmt.Printf("%14v (%v): Received %v from %v\n", e.Index, e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, sci.Address)
 			}
 		case *wallet.EventMinerPayout:
 			sco := t.SiacoinOutput.SiacoinOutput
-			fmt.Printf("%v (%v): Earned %v miner payout from block %v\n", e.Index, e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, e.Index)
+			fmt.Printf("%14v (%v): Earned %v miner payout from block %v\n", e.Index, e.Timestamp.Format("Jan _2 @ 15:04:05"), sco.Value, e.Index)
 		}
 	}
 }
