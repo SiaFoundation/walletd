@@ -265,7 +265,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		unique := relevant[:0]
 		for _, addr := range relevant {
 			if !seen[addr] {
-				relevant = append(relevant, addr)
+				unique = append(unique, addr)
 				seen[addr] = true
 			}
 		}
