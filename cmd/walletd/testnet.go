@@ -112,8 +112,10 @@ func initTestnetClient(addr string, network string, seed wallet.Seed) *api.Clien
 	}
 	if ws, _ := c.Wallets(); len(ws) == 0 {
 		fmt.Print("Initializing testnet wallet...")
-		c.AddWallet("primary", nil)
-		if err := wc.AddAddress(ourAddr, nil); err != nil {
+		if err := c.AddWallet("primary", nil); err != nil {
+			fmt.Println()
+			log.Fatal(err)
+		} else if err := wc.AddAddress(ourAddr, nil); err != nil {
 			fmt.Println()
 			log.Fatal(err)
 		} else if err := wc.Subscribe(0); err != nil {
@@ -157,17 +159,22 @@ func runTestnetMiner(c *api.Client, seed wallet.Seed) {
 
 	var hashes float64
 	var blocks uint64
+	var last types.ChainIndex
 outer:
 	for {
 		elapsed := time.Since(start)
 		cs, err := c.ConsensusTipState()
 		check("Couldn't get consensus tip state:", err)
+		if cs.Index == last {
+			fmt.Println("Tip now", cs.Index)
+			last = cs.Index
+		}
 		n := big.NewInt(int64(hashes))
 		n.Mul(n, big.NewInt(int64(24*time.Hour)))
 		d, _ := new(big.Int).SetString(cs.Difficulty.String(), 10)
 		d.Mul(d, big.NewInt(int64(1+elapsed)))
 		r, _ := new(big.Rat).SetFrac(n, d).Float64()
-		log.Printf("Mining...(%.2f kH/s, %.2f blocks/day (expected: %.2f), difficulty %v)", hashes/elapsed.Seconds()/1000, float64(blocks)*float64(24*time.Hour)/float64(elapsed), r, cs.Difficulty)
+		fmt.Printf("\rMining block %4v...(%.2f kH/s, %.2f blocks/day (expected: %.2f), difficulty %v)", cs.Index.Height+1, hashes/elapsed.Seconds()/1000, float64(blocks)*float64(24*time.Hour)/float64(elapsed), r, cs.Difficulty)
 
 		txns, v2txns, err := c.TxpoolTransactions()
 		check("Couldn't get txpool transactions:", err)
@@ -201,13 +208,13 @@ outer:
 		tip, err := c.ConsensusTip()
 		check("Couldn't get consensus tip:", err)
 		if tip != cs.Index {
-			log.Printf("Mined %v but tip changed, starting over", index)
+			fmt.Printf("\nMined %v but tip changed, starting over\n", index)
 		} else if err := c.SyncerBroadcastBlock(b); err != nil {
-			log.Println("Mined invalid block:", err)
+			fmt.Printf("\nMined invalid block: %v\n", err)
 		} else if b.V2 == nil {
-			log.Printf("Found v1 block %v", index)
+			fmt.Printf("\nFound v1 block %v\n", index)
 		} else {
-			log.Printf("Found v2 block %v", index)
+			fmt.Printf("\nFound v2 block %v\n", index)
 		}
 	}
 }
@@ -456,8 +463,57 @@ func testnetFixDBTree(dir string) {
 	}
 
 	fmt.Print("Backing up old wallet state...")
+	os.RemoveAll(filepath.Join(dir, "wallets.json-bck"))
 	os.Rename(filepath.Join(dir, "wallets.json"), filepath.Join(dir, "wallets.json-bck"))
+	os.RemoveAll(filepath.Join(dir, "wallets-bck"))
 	os.Rename(filepath.Join(dir, "wallets"), filepath.Join(dir, "wallets-bck"))
 	fmt.Println("done.")
 	fmt.Println("NOTE: Your wallet will resync automatically on first use; this may take a few seconds.")
+}
+
+func testnetCheckDB(dir string) {
+	bdb, err := bolt.Open(filepath.Join(dir, "consensus.db"), 0600, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	db := &boltDB{db: bdb}
+	defer db.Close()
+
+	fmt.Print("Reapplying blocks...")
+
+	network, genesisBlock := TestnetAnagami()
+	dbstore, tipState, err := chain.NewDBStore(db, network, genesisBlock)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	dbstore2, tipState2, err := chain.NewDBStore(chain.NewMemDB(), network, genesisBlock)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cm2 := chain.NewManager(dbstore2, tipState2)
+
+	for cm2.Tip() != cm.Tip() {
+		fmt.Printf("\rReapplying blocks...%v/%v", cm2.Tip().Height, cm.Tip().Height)
+		index, _ := cm.BestIndex(cm2.Tip().Height + 1)
+		b, _ := cm.Block(index.ID)
+		if err := cm2.AddBlocks([]types.Block{b}); err != nil {
+			break
+		}
+	}
+	fmt.Println()
+	if cm.Tip() != cm2.Tip() {
+		fmt.Printf("Could not apply all blocks (%v/%v); marking consensus.db as corrupt\n", cm2.Tip().Height, cm.Tip().Height)
+		db.newTx()
+		db.tx.DeleteBucket([]byte("tree-fix-2"))
+		return
+	}
+	if cm.TipState().Commitment(types.Hash256{}, types.VoidAddress) != cm2.TipState().Commitment(types.Hash256{}, types.VoidAddress) {
+		fmt.Println("Final state differs from consensus.db; marking consensus.db as corrupt")
+		db.newTx()
+		db.tx.DeleteBucket([]byte("tree-fix-2"))
+		return
+	}
+	fmt.Println("No problems detected.")
 }
