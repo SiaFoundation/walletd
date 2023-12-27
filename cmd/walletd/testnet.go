@@ -410,7 +410,7 @@ func testnetFixDBTree(dir string) {
 	}
 	db := &boltDB{db: bdb}
 	defer db.Close()
-	if db.Bucket([]byte("tree-fix")) != nil {
+	if db.Bucket([]byte("tree-fix-2")) != nil {
 		return
 	}
 
@@ -436,14 +436,16 @@ func testnetFixDBTree(dir string) {
 	cm2 := chain.NewManager(dbstore2, tipState2)
 
 	for cm2.Tip() != cm.Tip() {
+		fmt.Printf("\rFixing consensus.db Merkle tree...%v/%v", cm2.Tip().Height, cm.Tip().Height)
 		index, _ := cm.BestIndex(cm2.Tip().Height + 1)
 		b, _ := cm.Block(index.ID)
 		if err := cm2.AddBlocks([]types.Block{b}); err != nil {
-			log.Fatal(err)
+			break
 		}
 	}
+	fmt.Println()
 
-	if _, err := db2.CreateBucket([]byte("tree-fix")); err != nil {
+	if _, err := db2.CreateBucket([]byte("tree-fix-2")); err != nil {
 		log.Fatal(err)
 	} else if err := db.Close(); err != nil {
 		log.Fatal(err)
@@ -452,5 +454,10 @@ func testnetFixDBTree(dir string) {
 	} else if err := os.Rename(filepath.Join(dir, "consensus.db-fixed"), filepath.Join(dir, "consensus.db")); err != nil {
 		log.Fatal(err)
 	}
+
+	fmt.Print("Backing up old wallet state...")
+	os.Rename(filepath.Join(dir, "wallets.json"), filepath.Join(dir, "wallets.json-bck"))
+	os.Rename(filepath.Join(dir, "wallets"), filepath.Join(dir, "wallets-bck"))
 	fmt.Println("done.")
+	fmt.Println("NOTE: Your wallet will resync automatically on first use; this may take a few seconds.")
 }
