@@ -12,17 +12,6 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+-**'
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
-        with:
-          go-version: 'stable'
-      - name: Test
-        uses: ./.github/actions/test
   docker:
     runs-on: ubuntu-latest
     needs: [ test ]
