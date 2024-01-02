@@ -9,6 +9,13 @@ import (
 	"go.sia.tech/core/types"
 )
 
+const (
+	// transactions
+	EventTypeTransaction        = "transaction"
+	EventTypeMinerPayout        = "miner payout"
+	EventTypeMissedFileContract = "missed file contract"
+)
+
 // StandardTransactionSignature is the most common form of TransactionSignature.
 // It covers the entire transaction, references a sole public key, and has no
 // timelock.
@@ -143,12 +150,12 @@ type Event struct {
 	Index     types.ChainIndex
 	Timestamp time.Time
 	Relevant  []types.Address
-	Val       interface{ eventType() string }
+	Val       interface{ EventType() string }
 }
 
-func (*EventTransaction) eventType() string        { return "transaction" }
-func (*EventMinerPayout) eventType() string        { return "miner payout" }
-func (*EventMissedFileContract) eventType() string { return "missed file contract" }
+func (*EventTransaction) EventType() string        { return EventTypeTransaction }
+func (*EventMinerPayout) EventType() string        { return EventTypeMinerPayout }
+func (*EventMissedFileContract) EventType() string { return EventTypeMissedFileContract }
 
 // MarshalJSON implements json.Marshaler.
 func (e Event) MarshalJSON() ([]byte, error) {
@@ -163,7 +170,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 		Timestamp: e.Timestamp,
 		Index:     e.Index,
 		Relevant:  e.Relevant,
-		Type:      e.Val.eventType(),
+		Type:      e.Val.EventType(),
 		Val:       val,
 	})
 }
@@ -184,11 +191,11 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	e.Index = s.Index
 	e.Relevant = s.Relevant
 	switch s.Type {
-	case (*EventTransaction)(nil).eventType():
+	case (*EventTransaction)(nil).EventType():
 		e.Val = new(EventTransaction)
-	case (*EventMinerPayout)(nil).eventType():
+	case (*EventMinerPayout)(nil).EventType():
 		e.Val = new(EventMinerPayout)
-	case (*EventMissedFileContract)(nil).eventType():
+	case (*EventMissedFileContract)(nil).EventType():
 		e.Val = new(EventMissedFileContract)
 	}
 	if e.Val == nil {
@@ -259,7 +266,7 @@ type ChainUpdate interface {
 // AppliedEvents extracts a list of relevant events from a chain update.
 func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant func(types.Address) bool) []Event {
 	var events []Event
-	addEvent := func(v interface{ eventType() string }, relevant []types.Address) {
+	addEvent := func(v interface{ EventType() string }, relevant []types.Address) {
 		// dedup relevant addresses
 		seen := make(map[types.Address]bool)
 		unique := relevant[:0]

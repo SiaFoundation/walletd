@@ -17,6 +17,7 @@ import (
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/walletd/internal/syncerutil"
 	"go.sia.tech/walletd/internal/walletutil"
+	"go.uber.org/zap"
 	"lukechampine.com/upnp"
 )
 
@@ -163,9 +164,7 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
 	}
-
-	s := syncer.New(l, cm, ps, header)
-
+	s := syncer.New(l, cm, ps, header, syncer.WithLogger(zap.NewNop()))
 	wm, err := walletutil.NewJSONWalletManager(dir, cm)
 	if err != nil {
 		return nil, err
