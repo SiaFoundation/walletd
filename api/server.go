@@ -2,11 +2,13 @@ package api
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
+	"strconv"
 	"sync"
 	"time"
 
@@ -324,23 +326,30 @@ func (s *server) walletsEventsPrometheusHandler(jc jape.Context) {
 	}
 	resulttext := ""
 	for i, event := range events {
-		description := "NA"
-		// switch event.Val {
-		// case "transaction":
-		// 	description = event.Val.(wallet.EventTransaction).ID
-		// case "miner payout":
-		// 	description = event.Val.(wallet.EventMinerPayout).SiacoinOutput.SiacoinOutput.Value.ExactString()
-		// case "missed file contract":
-		// 	description = "Missed " + event.Val.(wallet.EventMissedFileContract).FileContract.FileContract.Payout.ExactString() + " over " + strconv.Itoa(len(event.Val.(wallet.EventMissedFileContract).MissedOutputs)) + " outputs"
-		// }
-
-		event_txt := fmt.Sprintf(`walletd_wallet_event{name="%s", type="%s", height="%d", timestamp="%s", description="%s"} 1`,
-			name, //wallet name
-			event.Val,
-			event.Index.Height,
-			event.Timestamp.Format(time.RFC3339),
-			description,
-		)
+		event_txt := ""
+		if e, ok := event.Val.(*wallet.EventTransaction); ok {
+			event_txt = fmt.Sprintf(`walletd_wallet_event_transaction{name="%s", height="%d", timestamp="%s", txid="%s"} 1`,
+				name,
+				event.Index.Height,
+				event.Timestamp.Format(time.RFC3339),
+				hex.EncodeToString(e.ID[:]),
+			)
+		} else if e, ok := event.Val.(*wallet.EventMinerPayout); ok {
+			event_txt = fmt.Sprintf(`walletd_wallet_event_minerpayout{name="%s", height="%d", timestamp="%s"} %s`,
+				name,
+				event.Index.Height,
+				event.Timestamp.Format(time.RFC3339),
+				e.SiacoinOutput.SiacoinOutput.Value.ExactString(),
+			)
+		} else if e, ok := event.Val.(*wallet.EventMissedFileContract); ok {
+			event_txt = fmt.Sprintf(`walletd_wallet_event_missedfilecontract{name="%s", height="%d", timestamp="%s", outputs="%s"} %s`,
+				name,
+				event.Index.Height,
+				event.Timestamp.Format(time.RFC3339),
+				strconv.Itoa(len(e.MissedOutputs)),
+				e.FileContract.FileContract.Payout.ExactString(),
+			)
+		}
 		if i != len(events)-1 {
 			event_txt = event_txt + "\n"
 		}
