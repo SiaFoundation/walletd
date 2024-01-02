@@ -649,15 +649,15 @@ func NewPrometheusServer(cm ChainManager, s Syncer, wm WalletManager) http.Handl
 	return jape.Mux(map[string]jape.Handler{
 		"GET    /consensus/network": srv.consensusNetworkPrometheusHandler,
 		"GET    /consensus/tip":     srv.consensusTipPrometheusHandler,
-		// "GET    /consensus/tipstate": srv.consensusTipStateHandler,
+		// "GET    /consensus/tipstate": srv.consensusTipStateHandler, 				//intentionally left out
 		"GET    /syncer/peers": srv.syncerPeersPrometheusHandler,
 		// "GET    /txpool/transactions": srv.txpoolTransactionsHandler,
 		"GET    /txpool/fee": srv.txpoolFeePrometheusHandler,
-		// "GET    /wallets":    srv.walletsPrometheusHandler,
-		// "GET    /wallets/:name/addresses":       srv.walletsAddressesHandlerGET,
+		// "GET    /wallets":    srv.walletsPrometheusHandler, 						//intentionally left out.
+		// "GET    /wallets/:name/addresses":       srv.walletsAddressesHandlerGET, //intentionally left out.
 		"GET    /wallets/:name/balance": srv.walletsBalancePrometheusHandler,
 		"GET    /wallets/:name/events":  srv.walletsEventsPrometheusHandler,
-		// "GET    /wallets/:name/txpool":          srv.walletsTxpoolHandler,
-		// "GET    /wallets/:name/outputs":         srv.walletsOutputsHandler,
+		// "GET    /wallets/:name/txpool":          srv.walletsTxpoolHandler, 		//intentionally left out.
+		// "GET    /wallets/:name/outputs":         srv.walletsOutputsHandler, 		//intentionally left out.
 	})
 }
