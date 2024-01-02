@@ -120,11 +120,12 @@ Note that only transactions relevant to the wallet are shown.
 func main() {
 	log.SetFlags(0)
 
-	var gatewayAddr, apiAddr, dir, network, seed string
+	var prometheusAddr, gatewayAddr, apiAddr, dir, network, seed string
 	var upnp, v2 bool
 
 	rootCmd := flagg.Root
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, rootUsage)
+	rootCmd.StringVar(&prometheusAddr, "prometheus", "notset", "address to serve prometheus API on")
 	rootCmd.StringVar(&gatewayAddr, "addr", ":9981", "p2p address to listen on")
 	rootCmd.StringVar(&apiAddr, "http", "localhost:9980", "address to serve API on")
 	rootCmd.StringVar(&dir, "dir", ".", "directory to store node state in")
@@ -156,6 +157,8 @@ func main() {
 	})
 
 	log.Println("walletd v0.1.0")
+	promIsSet := prometheusAddr != "notset"
+
 	switch cmd {
 	case rootCmd:
 		if len(cmd.Args()) != 0 {
@@ -174,7 +177,15 @@ func main() {
 		log.Println("p2p: Listening on", n.s.Addr())
 		stop := n.Start()
 		log.Println("api: Listening on", l.Addr())
-		go startWeb(l, n, apiPassword)
+		go startWeb(l, n, apiPassword, "/api")
+		if promIsSet {
+			l2, err := net.Listen("tcp", prometheusAddr)
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Println("prometheus api: Listening on", l2.Addr())
+			go startWeb(l2, n, apiPassword, "/prometheus")
+		}
 		signalCh := make(chan os.Signal, 1)
 		signal.Notify(signalCh, os.Interrupt)
 		<-signalCh

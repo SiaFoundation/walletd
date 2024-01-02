@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,8 +71,20 @@ type server struct {
 	used map[types.Hash256]bool
 }
 
+func (s *server) consensusNetworkPrometheusHandler(jc jape.Context) {
+	var buf bytes.Buffer
+	text := `walletd_consensus_network{network="%s"} 1`
+	fmt.Fprintf(&buf, text, s.cm.TipState().Network.Name)
+	jc.ResponseWriter.Write(buf.Bytes())
+}
 func (s *server) consensusNetworkHandler(jc jape.Context) {
 	jc.Encode(*s.cm.TipState().Network)
+}
+func (s *server) consensusTipPrometheusHandler(jc jape.Context) {
+	var buf bytes.Buffer
+	text := `walletd_consensus_tip_height %d`
+	fmt.Fprintf(&buf, text, s.cm.TipState().Index.Height)
+	jc.ResponseWriter.Write(buf.Bytes())
 }
 
 func (s *server) consensusTipHandler(jc jape.Context) {
@@ -82,6 +95,20 @@ func (s *server) consensusTipStateHandler(jc jape.Context) {
 	jc.Encode(s.cm.TipState())
 }
 
+func (s *server) syncerPeersPrometheusHandler(jc jape.Context) {
+	p := s.s.Peers()
+	resulttext := ""
+	for i, peer := range p {
+		synced_peer := fmt.Sprintf(`walletd_syncer_peer{address="%s", version="%s"} 1`, string(peer.Addr), peer.Version)
+		if i != len(p)-1 {
+			synced_peer = synced_peer + "\n"
+		}
+		resulttext = resulttext + synced_peer
+	}
+	var resultbuffer bytes.Buffer
+	resultbuffer.WriteString(resulttext)
+	jc.ResponseWriter.Write(resultbuffer.Bytes())
+}
 func (s *server) syncerPeersHandler(jc jape.Context) {
 	var peers []GatewayPeer
 	for _, p := range s.s.Peers() {
@@ -138,6 +165,12 @@ func (s *server) txpoolTransactionsHandler(jc jape.Context) {
 	})
 }
 
+func (s *server) txpoolFeePrometheusHandler(jc jape.Context) {
+	var buf bytes.Buffer
+	text := `walletd_txpool_fee %s`
+	fmt.Fprintf(&buf, text, s.cm.RecommendedFee().ExactString())
+	jc.ResponseWriter.Write(buf.Bytes())
+}
 func (s *server) txpoolFeeHandler(jc jape.Context) {
 	jc.Encode(s.cm.RecommendedFee())
 }
@@ -227,6 +260,29 @@ func (s *server) walletsAddressesHandlerGET(jc jape.Context) {
 	jc.Encode(addrs)
 }
 
+func (s *server) walletsBalancePrometheusHandler(jc jape.Context) {
+	var name string
+	if jc.DecodeParam("name", &name) != nil {
+		return
+	}
+	scos, sfos, err := s.wm.UnspentOutputs(name)
+	if jc.Check("couldn't load outputs", err) != nil {
+		return
+	}
+	var sc types.Currency
+	var sf uint64
+	for _, sco := range scos {
+		sc = sc.Add(sco.SiacoinOutput.Value)
+	}
+	for _, sfo := range sfos {
+		sf += sfo.SiafundOutput.Value
+	}
+	var buf bytes.Buffer
+	text := `walletd_wallet_balance_siacoins{name="%s"} %s
+walletd_wallet_balance_siafunds{name="%s"} %d`
+	fmt.Fprintf(&buf, text, name, sc.ExactString(), name, sf)
+	jc.ResponseWriter.Write(buf.Bytes())
+}
 func (s *server) walletsBalanceHandler(jc jape.Context) {
 	var name string
 	if jc.DecodeParam("name", &name) != nil {
@@ -256,6 +312,44 @@ func (s *server) walletsBalanceHandler(jc jape.Context) {
 	})
 }
 
+func (s *server) walletsEventsPrometheusHandler(jc jape.Context) {
+	var name string
+	offset, limit := 0, -1
+	if jc.DecodeParam("name", &name) != nil || jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
+		return
+	}
+	events, err := s.wm.Events(name, offset, limit)
+	if jc.Check("couldn't load events", err) != nil {
+		return
+	}
+	resulttext := ""
+	for i, event := range events {
+		description := "NA"
+		// switch event.Val {
+		// case "transaction":
+		// 	description = event.Val.(wallet.EventTransaction).ID
+		// case "miner payout":
+		// 	description = event.Val.(wallet.EventMinerPayout).SiacoinOutput.SiacoinOutput.Value.ExactString()
+		// case "missed file contract":
+		// 	description = "Missed " + event.Val.(wallet.EventMissedFileContract).FileContract.FileContract.Payout.ExactString() + " over " + strconv.Itoa(len(event.Val.(wallet.EventMissedFileContract).MissedOutputs)) + " outputs"
+		// }
+
+		event_txt := fmt.Sprintf(`walletd_wallet_event{name="%s", type="%s", height="%d", timestamp="%s", description="%s"} 1`,
+			name, //wallet name
+			event.Val,
+			event.Index.Height,
+			event.Timestamp.Format(time.RFC3339),
+			description,
+		)
+		if i != len(events)-1 {
+			event_txt = event_txt + "\n"
+		}
+		resulttext = resulttext + event_txt
+	}
+	var resultbuffer bytes.Buffer
+	resultbuffer.WriteString(resulttext)
+	jc.ResponseWriter.Write(resultbuffer.Bytes())
+}
 func (s *server) walletsEventsHandler(jc jape.Context) {
 	var name string
 	offset, limit := 0, -1
@@ -509,18 +603,15 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		used: make(map[types.Hash256]bool),
 	}
 	return jape.Mux(map[string]jape.Handler{
-		"GET    /consensus/network":  srv.consensusNetworkHandler,
-		"GET    /consensus/tip":      srv.consensusTipHandler,
-		"GET    /consensus/tipstate": srv.consensusTipStateHandler,
-
-		"GET    /syncer/peers":           srv.syncerPeersHandler,
-		"POST   /syncer/connect":         srv.syncerConnectHandler,
-		"POST   /syncer/broadcast/block": srv.syncerBroadcastBlockHandler,
-
-		"GET    /txpool/transactions": srv.txpoolTransactionsHandler,
-		"GET    /txpool/fee":          srv.txpoolFeeHandler,
-		"POST   /txpool/broadcast":    srv.txpoolBroadcastHandler,
-
+		"GET    /consensus/network":             srv.consensusNetworkHandler,
+		"GET    /consensus/tip":                 srv.consensusTipHandler,
+		"GET    /consensus/tipstate":            srv.consensusTipStateHandler,
+		"GET    /syncer/peers":                  srv.syncerPeersHandler,
+		"POST   /syncer/connect":                srv.syncerConnectHandler,
+		"POST   /syncer/broadcast/block":        srv.syncerBroadcastBlockHandler,
+		"GET    /txpool/transactions":           srv.txpoolTransactionsHandler,
+		"GET    /txpool/fee":                    srv.txpoolFeeHandler,
+		"POST   /txpool/broadcast":              srv.txpoolBroadcastHandler,
 		"GET    /wallets":                       srv.walletsHandler,
 		"PUT    /wallets/:name":                 srv.walletsNameHandlerPUT,
 		"DELETE /wallets/:name":                 srv.walletsNameHandlerDELETE,
@@ -536,5 +627,28 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"POST   /wallets/:name/release":         srv.walletsReleaseHandler,
 		"POST   /wallets/:name/fund":            srv.walletsFundHandler,
 		"POST   /wallets/:name/fundsf":          srv.walletsFundSFHandler,
+	})
+}
+
+func NewPrometheusServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
+	srv := server{
+		cm:   cm,
+		s:    s,
+		wm:   wm,
+		used: make(map[types.Hash256]bool),
+	}
+	return jape.Mux(map[string]jape.Handler{
+		"GET    /consensus/network": srv.consensusNetworkPrometheusHandler,
+		"GET    /consensus/tip":     srv.consensusTipPrometheusHandler,
+		// "GET    /consensus/tipstate": srv.consensusTipStateHandler,
+		"GET    /syncer/peers": srv.syncerPeersPrometheusHandler,
+		// "GET    /txpool/transactions": srv.txpoolTransactionsHandler,
+		"GET    /txpool/fee": srv.txpoolFeePrometheusHandler,
+		// "GET    /wallets":    srv.walletsPrometheusHandler,
+		// "GET    /wallets/:name/addresses":       srv.walletsAddressesHandlerGET,
+		"GET    /wallets/:name/balance": srv.walletsBalancePrometheusHandler,
+		"GET    /wallets/:name/events":  srv.walletsEventsPrometheusHandler,
+		// "GET    /wallets/:name/txpool":          srv.walletsTxpoolHandler,
+		// "GET    /wallets/:name/outputs":         srv.walletsOutputsHandler,
 	})
 }
