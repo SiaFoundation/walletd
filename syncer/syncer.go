@@ -29,7 +29,7 @@ type ChainManager interface {
 	PoolTransaction(txid types.TransactionID) (types.Transaction, bool)
 	AddPoolTransactions(txns []types.Transaction) error
 	V2PoolTransaction(txid types.TransactionID) (types.V2Transaction, bool)
-	AddV2PoolTransactions(index types.ChainIndex, txns []types.V2Transaction) error
+	AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2Transaction) error
 	TransactionsForPartialBlock(missing []types.Hash256) ([]types.Transaction, []types.V2Transaction)
 }
 
@@ -397,7 +397,7 @@ func (h *rpcHandler) RelayV2BlockOutline(bo gateway.V2BlockOutline, origin *gate
 	h.s.relayV2BlockOutline(bo, origin) // non-blocking
 }
 
-func (h *rpcHandler) RelayV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction, origin *gateway.Peer) {
+func (h *rpcHandler) RelayV2TransactionSet(basis types.ChainIndex, txns []types.V2Transaction, origin *gateway.Peer) {
 	// if we've already seen these transactions, don't relay them again
 	allSeen := true
 	for _, txn := range txns {
@@ -408,11 +408,18 @@ func (h *rpcHandler) RelayV2TransactionSet(index types.ChainIndex, txns []types.
 	if allSeen {
 		return
 	}
-	if err := h.s.cm.AddV2PoolTransactions(index, txns); err != nil {
+	if _, ok := h.s.cm.Block(basis.ID); !ok {
+		h.s.log.Printf("peer %v relayed a v2 transaction set with unknown basis (%v); triggering a resync", origin, basis)
+		h.s.mu.Lock()
+		h.s.synced[origin.Addr] = false
+		h.s.mu.Unlock()
+		return
+	}
+	if err := h.s.cm.AddV2PoolTransactions(basis, txns); err != nil {
 		h.s.log.Printf("received an invalid transaction set from %v: %v", origin, err)
 		return
 	}
-	h.s.relayV2TransactionSet(index, txns, origin) // non-blocking
+	h.s.relayV2TransactionSet(basis, txns, origin) // non-blocking
 }
 
 func (s *Syncer) ban(p *gateway.Peer, err error) {
