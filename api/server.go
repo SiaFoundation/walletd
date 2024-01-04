@@ -31,7 +31,7 @@ type (
 		PoolTransactions() []types.Transaction
 		V2PoolTransactions() []types.V2Transaction
 		AddPoolTransactions(txns []types.Transaction) error
-		AddV2PoolTransactions(txns []types.V2Transaction) error
+		AddV2PoolTransactions(index types.ChainIndex, txns []types.V2Transaction) error
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 	}
 
@@ -43,7 +43,7 @@ type (
 		Connect(addr string) (*gateway.Peer, error)
 		BroadcastHeader(bh gateway.BlockHeader)
 		BroadcastTransactionSet(txns []types.Transaction)
-		BroadcastV2TransactionSet(txns []types.V2Transaction)
+		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction)
 		BroadcastV2BlockOutline(bo gateway.V2BlockOutline)
 	}
 
@@ -189,10 +189,11 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		s.s.BroadcastTransactionSet(tbr.Transactions)
 	}
 	if len(tbr.V2Transactions) != 0 {
-		if jc.Check("invalid v2 transaction set", s.cm.AddV2PoolTransactions(tbr.V2Transactions)) != nil {
+		index := s.cm.TipState().Index
+		if jc.Check("invalid v2 transaction set", s.cm.AddV2PoolTransactions(index, tbr.V2Transactions)) != nil {
 			return
 		}
-		s.s.BroadcastV2TransactionSet(tbr.V2Transactions)
+		s.s.BroadcastV2TransactionSet(index, tbr.V2Transactions)
 	}
 }
 

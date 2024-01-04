@@ -29,7 +29,7 @@ type ChainManager interface {
 	PoolTransaction(txid types.TransactionID) (types.Transaction, bool)
 	AddPoolTransactions(txns []types.Transaction) error
 	V2PoolTransaction(txid types.TransactionID) (types.V2Transaction, bool)
-	AddV2PoolTransactions(txns []types.V2Transaction) error
+	AddV2PoolTransactions(index types.ChainIndex, txns []types.V2Transaction) error
 	TransactionsForPartialBlock(missing []types.Hash256) ([]types.Transaction, []types.V2Transaction)
 }
 
@@ -397,25 +397,22 @@ func (h *rpcHandler) RelayV2BlockOutline(bo gateway.V2BlockOutline, origin *gate
 	h.s.relayV2BlockOutline(bo, origin) // non-blocking
 }
 
-func (h *rpcHandler) RelayV2TransactionSet(txns []types.V2Transaction, origin *gateway.Peer) {
+func (h *rpcHandler) RelayV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction, origin *gateway.Peer) {
 	// if we've already seen these transactions, don't relay them again
+	allSeen := true
 	for _, txn := range txns {
-		if _, ok := h.s.cm.V2PoolTransaction(txn.ID()); !ok {
-			goto add
+		if _, allSeen = h.s.cm.V2PoolTransaction(txn.ID()); !allSeen {
+			break
 		}
 	}
-	return
-
-add:
-	if err := h.s.cm.AddV2PoolTransactions(txns); err != nil {
-		// too risky to ban here (txns are probably just outdated), but at least
-		// log it if we think we're synced
-		if b, ok := h.s.cm.Block(h.s.cm.Tip().ID); ok && time.Since(b.Timestamp) < 2*h.s.cm.TipState().BlockInterval() {
-			h.s.log.Printf("received an invalid transaction set from %v: %v", origin, err)
-		}
+	if allSeen {
 		return
 	}
-	h.s.relayV2TransactionSet(txns, origin) // non-blocking
+	if err := h.s.cm.AddV2PoolTransactions(index, txns); err != nil {
+		h.s.log.Printf("received an invalid transaction set from %v: %v", origin, err)
+		return
+	}
+	h.s.relayV2TransactionSet(index, txns, origin) // non-blocking
 }
 
 func (s *Syncer) ban(p *gateway.Peer, err error) {
@@ -531,14 +528,14 @@ func (s *Syncer) relayV2BlockOutline(pb gateway.V2BlockOutline, origin *gateway.
 	}
 }
 
-func (s *Syncer) relayV2TransactionSet(txns []types.V2Transaction, origin *gateway.Peer) {
+func (s *Syncer) relayV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction, origin *gateway.Peer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, p := range s.peers {
 		if p == origin || !p.SupportsV2() {
 			continue
 		}
-		go p.RelayV2TransactionSet(txns, s.config.RelayTransactionSetTimeout)
+		go p.RelayV2TransactionSet(index, txns, s.config.RelayTransactionSetTimeout)
 	}
 }
 
@@ -862,8 +859,8 @@ func (s *Syncer) BroadcastV2BlockOutline(b gateway.V2BlockOutline) { s.relayV2Bl
 func (s *Syncer) BroadcastTransactionSet(txns []types.Transaction) { s.relayTransactionSet(txns, nil) }
 
 // BroadcastV2TransactionSet broadcasts a v2 transaction set to all peers.
-func (s *Syncer) BroadcastV2TransactionSet(txns []types.V2Transaction) {
-	s.relayV2TransactionSet(txns, nil)
+func (s *Syncer) BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction) {
+	s.relayV2TransactionSet(index, txns, nil)
 }
 
 // Peers returns the set of currently-connected peers.
