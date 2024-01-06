@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -531,7 +532,16 @@ func (s *Syncer) relayV2BlockOutline(pb gateway.V2BlockOutline, origin *gateway.
 		if p == origin || !p.SupportsV2() {
 			continue
 		}
-		go p.RelayV2BlockOutline(pb, s.config.RelayBlockOutlineTimeout)
+		go func(p *gateway.Peer) {
+			defer func() {
+				if r := recover(); r != nil {
+					js, _ := json.Marshal(pb)
+					log.Println("relayV2BlockOutline panicked:", r)
+					log.Fatal(string(js))
+				}
+			}()
+			p.RelayV2BlockOutline(pb, s.config.RelayBlockOutlineTimeout)
+		}(p)
 	}
 }
 
