@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"reflect"
 	"sync"
 	"time"
@@ -533,11 +534,11 @@ func (s *Syncer) relayV2BlockOutline(pb gateway.V2BlockOutline, origin *gateway.
 			continue
 		}
 		go func(p *gateway.Peer) {
+			js, _ := json.Marshal(pb)
 			defer func() {
 				if r := recover(); r != nil {
-					js, _ := json.Marshal(pb)
-					log.Println("relayV2BlockOutline panicked:", r)
-					log.Fatal(string(js))
+					os.WriteFile("blockoutline.json", js, 0644)
+					log.Fatalf("relayV2BlockOutline panicked: %v (block outline written to blockoutline.json)", r)
 				}
 			}()
 			p.RelayV2BlockOutline(pb, s.config.RelayBlockOutlineTimeout)
