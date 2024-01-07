@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	go.etcd.io/bbolt v1.3.7
-	go.sia.tech/core v0.1.12-0.20240105034614-a052129f7774
+	go.sia.tech/core v0.1.12-0.20240107050014-f660ae1b34d7
 	go.sia.tech/jape v0.9.0
 	go.sia.tech/web/walletd v0.10.0
 	golang.org/x/term v0.6.0
