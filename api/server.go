@@ -27,8 +27,8 @@ type (
 		RecommendedFee() types.Currency
 		PoolTransactions() []types.Transaction
 		V2PoolTransactions() []types.V2Transaction
-		AddPoolTransactions(txns []types.Transaction) error
-		AddV2PoolTransactions(index types.ChainIndex, txns []types.V2Transaction) error
+		AddPoolTransactions(txns []types.Transaction) (bool, error)
+		AddV2PoolTransactions(index types.ChainIndex, txns []types.V2Transaction) (bool, error)
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 	}
 
@@ -148,14 +148,16 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		return
 	}
 	if len(tbr.Transactions) != 0 {
-		if jc.Check("invalid transaction set", s.cm.AddPoolTransactions(tbr.Transactions)) != nil {
+		_, err := s.cm.AddPoolTransactions(tbr.Transactions)
+		if jc.Check("invalid transaction set", err) != nil {
 			return
 		}
 		s.s.BroadcastTransactionSet(tbr.Transactions)
 	}
 	if len(tbr.V2Transactions) != 0 {
 		index := s.cm.TipState().Index
-		if jc.Check("invalid v2 transaction set", s.cm.AddV2PoolTransactions(index, tbr.V2Transactions)) != nil {
+		_, err := s.cm.AddV2PoolTransactions(index, tbr.V2Transactions)
+		if jc.Check("invalid v2 transaction set", err) != nil {
 			return
 		}
 		s.s.BroadcastV2TransactionSet(index, tbr.V2Transactions)
