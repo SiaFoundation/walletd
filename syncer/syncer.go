@@ -28,9 +28,9 @@ type ChainManager interface {
 	TipState() consensus.State
 
 	PoolTransaction(txid types.TransactionID) (types.Transaction, bool)
-	AddPoolTransactions(txns []types.Transaction) error
+	AddPoolTransactions(txns []types.Transaction) (bool, error)
 	V2PoolTransaction(txid types.TransactionID) (types.V2Transaction, bool)
-	AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2Transaction) error
+	AddV2PoolTransactions(basis types.ChainIndex, txns []types.V2Transaction) (bool, error)
 	TransactionsForPartialBlock(missing []types.Hash256) ([]types.Transaction, []types.V2Transaction)
 }
 
@@ -286,24 +286,19 @@ func (h *rpcHandler) RelayHeader(bh gateway.BlockHeader, origin *gateway.Peer) {
 }
 
 func (h *rpcHandler) RelayTransactionSet(txns []types.Transaction, origin *gateway.Peer) {
-	// if we've already seen these transactions, don't relay them again
-	for _, txn := range txns {
-		if _, ok := h.s.cm.PoolTransaction(txn.ID()); !ok {
-			goto add
+	if len(txns) == 0 {
+		h.s.ban(origin, errors.New("peer sent an empty transaction set"))
+	} else if known, err := h.s.cm.AddPoolTransactions(txns); !known {
+		if err != nil {
+			// too risky to ban here (txns are probably just outdated), but at least
+			// log it if we think we're synced
+			if b, ok := h.s.cm.Block(h.s.cm.Tip().ID); ok && time.Since(b.Timestamp) < 2*h.s.cm.TipState().BlockInterval() {
+				h.s.log.Printf("received an invalid transaction set from %v: %v", origin, err)
+			}
+		} else {
+			h.s.relayTransactionSet(txns, origin) // non-blocking
 		}
 	}
-	return
-
-add:
-	if err := h.s.cm.AddPoolTransactions(txns); err != nil {
-		// too risky to ban here (txns are probably just outdated), but at least
-		// log it if we think we're synced
-		if b, ok := h.s.cm.Block(h.s.cm.Tip().ID); ok && time.Since(b.Timestamp) < 2*h.s.cm.TipState().BlockInterval() {
-			h.s.log.Printf("received an invalid transaction set from %v: %v", origin, err)
-		}
-		return
-	}
-	h.s.relayTransactionSet(txns, origin) // non-blocking
 }
 
 func (h *rpcHandler) RelayV2Header(bh gateway.V2BlockHeader, origin *gateway.Peer) {
@@ -391,25 +386,17 @@ func (h *rpcHandler) RelayV2BlockOutline(bo gateway.V2BlockOutline, origin *gate
 }
 
 func (h *rpcHandler) RelayV2TransactionSet(basis types.ChainIndex, txns []types.V2Transaction, origin *gateway.Peer) {
-	// if we've already seen these transactions, don't relay them again
-	allSeen := true
-	for _, txn := range txns {
-		if _, allSeen = h.s.cm.V2PoolTransaction(txn.ID()); !allSeen {
-			break
+	if _, ok := h.s.cm.Block(basis.ID); !ok {
+		h.resync(origin, fmt.Sprintf("peer %v relayed a v2 transaction set with unknown basis (%v)", origin, basis))
+	} else if len(txns) == 0 {
+		h.s.ban(origin, errors.New("peer sent an empty transaction set"))
+	} else if known, err := h.s.cm.AddV2PoolTransactions(basis, txns); !known {
+		if err != nil {
+			h.s.log.Printf("received an invalid transaction set from %v: %v", origin, err)
+		} else {
+			h.s.relayV2TransactionSet(basis, txns, origin) // non-blocking
 		}
 	}
-	if allSeen {
-		return
-	}
-	if _, ok := h.s.cm.Block(basis.ID); !ok {
-		h.resync(origin, fmt.Sprintf("peer %v relayed a v2 transaction set with unknown basis (%v); triggering a resync", origin, basis))
-		return
-	}
-	if err := h.s.cm.AddV2PoolTransactions(basis, txns); err != nil {
-		h.s.log.Printf("received an invalid transaction set from %v: %v", origin, err)
-		return
-	}
-	h.s.relayV2TransactionSet(basis, txns, origin) // non-blocking
 }
 
 func (s *Syncer) ban(p *gateway.Peer, err error) {

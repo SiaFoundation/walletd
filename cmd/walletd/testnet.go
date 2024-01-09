@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -516,4 +517,88 @@ func testnetCheckDB(dir string) {
 		return
 	}
 	fmt.Println("No problems detected.")
+}
+
+func testnetDeleteV1DBState(dir string) {
+	bdb, err := bolt.Open(filepath.Join(dir, "consensus.db"), 0600, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var needUpdate bool
+	bdb.View(func(tx *bolt.Tx) error {
+		needUpdate = tx.Bucket([]byte("Tree")) != nil
+		return nil
+	})
+	if !needUpdate {
+		return
+	}
+
+	fmt.Println("Deleting unneeded v1 state...")
+
+	var blockIDs []types.BlockID
+	bdb.View(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("Blocks")).ForEach(func(k, v []byte) error {
+			blockIDs = append(blockIDs, *(*types.BlockID)(k))
+			return nil
+		})
+	})
+	var total int
+	err = bdb.Update(func(tx *bolt.Tx) error {
+		for _, bucket := range []struct {
+			name     string
+			elemName string
+		}{
+			{"SiacoinElements", "siacoin elements"},
+			{"SiafundElements", "siafund elements"},
+			{"FileContracts", "file contract elements"},
+			{"AncestorTimestamps", "ancestor timestamps"},
+			{"Tree", "Merkle tree hashes"},
+		} {
+			b := tx.Bucket([]byte(bucket.name))
+			if b == nil {
+				continue
+			}
+			b.ForEach(func(k, v []byte) error {
+				fmt.Printf("\rDeleting %v...%x", bucket.elemName, k)
+				total += len(k) + len(v)
+				return b.Delete(k)
+			})
+			tx.DeleteBucket([]byte(bucket.name))
+			fmt.Println("done.")
+		}
+		return nil
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	db := &boltDB{db: bdb}
+	defer db.Close()
+	network, genesisBlock := TestnetAnagami()
+	dbstore, _, err := chain.NewDBStore(db, network, genesisBlock)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	e := types.NewEncoder(&buf)
+	for _, id := range blockIDs {
+		fmt.Printf("\rDeleting v1 block supplements...%v", id)
+		if b, bs, _ := dbstore.Block(id); bs != nil {
+			buf.Reset()
+			for _, txn := range bs.Transactions {
+				txn.EncodeTo(e)
+			}
+			for _, fc := range bs.ExpiringFileContracts {
+				fc.EncodeTo(e)
+			}
+			e.Flush()
+			total += buf.Len()
+			bs.Transactions = nil
+			bs.ExpiringFileContracts = nil
+			dbstore.AddBlock(b, bs)
+		}
+	}
+	fmt.Println("done.")
+	fmt.Printf("All v1 state deleted. Your consensus.db is now %v MB lighter!\n", total/1e6)
 }

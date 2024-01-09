@@ -140,7 +140,7 @@ func main() {
 	sendCmd.BoolVar(&v2, "v2", false, "send a v2 transaction")
 	txnsCmd := flagg.New("txns", txnsUsage)
 	txpoolCmd := flagg.New("txpool", txpoolUsage)
-	dbCheckCmd := flagg.New("checkdb", "check consensus.db for errors")
+	dbDeleteCmd := flagg.New("deletev1", "delete v1 state from consensus.db")
 
 	cmd := flagg.Parse(flagg.Tree{
 		Cmd: rootCmd,
@@ -152,7 +152,7 @@ func main() {
 			{Cmd: sendCmd},
 			{Cmd: txnsCmd},
 			{Cmd: txpoolCmd},
-			{Cmd: dbCheckCmd},
+			{Cmd: dbDeleteCmd},
 		},
 	})
 
@@ -275,11 +275,11 @@ func main() {
 		c := initTestnetClient(apiAddr, network, seed)
 		printTestnetTxpool(c, seed)
 
-	case dbCheckCmd:
+	case dbDeleteCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
 			return
 		}
-		testnetCheckDB(dir)
+		testnetDeleteV1DBState(dir)
 	}
 }
