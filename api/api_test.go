@@ -3,6 +3,7 @@ package api_test
 import (
 	"net"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,8 +15,9 @@ import (
 	"go.sia.tech/jape"
 	"go.sia.tech/walletd/api"
 	"go.sia.tech/walletd/internal/syncerutil"
-	"go.sia.tech/walletd/internal/walletutil"
+	"go.sia.tech/walletd/persist/sqlite"
 	"go.sia.tech/walletd/wallet"
+	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
@@ -48,6 +50,8 @@ func runServer(cm api.ChainManager, s api.Syncer, wm api.WalletManager) (*api.Cl
 }
 
 func TestWallet(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
 	n, genesisBlock := testNetwork()
 	giftPrivateKey := types.GeneratePrivateKey()
 	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
@@ -62,7 +66,17 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 	cm := chain.NewManager(dbstore, tipState)
-	wm := walletutil.NewEphemeralWalletManager(cm)
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	wm, err := wallet.NewManager(cm, ws, log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
 	c, shutdown := runServer(cm, nil, wm)
 	defer shutdown()
@@ -70,7 +84,7 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 	wc := c.Wallet("primary")
-	if err := wc.Subscribe(0); err != nil {
+	if err := c.Resubscribe(0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,7 +167,7 @@ func TestWallet(t *testing.T) {
 	}
 
 	// transaction should appear in history
-	events, err = wc.Events(0, -1)
+	events, err = wc.Events(0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) == 0 {
@@ -169,6 +183,8 @@ func TestWallet(t *testing.T) {
 }
 
 func TestV2(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
 	n, genesisBlock := testNetwork()
 	// gift primary wallet some coins
 	primaryPrivateKey := types.GeneratePrivateKey()
@@ -184,7 +200,15 @@ func TestV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	cm := chain.NewManager(dbstore, tipState)
-	wm := walletutil.NewEphemeralWalletManager(cm)
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	wm, err := wallet.NewManager(cm, ws, log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	c, shutdown := runServer(cm, nil, wm)
 	defer shutdown()
 	if err := c.AddWallet("primary", nil); err != nil {
@@ -194,9 +218,6 @@ func TestV2(t *testing.T) {
 	if err := primary.AddAddress(primaryAddress, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := primary.Subscribe(0); err != nil {
-		t.Fatal(err)
-	}
 	if err := c.AddWallet("secondary", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +225,7 @@ func TestV2(t *testing.T) {
 	if err := secondary.AddAddress(secondaryAddress, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := secondary.Subscribe(0); err != nil {
+	if err := c.Resubscribe(0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -373,6 +394,7 @@ func TestV2(t *testing.T) {
 }
 
 func TestP2P(t *testing.T) {
+	log := zaptest.NewLogger(t)
 	n, genesisBlock := testNetwork()
 	// gift primary wallet some coins
 	primaryPrivateKey := types.GeneratePrivateKey()
@@ -388,7 +410,15 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 	cm1 := chain.NewManager(dbstore1, tipState)
-	wm1 := walletutil.NewEphemeralWalletManager(cm1)
+	ws1, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws1.Close()
+	wm1, err := wallet.NewManager(cm1, ws1, log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	l1, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -409,7 +439,7 @@ func TestP2P(t *testing.T) {
 	if err := primary.AddAddress(primaryAddress, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := primary.Subscribe(0); err != nil {
+	if err := c1.Resubscribe(0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -418,7 +448,15 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 	cm2 := chain.NewManager(dbstore2, tipState)
-	wm2 := walletutil.NewEphemeralWalletManager(cm2)
+	ws2, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws2.Close()
+	wm2, err := wallet.NewManager(cm2, ws2, log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	l2, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -439,7 +477,7 @@ func TestP2P(t *testing.T) {
 	if err := secondary.AddAddress(secondaryAddress, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := secondary.Subscribe(0); err != nil {
+	if err := c2.Resubscribe(0); err != nil {
 		t.Fatal(err)
 	}
 

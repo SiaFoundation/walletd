@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
 	"net"
 	"path/filepath"
 	"strconv"
@@ -16,7 +16,8 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/walletd/internal/syncerutil"
-	"go.sia.tech/walletd/internal/walletutil"
+	"go.sia.tech/walletd/persist/sqlite"
+	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
 	"lukechampine.com/upnp"
 )
@@ -85,12 +86,12 @@ var anagamiBootstrap = []string{
 type node struct {
 	cm *chain.Manager
 	s  *syncer.Syncer
-	wm *walletutil.JSONWalletManager
+	wm *wallet.Manager
 
 	Start func() (stop func())
 }
 
-func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error) {
+func newNode(addr, dir string, chainNetwork string, useUPNP bool, log *zap.Logger) (*node, error) {
 	var network *consensus.Network
 	var genesisBlock types.Block
 	var bootstrapPeers []string
@@ -110,11 +111,11 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 
 	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("failed to open consensus database: %w", err)
 	}
 	dbstore, tipState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create chain store: %w", err)
 	}
 	cm := chain.NewManager(dbstore, tipState)
 
@@ -127,21 +128,21 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if d, err := upnp.Discover(ctx); err != nil {
-			log.Println("WARN: couldn't discover UPnP device:", err)
+			log.Debug("couldn't discover UPnP router", zap.Error(err))
 		} else {
 			_, portStr, _ := net.SplitHostPort(addr)
 			port, _ := strconv.Atoi(portStr)
 			if !d.IsForwarded(uint16(port), "TCP") {
 				if err := d.Forward(uint16(port), "TCP", "walletd"); err != nil {
-					log.Println("WARN: couldn't forward port:", err)
+					log.Debug("couldn't forward port", zap.Error(err))
 				} else {
-					log.Println("p2p: Forwarded port", port)
+					log.Debug("upnp: forwarded p2p port", zap.Int("port", port))
 				}
 			}
 			if ip, err := d.ExternalIP(); err != nil {
-				log.Println("WARN: couldn't determine external IP:", err)
+				log.Debug("couldn't determine external IP", zap.Error(err))
 			} else {
-				log.Println("p2p: External IP is", ip)
+				log.Debug("external IP is", zap.String("ip", ip))
 				syncerAddr = net.JoinHostPort(ip, portStr)
 			}
 		}
@@ -154,7 +155,7 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 
 	ps, err := syncerutil.NewJSONPeerStore(filepath.Join(dir, "peers.json"))
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("failed to open peer store: %w", err)
 	}
 	for _, peer := range bootstrapPeers {
 		ps.AddPeer(peer)
@@ -164,10 +165,16 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
 	}
-	s := syncer.New(l, cm, ps, header, syncer.WithLogger(zap.NewNop()))
-	wm, err := walletutil.NewJSONWalletManager(dir, cm)
+	s := syncer.New(l, cm, ps, header, syncer.WithLogger(log.Named("syncer")))
+
+	walletDB, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open wallet database: %w", err)
+	}
+
+	wm, err := wallet.NewManager(cm, walletDB, log.Named("wallet"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create wallet manager: %w", err)
 	}
 
 	return &node{
