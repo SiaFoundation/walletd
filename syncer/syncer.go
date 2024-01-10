@@ -773,13 +773,23 @@ func (s *Syncer) Run() error {
 	s.l.Close()
 	s.mu.Lock()
 	s.l = nil
-	for addr, p := range s.peers {
+	for _, p := range s.peers {
 		p.Close()
-		delete(s.peers, addr)
 	}
 	s.mu.Unlock()
 	<-errChan
 	<-errChan
+
+	// wait for all peer goroutines to exit
+	// TODO: a cond would be nicer than polling here
+	s.mu.Lock()
+	for len(s.peers) != 0 {
+		s.mu.Unlock()
+		time.Sleep(100 * time.Millisecond)
+		s.mu.Lock()
+	}
+	s.mu.Unlock()
+
 	if errors.Is(err, net.ErrClosed) {
 		return nil // graceful shutdown
 	}
