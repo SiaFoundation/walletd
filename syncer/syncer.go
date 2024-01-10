@@ -22,7 +22,7 @@ type ChainManager interface {
 	History() ([32]types.BlockID, error)
 	BlocksForHistory(history []types.BlockID, max uint64) ([]types.Block, uint64, error)
 	Block(id types.BlockID) (types.Block, bool)
-	SyncCheckpoint(index types.ChainIndex) (types.Block, consensus.State, bool)
+	State(id types.BlockID) (consensus.State, bool)
 	AddBlocks(blocks []types.Block) error
 	Tip() types.ChainIndex
 	TipState() consensus.State
@@ -249,30 +249,33 @@ func (h *rpcHandler) Transactions(index types.ChainIndex, txnHashes []types.Hash
 }
 
 func (h *rpcHandler) Checkpoint(index types.ChainIndex) (types.Block, consensus.State, error) {
-	b, cs, ok := h.s.cm.SyncCheckpoint(index)
-	if !ok {
+	b, ok1 := h.s.cm.Block(index.ID)
+	cs, ok2 := h.s.cm.State(b.ParentID)
+	if !ok1 || !ok2 {
 		return types.Block{}, consensus.State{}, errors.New("checkpoint not found")
 	}
 	return b, cs, nil
 }
 
 func (h *rpcHandler) RelayHeader(bh gateway.BlockHeader, origin *gateway.Peer) {
-	if _, ok := h.s.cm.Block(bh.ID()); ok {
-		return // already seen
-	} else if _, ok := h.s.cm.Block(bh.ParentID); !ok {
+	cs, ok := h.s.cm.State(bh.ParentID)
+	if !ok {
 		h.resync(origin, fmt.Sprintf("peer relayed a header with unknown parent (%v)", bh.ParentID))
 		return
-	} else if cs := h.s.cm.TipState(); bh.ParentID != cs.Index.ID {
+	}
+	bid := bh.ID()
+	if _, ok := h.s.cm.State(bid); ok {
+		return // already seen
+	} else if bid.CmpWork(cs.ChildTarget) < 0 {
+		h.s.ban(origin, errors.New("peer sent header with insufficient work"))
+		return
+	} else if bh.ParentID != h.s.cm.Tip().ID {
 		// block extends a sidechain, which peer (if honest) believes to be the
 		// heaviest chain
 		h.resync(origin, "peer relayed a header that does not attach to our tip")
 		return
-	} else if bh.ID().CmpWork(cs.ChildTarget) < 0 {
-		h.s.ban(origin, errors.New("peer sent header with insufficient work"))
-		return
 	}
-
-	// header is valid and attaches to our tip; request + validate full block
+	// request + validate full block
 	if b, err := origin.SendBlock(bh.ID(), h.s.config.SendBlockTimeout); err != nil {
 		// log-worthy, but not ban-worthy
 		h.s.log.Printf("couldn't retrieve new block %v after header relay from %v: %v", bh.ID(), origin, err)
@@ -302,22 +305,21 @@ func (h *rpcHandler) RelayTransactionSet(txns []types.Transaction, origin *gatew
 }
 
 func (h *rpcHandler) RelayV2Header(bh gateway.V2BlockHeader, origin *gateway.Peer) {
-	if _, ok := h.s.cm.Block(bh.Parent.ID); !ok {
+	cs, ok := h.s.cm.State(bh.Parent.ID)
+	if !ok {
 		h.resync(origin, fmt.Sprintf("peer relayed a v2 header with unknown parent (%v)", bh.Parent.ID))
 		return
 	}
-	cs := h.s.cm.TipState()
 	bid := bh.ID(cs)
-	if _, ok := h.s.cm.Block(bid); ok {
-		// already seen
+	if _, ok := h.s.cm.State(bid); ok {
+		return // already seen
+	} else if bid.CmpWork(cs.ChildTarget) < 0 {
+		h.s.ban(origin, errors.New("peer sent v2 header with insufficient work"))
 		return
-	} else if bh.Parent.ID != cs.Index.ID {
+	} else if bh.Parent != h.s.cm.Tip() {
 		// block extends a sidechain, which peer (if honest) believes to be the
 		// heaviest chain
 		h.resync(origin, "peer relayed a v2 header that does not attach to our tip")
-		return
-	} else if bid.CmpWork(cs.ChildTarget) < 0 {
-		h.s.ban(origin, errors.New("peer sent v2 header with insufficient work"))
 		return
 	}
 
@@ -331,22 +333,21 @@ func (h *rpcHandler) RelayV2Header(bh gateway.V2BlockHeader, origin *gateway.Pee
 }
 
 func (h *rpcHandler) RelayV2BlockOutline(bo gateway.V2BlockOutline, origin *gateway.Peer) {
-	if _, ok := h.s.cm.Block(bo.ParentID); !ok {
+	cs, ok := h.s.cm.State(bo.ParentID)
+	if !ok {
 		h.resync(origin, fmt.Sprintf("peer relayed a v2 outline with unknown parent (%v)", bo.ParentID))
 		return
 	}
-	cs := h.s.cm.TipState()
 	bid := bo.ID(cs)
-	if _, ok := h.s.cm.Block(bid); ok {
-		// already seen
+	if _, ok := h.s.cm.State(bid); ok {
+		return // already seen
+	} else if bid.CmpWork(cs.ChildTarget) < 0 {
+		h.s.ban(origin, errors.New("peer sent v2 outline with insufficient work"))
 		return
-	} else if bo.ParentID != cs.Index.ID {
+	} else if bo.ParentID != h.s.cm.Tip().ID {
 		// block extends a sidechain, which peer (if honest) believes to be the
 		// heaviest chain
 		h.resync(origin, "peer relayed a v2 outline that does not attach to our tip")
-		return
-	} else if bid.CmpWork(cs.ChildTarget) < 0 {
-		h.s.ban(origin, errors.New("peer sent v2 outline with insufficient work"))
 		return
 	}
 
@@ -356,7 +357,7 @@ func (h *rpcHandler) RelayV2BlockOutline(bo gateway.V2BlockOutline, origin *gate
 	txns, v2txns := h.s.cm.TransactionsForPartialBlock(bo.Missing())
 	b, missing := bo.Complete(cs, txns, v2txns)
 	if len(missing) > 0 {
-		index := types.ChainIndex{ID: bid, Height: cs.Index.Height + 1}
+		index := types.ChainIndex{Height: bo.Height, ID: bid}
 		txns, v2txns, err := origin.SendTransactions(index, missing, h.s.config.SendTransactionsTimeout)
 		if err != nil {
 			// log-worthy, but not ban-worthy
