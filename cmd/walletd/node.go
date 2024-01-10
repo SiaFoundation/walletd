@@ -84,11 +84,21 @@ var anagamiBootstrap = []string{
 }
 
 type node struct {
-	cm *chain.Manager
-	s  *syncer.Syncer
-	wm *wallet.Manager
+	chainStore *boltDB
+	cm         *chain.Manager
+
+	s *syncer.Syncer
+
+	walletStore *sqlite.Store
+	wm          *wallet.Manager
 
 	Start func() (stop func())
+}
+
+// Close shuts down the node and closes its database.
+func (n *node) Close() error {
+	n.chainStore.Close()
+	return n.walletStore.Close()
 }
 
 func newNode(addr, dir string, chainNetwork string, useUPNP bool, log *zap.Logger) (*node, error) {
@@ -178,9 +188,11 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool, log *zap.Logge
 	}
 
 	return &node{
-		cm: cm,
-		s:  s,
-		wm: wm,
+		chainStore:  db,
+		cm:          cm,
+		s:           s,
+		walletStore: walletDB,
+		wm:          wm,
 		Start: func() func() {
 			ch := make(chan struct{})
 			go func() {
