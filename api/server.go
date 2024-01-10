@@ -79,9 +79,11 @@ func (s *server) consensusNetworkPrometheusHandler(jc jape.Context) {
 	fmt.Fprintf(&buf, text, s.cm.TipState().Network.Name)
 	jc.ResponseWriter.Write(buf.Bytes())
 }
+
 func (s *server) consensusNetworkHandler(jc jape.Context) {
 	jc.Encode(*s.cm.TipState().Network)
 }
+
 func (s *server) consensusTipPrometheusHandler(jc jape.Context) {
 	var buf bytes.Buffer
 	text := `walletd_consensus_tip_height %d`
@@ -160,6 +162,13 @@ func (s *server) syncerBroadcastBlockHandler(jc jape.Context) {
 	}
 }
 
+func (s *server) txpoolTransactionsPrometheusHandler(jc jape.Context) {
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, `walletd_txpool_numtxns_v1 %d
+walletd_txpool_numtxns_v2 %d`, len(s.cm.PoolTransactions()), len(s.cm.V2PoolTransactions()))
+	jc.ResponseWriter.Write(buf.Bytes())
+}
+
 func (s *server) txpoolTransactionsHandler(jc jape.Context) {
 	jc.Encode(TxpoolTransactionsResponse{
 		Transactions:   s.cm.PoolTransactions(),
@@ -173,6 +182,7 @@ func (s *server) txpoolFeePrometheusHandler(jc jape.Context) {
 	fmt.Fprintf(&buf, text, s.cm.RecommendedFee().ExactString())
 	jc.ResponseWriter.Write(buf.Bytes())
 }
+
 func (s *server) txpoolFeeHandler(jc jape.Context) {
 	jc.Encode(s.cm.RecommendedFee())
 }
@@ -288,6 +298,7 @@ walletd_wallet_balance_siafunds{name="%s"} %d`
 	fmt.Fprintf(&buf, text, name, sc.ExactString(), name, sf)
 	jc.ResponseWriter.Write(buf.Bytes())
 }
+
 func (s *server) walletsBalanceHandler(jc jape.Context) {
 	var name string
 	if jc.DecodeParam("name", &name) != nil {
@@ -362,6 +373,7 @@ func (s *server) walletsEventsPrometheusHandler(jc jape.Context) {
 	resultbuffer.WriteString(resulttext)
 	jc.ResponseWriter.Write(resultbuffer.Bytes())
 }
+
 func (s *server) walletsEventsHandler(jc jape.Context) {
 	var name string
 	offset, limit := 0, -1
@@ -653,9 +665,9 @@ func NewPrometheusServer(cm ChainManager, s Syncer, wm WalletManager) http.Handl
 		"GET    /consensus/network": srv.consensusNetworkPrometheusHandler,
 		"GET    /consensus/tip":     srv.consensusTipPrometheusHandler,
 		// "GET    /consensus/tipstate": srv.consensusTipStateHandler, 				//intentionally left out
-		"GET    /syncer/peers": srv.syncerPeersPrometheusHandler,
-		// "GET    /txpool/transactions": srv.txpoolTransactionsHandler,
-		"GET    /txpool/fee": srv.txpoolFeePrometheusHandler,
+		"GET    /syncer/peers":        srv.syncerPeersPrometheusHandler,
+		"GET    /txpool/transactions": srv.txpoolTransactionsPrometheusHandler,
+		"GET    /txpool/fee":          srv.txpoolFeePrometheusHandler,
 		// "GET    /wallets":    srv.walletsPrometheusHandler, 						//intentionally left out.
 		// "GET    /wallets/:name/addresses":       srv.walletsAddressesHandlerGET, //intentionally left out.
 		"GET    /wallets/:name/balance": srv.walletsBalancePrometheusHandler,
