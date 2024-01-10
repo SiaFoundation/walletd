@@ -248,7 +248,7 @@ func applySiafundOutputs(tx txn, added map[types.Hash256]types.SiafundElement) e
 }
 
 func updateLastIndexedTip(tx txn, tip types.ChainIndex) error {
-	_, err := tx.Exec(`UPDATE global_settings SET last_indexed_tip=$1`, encode(tip.ID))
+	_, err := tx.Exec(`UPDATE global_settings SET last_indexed_tip=$1`, encode(tip))
 	return err
 }
 
