@@ -159,6 +159,11 @@ func main() {
 			cmd.Usage()
 			return
 		}
+
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			log.Fatal(err)
+		}
+
 		apiPassword := getAPIPassword()
 		l, err := net.Listen("tcp", apiAddr)
 		if err != nil {
