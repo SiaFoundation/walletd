@@ -9,8 +9,8 @@ import (
 	"go.sia.tech/core/types"
 )
 
+// event type constants
 const (
-	// transactions
 	EventTypeTransaction        = "transaction"
 	EventTypeMinerPayout        = "miner payout"
 	EventTypeMissedFileContract = "missed file contract"
@@ -153,8 +153,13 @@ type Event struct {
 	Val       interface{ EventType() string }
 }
 
-func (*EventTransaction) EventType() string        { return EventTypeTransaction }
-func (*EventMinerPayout) EventType() string        { return EventTypeMinerPayout }
+// EventType implements Event.
+func (*EventTransaction) EventType() string { return EventTypeTransaction }
+
+// EventType implements Event.
+func (*EventMinerPayout) EventType() string { return EventTypeMinerPayout }
+
+// EventType implements Event.
 func (*EventMissedFileContract) EventType() string { return EventTypeMissedFileContract }
 
 // MarshalJSON implements json.Marshaler.
@@ -235,6 +240,7 @@ type V2FileContract struct {
 	Outputs    []types.SiacoinElement             `json:"outputs,omitempty"`
 }
 
+// An EventTransaction represents a transaction that affects the wallet.
 type EventTransaction struct {
 	ID                types.TransactionID    `json:"id"`
 	SiacoinInputs     []types.SiacoinElement `json:"siacoinInputs"`
@@ -247,15 +253,19 @@ type EventTransaction struct {
 	Fee               types.Currency         `json:"fee"`
 }
 
+// An EventMinerPayout represents a miner payout from a block.
 type EventMinerPayout struct {
 	SiacoinOutput types.SiacoinElement `json:"siacoinOutput"`
 }
 
+// An EventMissedFileContract represents a file contract that has expired
+// without a storage proof
 type EventMissedFileContract struct {
 	FileContract  types.FileContractElement `json:"fileContract"`
 	MissedOutputs []types.SiacoinElement    `json:"missedOutputs"`
 }
 
+// A ChainUpdate is a set of changes to the consensus state.
 type ChainUpdate interface {
 	ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool))
 	ForEachSiafundElement(func(sfe types.SiafundElement, spent bool))

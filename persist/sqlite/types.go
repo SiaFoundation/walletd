@@ -115,6 +115,7 @@ type decodable[T types.DecoderFrom] struct {
 	n int64
 }
 
+// Scan implements the sql.Scanner interface.
 func (d *decodable[T]) Scan(src any) error {
 	switch src := src.(type) {
 	case []byte:

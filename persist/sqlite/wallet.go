@@ -19,6 +19,7 @@ RETURNING id`
 	return
 }
 
+// WalletEvents returns the events relevant to a wallet, sorted by height descending.
 func (s *Store) WalletEvents(walletID string, offset, limit int) (events []wallet.Event, err error) {
 	err = s.transaction(func(tx txn) error {
 		const query = `SELECT ev.id, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
@@ -76,6 +77,7 @@ LIMIT $2 OFFSET $3`
 	return
 }
 
+// AddWallet adds a wallet to the database.
 func (s *Store) AddWallet(name string, info json.RawMessage) error {
 	return s.transaction(func(tx txn) error {
 		const query = `INSERT INTO wallets (id, extra_data) VALUES ($1, $2)`
@@ -88,6 +90,8 @@ func (s *Store) AddWallet(name string, info json.RawMessage) error {
 	})
 }
 
+// DeleteWallet deletes a wallet from the database. This does not stop tracking
+// addresses that were previously associated with the wallet.
 func (s *Store) DeleteWallet(name string) error {
 	return s.transaction(func(tx txn) error {
 		_, err := tx.Exec(`DELETE FROM wallets WHERE id=$1`, name)
@@ -95,6 +99,7 @@ func (s *Store) DeleteWallet(name string) error {
 	})
 }
 
+// Wallets returns a map of wallet names to wallet extra data.
 func (s *Store) Wallets() (map[string]json.RawMessage, error) {
 	wallets := make(map[string]json.RawMessage)
 	err := s.transaction(func(tx txn) error {
@@ -119,6 +124,7 @@ func (s *Store) Wallets() (map[string]json.RawMessage, error) {
 	return wallets, err
 }
 
+// AddAddress adds an address to a wallet.
 func (s *Store) AddAddress(walletID string, address types.Address, info json.RawMessage) error {
 	return s.transaction(func(tx txn) error {
 		addressID, err := insertAddress(tx, address)
@@ -130,6 +136,8 @@ func (s *Store) AddAddress(walletID string, address types.Address, info json.Raw
 	})
 }
 
+// RemoveAddress removes an address from a wallet. This does not stop tracking
+// the address.
 func (s *Store) RemoveAddress(walletID string, address types.Address) error {
 	return s.transaction(func(tx txn) error {
 		const query = `DELETE FROM wallet_addresses WHERE wallet_id=$1 AND address_id=(SELECT id FROM sia_addresses WHERE sia_address=$2)`
@@ -138,6 +146,7 @@ func (s *Store) RemoveAddress(walletID string, address types.Address) error {
 	})
 }
 
+// Addresses returns a map of addresses to their extra data for a wallet.
 func (s *Store) Addresses(walletID string) (map[types.Address]json.RawMessage, error) {
 	addresses := make(map[types.Address]json.RawMessage)
 	err := s.transaction(func(tx txn) error {
@@ -165,6 +174,7 @@ WHERE wa.wallet_id=$1`
 	return addresses, err
 }
 
+// UnspentSiacoinOutputs returns the unspent siacoin outputs for a wallet.
 func (s *Store) UnspentSiacoinOutputs(walletID string) (siacoins []types.SiacoinElement, err error) {
 	err = s.transaction(func(tx txn) error {
 		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siacoin_value, sa.sia_address, se.maturity_height 
@@ -193,6 +203,7 @@ func (s *Store) UnspentSiacoinOutputs(walletID string) (siacoins []types.Siacoin
 	return
 }
 
+// UnspentSiafundOutputs returns the unspent siafund outputs for a wallet.
 func (s *Store) UnspentSiafundOutputs(walletID string) (siafunds []types.SiafundElement, err error) {
 	err = s.transaction(func(tx txn) error {
 		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
@@ -257,6 +268,7 @@ func (s *Store) AddressBalance(address types.Address) (sc types.Currency, sf uin
 	return
 }
 
+// Annotate annotates a list of transactions using the wallet's addresses.
 func (s *Store) Annotate(walletID string, txns []types.Transaction) (annotated []wallet.PoolTransaction, err error) {
 	err = s.transaction(func(tx txn) error {
 		stmt, err := tx.Prepare(`SELECT sia_address FROM wallet_addresses WHERE wallet_id=$1 AND sia_address=$2 LIMIT 1`)

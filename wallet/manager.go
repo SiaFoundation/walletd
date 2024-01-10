@@ -13,6 +13,7 @@ import (
 )
 
 type (
+	// A ChainManager manages the consensus state
 	ChainManager interface {
 		AddSubscriber(chain.Subscriber, types.ChainIndex) error
 		RemoveSubscriber(chain.Subscriber)
@@ -20,6 +21,7 @@ type (
 		BestIndex(height uint64) (types.ChainIndex, bool)
 	}
 
+	// A Store is a persistent store of wallet data.
 	Store interface {
 		chain.Subscriber
 

@@ -314,6 +314,7 @@ func updateElementProofs(tx txn, table string, updater proofUpdater) error {
 	return nil
 }
 
+// applyChainUpdates applies the given chain updates to the database.
 func applyChainUpdates(tx txn, updates []*chain.ApplyUpdate) error {
 	stmt, err := tx.Prepare(`SELECT id FROM sia_addresses WHERE sia_address=$1 LIMIT 1`)
 	if err != nil {
@@ -399,6 +400,7 @@ func applyChainUpdates(tx txn, updates []*chain.ApplyUpdate) error {
 	return nil
 }
 
+// ProcessChainApplyUpdate implements chain.Subscriber
 func (s *Store) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, mayCommit bool) error {
 	s.updates = append(s.updates, cau)
 
@@ -414,6 +416,7 @@ func (s *Store) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, mayCommit bool) 
 	return nil
 }
 
+// ProcessChainRevertUpdate implements chain.Subscriber
 func (s *Store) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
 	// update hasn't been committed yet
 	if len(s.updates) > 0 && s.updates[len(s.updates)-1].Block.ID() == cru.Block.ID() {
