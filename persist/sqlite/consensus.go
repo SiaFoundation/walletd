@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
@@ -60,7 +59,6 @@ func applyEvents(tx txn, events []wallet.Event) error {
 			} else if _, err := addRelevantAddrStmt.Exec(eventID, addressID, event.Index.Height); err != nil {
 				return fmt.Errorf("failed to add relevant address: %w", err)
 			}
-			log.Println("added relevant address", eventID, addr)
 		}
 	}
 	return nil
