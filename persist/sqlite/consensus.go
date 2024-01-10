@@ -144,7 +144,7 @@ func applySiacoinOutputs(tx txn, added map[types.Hash256]types.SiacoinElement) e
 		}
 
 		// insert the created utxo
-		_, err = addStmt.Exec(encode(se.ID), addressID, sqlCurrency(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.MaturityHeight, se.LeafIndex)
+		_, err = addStmt.Exec(encode(se.ID), addressID, sqlCurrency(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight)
 		if err != nil {
 			return fmt.Errorf("failed to insert output %q: %w", se.ID, err)
 		}
@@ -261,7 +261,7 @@ func updateElementProofs(tx txn, table string, updater proofUpdater) error {
 	}
 	defer stmt.Close()
 
-	updateStmt, err := tx.Prepare(`UPDATE ` + table + ` SET merkle_proof=$1, leaf_index=$2 WHERE id=$3`)
+	updateStmt, err := tx.Prepare(`UPDATE ` + table + ` SET merkle_proof=$1, leaf_index=$2 WHERE id=$3 RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -298,7 +298,8 @@ func updateElementProofs(tx txn, table string, updater proofUpdater) error {
 		}
 
 		for _, se := range updated {
-			_, err := updateStmt.Exec(encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ID))
+			var dummy types.Hash256
+			err := updateStmt.QueryRow(encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ID)).Scan(decode(&dummy, 32))
 			if err != nil {
 				return fmt.Errorf("failed to update siacoin element %q: %w", se.ID, err)
 			}
@@ -308,7 +309,6 @@ func updateElementProofs(tx txn, table string, updater proofUpdater) error {
 			break
 		}
 	}
-
 	return nil
 }
 
