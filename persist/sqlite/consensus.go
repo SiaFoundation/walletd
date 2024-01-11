@@ -100,7 +100,7 @@ func deleteSiacoinOutputs(tx txn, spent []types.SiacoinElement) error {
 		}
 
 		var dummy types.Hash256
-		err = deleteStmt.QueryRow(encode(se.ID)).Scan(decode(&dummy, 32))
+		err = deleteStmt.QueryRow(encode(se.ID)).Scan(decode(&dummy))
 		if err != nil {
 			return fmt.Errorf("failed to delete output %q: %w", se.ID, err)
 		}
@@ -191,7 +191,7 @@ func deleteSiafundOutputs(tx txn, spent []types.SiafundElement) error {
 		}
 
 		var dummy types.Hash256
-		err = spendStmt.QueryRow(encode(se.ID)).Scan(decode(&dummy, 32))
+		err = spendStmt.QueryRow(encode(se.ID)).Scan(decode(&dummy))
 		if err != nil {
 			return fmt.Errorf("failed to delete output %q: %w", se.ID, err)
 		}
@@ -284,7 +284,7 @@ func updateElementProofs(tx txn, table string, updater proofUpdater) error {
 				more = true
 
 				var se types.StateElement
-				err := rows.Scan(decode(&se.ID, 32), decodeSlice(&se.MerkleProof, 32*1000), &se.LeafIndex)
+				err := rows.Scan(decode(&se.ID), decodeSlice(&se.MerkleProof), &se.LeafIndex)
 				if err != nil {
 					return false, fmt.Errorf("failed to scan state element: %w", err)
 				}
@@ -299,7 +299,7 @@ func updateElementProofs(tx txn, table string, updater proofUpdater) error {
 
 		for _, se := range updated {
 			var dummy types.Hash256
-			err := updateStmt.QueryRow(encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ID)).Scan(decode(&dummy, 32))
+			err := updateStmt.QueryRow(encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ID)).Scan(decode(&dummy))
 			if err != nil {
 				return fmt.Errorf("failed to update siacoin element %q: %w", se.ID, err)
 			}
@@ -506,6 +506,6 @@ func (s *Store) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
 
 // LastCommittedIndex returns the last chain index that was committed.
 func (s *Store) LastCommittedIndex() (index types.ChainIndex, err error) {
-	err = s.db.QueryRow(`SELECT last_indexed_tip FROM global_settings`).Scan(decode(&index, 40))
+	err = s.db.QueryRow(`SELECT last_indexed_tip FROM global_settings`).Scan(decode(&index))
 	return
 }

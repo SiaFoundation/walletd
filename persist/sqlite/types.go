@@ -6,7 +6,6 @@ import (
 	"database/sql/driver"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -78,16 +77,12 @@ func encodeSlice[T types.EncoderTo](v []T) []byte {
 
 type decodableSlice[T any] struct {
 	v *[]T
-	n int64
 }
 
 func (d *decodableSlice[T]) Scan(src any) error {
 	switch src := src.(type) {
 	case []byte:
-		dec := types.NewDecoder(io.LimitedReader{
-			R: bytes.NewReader(src),
-			N: d.n,
-		})
+		dec := types.NewBufDecoder(src)
 		s := make([]T, dec.ReadPrefix())
 		for i := range s {
 			dv, ok := any(&s[i]).(types.DecoderFrom)
@@ -106,24 +101,19 @@ func (d *decodableSlice[T]) Scan(src any) error {
 	}
 }
 
-func decodeSlice[T any](v *[]T, maxLen int64) sql.Scanner {
-	return &decodableSlice[T]{v: v, n: maxLen}
+func decodeSlice[T any](v *[]T) sql.Scanner {
+	return &decodableSlice[T]{v: v}
 }
 
 type decodable[T types.DecoderFrom] struct {
 	v T
-	n int64
 }
 
 // Scan implements the sql.Scanner interface.
 func (d *decodable[T]) Scan(src any) error {
 	switch src := src.(type) {
 	case []byte:
-		dec := types.NewDecoder(io.LimitedReader{
-			R: bytes.NewReader(src),
-			N: d.n,
-		})
-
+		dec := types.NewBufDecoder(src)
 		d.v.DecodeFrom(dec)
 		return dec.Err()
 	default:
@@ -131,6 +121,6 @@ func (d *decodable[T]) Scan(src any) error {
 	}
 }
 
-func decode[T types.DecoderFrom](v T, maxLen int64) sql.Scanner {
-	return &decodable[T]{v, maxLen}
+func decode[T types.DecoderFrom](v T) sql.Scanner {
+	return &decodable[T]{v}
 }

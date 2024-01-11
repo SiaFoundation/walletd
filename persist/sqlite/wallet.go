@@ -41,7 +41,7 @@ LIMIT $2 OFFSET $3`
 			var eventType string
 			var eventBuf []byte
 
-			err := rows.Scan(&eventID, (*sqlTime)(&event.Timestamp), &event.Index.Height, decode(&event.Index.ID, 32), &eventType, &eventBuf)
+			err := rows.Scan(&eventID, (*sqlTime)(&event.Timestamp), &event.Index.Height, decode(&event.Index.ID), &eventType, &eventBuf)
 			if err != nil {
 				return fmt.Errorf("failed to scan event: %w", err)
 			}
@@ -164,7 +164,7 @@ WHERE wa.wallet_id=$1`
 		for rows.Next() {
 			var address types.Address
 			var extraData json.RawMessage
-			if err := rows.Scan(decode(&address, 32), &extraData); err != nil {
+			if err := rows.Scan(decode(&address), &extraData); err != nil {
 				return fmt.Errorf("failed to scan address: %w", err)
 			}
 			addresses[address] = extraData
@@ -190,7 +190,7 @@ func (s *Store) UnspentSiacoinOutputs(walletID string) (siacoins []types.Siacoin
 
 		for rows.Next() {
 			var siacoin types.SiacoinElement
-			err := rows.Scan(decode(&siacoin.ID, 32), &siacoin.LeafIndex, decodeSlice[types.Hash256](&siacoin.MerkleProof, 32*1000), (*sqlCurrency)(&siacoin.SiacoinOutput.Value), decode(&siacoin.SiacoinOutput.Address, 32), &siacoin.MaturityHeight)
+			err := rows.Scan(decode(&siacoin.ID), &siacoin.LeafIndex, decodeSlice[types.Hash256](&siacoin.MerkleProof), (*sqlCurrency)(&siacoin.SiacoinOutput.Value), decode(&siacoin.SiacoinOutput.Address), &siacoin.MaturityHeight)
 			if err != nil {
 				return fmt.Errorf("failed to scan siacoin element: %w", err)
 			}
@@ -218,7 +218,7 @@ func (s *Store) UnspentSiafundOutputs(walletID string) (siafunds []types.Siafund
 
 		for rows.Next() {
 			var siafund types.SiafundElement
-			err := rows.Scan(decode(&siafund.ID, 32), &siafund.LeafIndex, decodeSlice(&siafund.MerkleProof, 32*1000), &siafund.SiafundOutput.Value, (*sqlCurrency)(&siafund.ClaimStart), decode(&siafund.SiafundOutput.Address, 32))
+			err := rows.Scan(decode(&siafund.ID), &siafund.LeafIndex, decodeSlice(&siafund.MerkleProof), &siafund.SiafundOutput.Value, (*sqlCurrency)(&siafund.ClaimStart), decode(&siafund.SiafundOutput.Address))
 			if err != nil {
 				return fmt.Errorf("failed to scan siacoin element: %w", err)
 			}
