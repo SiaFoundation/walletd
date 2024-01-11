@@ -106,7 +106,7 @@ func (c *Client) Wallet(name string) *WalletClient {
 }
 
 // Resubscribe subscribes the wallet to consensus updates, starting at the
-// specified height. This can only be done once.
+// specified height.
 func (c *Client) Resubscribe(height uint64) (err error) {
 	err = c.c.POST("/resubscribe", height, nil)
 	return
