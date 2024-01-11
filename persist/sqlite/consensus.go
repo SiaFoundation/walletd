@@ -425,7 +425,7 @@ func (s *Store) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
 
 	// update has been committed, revert it
 	return s.transaction(func(tx txn) error {
-		stmt, err := tx.Prepare(`SELECT sia_address FROM sia_addresses WHERE sia_address=$1 LIMIT 1`)
+		stmt, err := tx.Prepare(`SELECT id FROM sia_addresses WHERE sia_address=$1 LIMIT 1`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare statement: %w", err)
 		}

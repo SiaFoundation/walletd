@@ -268,7 +268,10 @@ func (s *Store) AddressBalance(address types.Address) (sc types.Currency, sf uin
 // Annotate annotates a list of transactions using the wallet's addresses.
 func (s *Store) Annotate(walletID string, txns []types.Transaction) (annotated []wallet.PoolTransaction, err error) {
 	err = s.transaction(func(tx txn) error {
-		stmt, err := tx.Prepare(`SELECT sia_address FROM wallet_addresses WHERE wallet_id=$1 AND sia_address=$2 LIMIT 1`)
+		const query = `SELECT sa.id FROM sia_addresses sa
+INNER JOIN wallet_addresses wa ON (sa.id = wa.address_id)
+WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`
+		stmt, err := tx.Prepare(query)
 		if err != nil {
 			return fmt.Errorf("failed to prepare statement: %w", err)
 		}
