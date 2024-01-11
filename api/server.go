@@ -92,7 +92,8 @@ func (s *server) syncerPeersHandler(jc jape.Context) {
 	for _, p := range s.s.Peers() {
 		info, ok := s.s.PeerInfo(p.Addr())
 		if !ok {
-			continue
+			jc.Error(errors.New("peer not found"), http.StatusNotFound)
+			return
 		}
 		peers = append(peers, GatewayPeer{
 			Addr:    p.Addr(),

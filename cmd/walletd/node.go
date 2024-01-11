@@ -15,7 +15,6 @@ import (
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
-	"go.sia.tech/walletd/internal/syncerutil"
 	"go.sia.tech/walletd/persist/sqlite"
 	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
@@ -84,13 +83,12 @@ var anagamiBootstrap = []string{
 }
 
 type node struct {
-	chainStore *boltDB
+	chainStore *coreutils.BoltChainDB
 	cm         *chain.Manager
 
-	s *syncer.Syncer
-
-	walletStore *sqlite.Store
-	wm          *wallet.Manager
+	store *sqlite.Store
+	s     *syncer.Syncer
+	wm    *wallet.Manager
 
 	Start func() (stop func())
 }
@@ -98,7 +96,7 @@ type node struct {
 // Close shuts down the node and closes its database.
 func (n *node) Close() error {
 	n.chainStore.Close()
-	return n.walletStore.Close()
+	return n.store.Close()
 }
 
 func newNode(addr, dir string, chainNetwork string, useUPNP bool, log *zap.Logger) (*node, error) {
@@ -163,36 +161,31 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool, log *zap.Logge
 		syncerAddr = net.JoinHostPort("127.0.0.1", port)
 	}
 
-	ps, err := syncerutil.NewJSONPeerStore(filepath.Join(dir, "peers.json"))
+	store, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
 	if err != nil {
-		return nil, fmt.Errorf("failed to open peer store: %w", err)
+		return nil, fmt.Errorf("failed to open wallet database: %w", err)
 	}
+
 	for _, peer := range bootstrapPeers {
-		ps.AddPeer(peer)
+		store.AddPeer(peer)
 	}
 	header := gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
 	}
-	s := syncer.New(l, cm, ps, header, syncer.WithLogger(log.Named("syncer")))
-
-	walletDB, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to open wallet database: %w", err)
-	}
-
-	wm, err := wallet.NewManager(cm, walletDB, log.Named("wallet"))
+	s := syncer.New(l, cm, store, header, syncer.WithLogger(log.Named("syncer")))
+	wm, err := wallet.NewManager(cm, store, log.Named("wallet"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wallet manager: %w", err)
 	}
 
 	return &node{
-		chainStore:  db,
-		cm:          cm,
-		s:           s,
-		walletStore: walletDB,
-		wm:          wm,
+		chainStore: bdb,
+		cm:         cm,
+		store:      store,
+		s:          s,
+		wm:         wm,
 		Start: func() func() {
 			ch := make(chan struct{})
 			go func() {

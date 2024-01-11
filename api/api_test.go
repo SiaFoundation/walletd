@@ -14,7 +14,6 @@ import (
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/jape"
 	"go.sia.tech/walletd/api"
-	"go.sia.tech/walletd/internal/syncerutil"
 	"go.sia.tech/walletd/persist/sqlite"
 	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap/zaptest"
@@ -394,7 +393,7 @@ func TestV2(t *testing.T) {
 }
 
 func TestP2P(t *testing.T) {
-	log := zaptest.NewLogger(t)
+	logger := zaptest.NewLogger(t)
 	n, genesisBlock := testNetwork()
 	// gift primary wallet some coins
 	primaryPrivateKey := types.GeneratePrivateKey()
@@ -409,13 +408,14 @@ func TestP2P(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	log1 := logger.Named("one")
 	cm1 := chain.NewManager(dbstore1, tipState)
-	ws1, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	store1, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log1.Named("sqlite3"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ws1.Close()
-	wm1, err := wallet.NewManager(cm1, ws1, log.Named("wallet"))
+	defer store1.Close()
+	wm1, err := wallet.NewManager(cm1, store1, log1.Named("wallet"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer l1.Close()
-	s1 := syncer.New(l1, cm1, syncerutil.NewEphemeralPeerStore(), gateway.Header{
+	s1 := syncer.New(l1, cm1, store1, gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: l1.Addr().String(),
@@ -447,13 +447,14 @@ func TestP2P(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	log2 := logger.Named("two")
 	cm2 := chain.NewManager(dbstore2, tipState)
-	ws2, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	store2, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log2.Named("sqlite3"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ws2.Close()
-	wm2, err := wallet.NewManager(cm2, ws2, log.Named("wallet"))
+	defer store2.Close()
+	wm2, err := wallet.NewManager(cm2, store2, log2.Named("wallet"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,11 +463,11 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer l2.Close()
-	s2 := syncer.New(l2, cm2, syncerutil.NewEphemeralPeerStore(), gateway.Header{
+	s2 := syncer.New(l2, cm2, store2, gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: l2.Addr().String(),
-	})
+	}, syncer.WithLogger(zaptest.NewLogger(t)))
 	go s2.Run()
 	c2, shutdown2 := runServer(cm2, s2, wm2)
 	defer shutdown2()

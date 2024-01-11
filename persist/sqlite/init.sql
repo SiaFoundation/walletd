@@ -63,6 +63,21 @@ CREATE INDEX event_addresses_event_id_idx ON event_addresses (event_id);
 CREATE INDEX event_addresses_address_id_idx ON event_addresses (address_id);
 CREATE INDEX event_addresses_event_id_address_id_block_height ON event_addresses(event_id, address_id, block_height DESC);
 
+CREATE TABLE syncer_peers (
+	peer_address TEXT PRIMARY KEY NOT NULL,
+	first_seen INTEGER NOT NULL,
+	last_connect INTEGER NOT NULL,
+	synced_blocks INTEGER NOT NULL,
+	sync_duration INTEGER NOT NULL
+);
+
+CREATE TABLE syncer_bans (
+	net_cidr TEXT PRIMARY KEY NOT NULL,
+	expiration INTEGER NOT NULL,
+	reason TEXT NOT NULL
+);
+CREATE INDEX syncer_bans_expiration_index ON syncer_bans (expiration);
+
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations
