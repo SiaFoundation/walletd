@@ -21,8 +21,8 @@ func getPeerInfo(tx txn, peer string) (syncer.PeerInfo, error) {
 }
 
 func (s *Store) updatePeerInfo(tx txn, peer string, info syncer.PeerInfo) error {
-	const query = `UPDATE syncer_peers SET first_seen=$2, last_connect=$3, synced_blocks=$4, sync_duration=$5 WHERE peer_address=$1`
-	_, err := tx.Exec(query, peer, (*sqlTime)(&info.FirstSeen), (*sqlTime)(&info.LastConnect), info.SyncedBlocks, info.SyncDuration)
+	const query = `UPDATE syncer_peers SET first_seen=$1, last_connect=$2, synced_blocks=$3, sync_duration=$4 WHERE peer_address=$5 RETURNING peer_address`
+	err := tx.QueryRow(query, (*sqlTime)(&info.FirstSeen), (*sqlTime)(&info.LastConnect), info.SyncedBlocks, info.SyncDuration, peer).Scan(&peer)
 	return err
 }
 
@@ -169,16 +169,23 @@ func (s *Store) Banned(peer string) (banned bool) {
 
 	checkSubnets := make([]string, 0, maxMaskLen)
 	for i := maxMaskLen; i > 0; i-- {
-		check := subnet.IP.String() + "/" + strconv.Itoa(i)
-		checkSubnets = append(checkSubnets, check)
+		_, subnet, err := net.ParseCIDR(subnet.IP.String() + "/" + strconv.Itoa(i))
+		if err != nil {
+			panic("failed to parse CIDR")
+		}
+		checkSubnets = append(checkSubnets, subnet.String())
 	}
 
 	err = s.transaction(func(tx txn) error {
 		query := `SELECT net_cidr, expiration FROM syncer_bans WHERE net_cidr IN (` + queryPlaceHolders(len(checkSubnets)) + `) ORDER BY expiration DESC LIMIT 1`
 
+		var subnet string
 		var expiration time.Time
-		err := tx.QueryRow(query, queryArgs(checkSubnets)...).Scan((*sqlTime)(&expiration))
+		err := tx.QueryRow(query, queryArgs(checkSubnets)...).Scan(&subnet, (*sqlTime)(&expiration))
 		banned = time.Now().Before(expiration) // will return false for any sql errors, including ErrNoRows
+		if err == nil && banned {
+			s.log.Debug("found ban", zap.String("subnet", subnet), zap.Time("expiration", expiration))
+		}
 		return err
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
