@@ -47,7 +47,7 @@ func applyEvents(tx txn, events []wallet.Event) error {
 		}
 
 		var eventID int64
-		err = stmt.QueryRow(sqlTime(event.Timestamp), id, event.Val.EventType(), buf).Scan(&eventID)
+		err = stmt.QueryRow(encode(event.Timestamp), id, event.Val.EventType(), buf).Scan(&eventID)
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
@@ -87,14 +87,14 @@ func deleteSiacoinOutputs(tx txn, spent []types.SiacoinElement) error {
 		// query the address database ID and balance
 		var addressID int64
 		var balance types.Currency
-		err := addrStmt.QueryRow(encode(se.SiacoinOutput.Address)).Scan(&addressID, (*sqlCurrency)(&balance))
+		err := addrStmt.QueryRow(encode(se.SiacoinOutput.Address)).Scan(&addressID, decode(&balance))
 		if err != nil {
 			return fmt.Errorf("failed to lookup address %q: %w", se.SiacoinOutput.Address, err)
 		}
 
 		// update the balance
 		balance = balance.Sub(se.SiacoinOutput.Value)
-		_, err = updateBalanceStmt.Exec((*sqlCurrency)(&balance), addressID)
+		_, err = updateBalanceStmt.Exec(encode(balance), addressID)
 		if err != nil {
 			return fmt.Errorf("failed to update address %q balance: %w", se.SiacoinOutput.Address, err)
 		}
@@ -131,20 +131,20 @@ func applySiacoinOutputs(tx txn, added map[types.Hash256]types.SiacoinElement) e
 		// query the address database ID and balance
 		var addressID int64
 		var balance types.Currency
-		err := addrStmt.QueryRow(encode(se.SiacoinOutput.Address)).Scan(&addressID, (*sqlCurrency)(&balance))
+		err := addrStmt.QueryRow(encode(se.SiacoinOutput.Address)).Scan(&addressID, decode(&balance))
 		if err != nil {
 			return fmt.Errorf("failed to lookup address %q: %w", se.SiacoinOutput.Address, err)
 		}
 
 		// update the balance
 		balance = balance.Add(se.SiacoinOutput.Value)
-		_, err = updateBalanceStmt.Exec((*sqlCurrency)(&balance), addressID)
+		_, err = updateBalanceStmt.Exec(encode(balance), addressID)
 		if err != nil {
 			return fmt.Errorf("failed to update address %q balance: %w", se.SiacoinOutput.Address, err)
 		}
 
 		// insert the created utxo
-		_, err = addStmt.Exec(encode(se.ID), addressID, sqlCurrency(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight)
+		_, err = addStmt.Exec(encode(se.ID), addressID, encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight)
 		if err != nil {
 			return fmt.Errorf("failed to insert output %q: %w", se.ID, err)
 		}
@@ -237,7 +237,7 @@ func applySiafundOutputs(tx txn, added map[types.Hash256]types.SiafundElement) e
 			return fmt.Errorf("failed to update address %q balance: %w", se.SiafundOutput.Address, err)
 		}
 
-		_, err = addStmt.Exec(encode(se.ID), addressID, sqlCurrency(se.ClaimStart), se.SiafundOutput.Value, encodeSlice(se.MerkleProof), se.LeafIndex)
+		_, err = addStmt.Exec(encode(se.ID), addressID, encode(se.ClaimStart), se.SiafundOutput.Value, encodeSlice(se.MerkleProof), se.LeafIndex)
 		if err != nil {
 			return fmt.Errorf("failed to insert output %q: %w", se.ID, err)
 		}

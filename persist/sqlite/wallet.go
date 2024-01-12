@@ -15,7 +15,7 @@ func insertAddress(tx txn, addr types.Address) (id int64, err error) {
 VALUES ($1, $2, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
 RETURNING id`
 
-	err = tx.QueryRow(query, encode(addr), (*sqlCurrency)(&types.ZeroCurrency)).Scan(&id)
+	err = tx.QueryRow(query, encode(addr), encode(types.ZeroCurrency)).Scan(&id)
 	return
 }
 
@@ -41,7 +41,7 @@ LIMIT $2 OFFSET $3`
 			var eventType string
 			var eventBuf []byte
 
-			err := rows.Scan(&eventID, (*sqlTime)(&event.Timestamp), &event.Index.Height, decode(&event.Index.ID), &eventType, &eventBuf)
+			err := rows.Scan(&eventID, decode(&event.Timestamp), &event.Index.Height, decode(&event.Index.ID), &eventType, &eventBuf)
 			if err != nil {
 				return fmt.Errorf("failed to scan event: %w", err)
 			}
@@ -190,7 +190,7 @@ func (s *Store) UnspentSiacoinOutputs(walletID string) (siacoins []types.Siacoin
 
 		for rows.Next() {
 			var siacoin types.SiacoinElement
-			err := rows.Scan(decode(&siacoin.ID), &siacoin.LeafIndex, decodeSlice[types.Hash256](&siacoin.MerkleProof), (*sqlCurrency)(&siacoin.SiacoinOutput.Value), decode(&siacoin.SiacoinOutput.Address), &siacoin.MaturityHeight)
+			err := rows.Scan(decode(&siacoin.ID), &siacoin.LeafIndex, decodeSlice[types.Hash256](&siacoin.MerkleProof), decode(&siacoin.SiacoinOutput.Value), decode(&siacoin.SiacoinOutput.Address), &siacoin.MaturityHeight)
 			if err != nil {
 				return fmt.Errorf("failed to scan siacoin element: %w", err)
 			}
@@ -218,7 +218,7 @@ func (s *Store) UnspentSiafundOutputs(walletID string) (siafunds []types.Siafund
 
 		for rows.Next() {
 			var siafund types.SiafundElement
-			err := rows.Scan(decode(&siafund.ID), &siafund.LeafIndex, decodeSlice(&siafund.MerkleProof), &siafund.SiafundOutput.Value, (*sqlCurrency)(&siafund.ClaimStart), decode(&siafund.SiafundOutput.Address))
+			err := rows.Scan(decode(&siafund.ID), &siafund.LeafIndex, decodeSlice(&siafund.MerkleProof), &siafund.SiafundOutput.Value, decode(&siafund.ClaimStart), decode(&siafund.SiafundOutput.Address))
 			if err != nil {
 				return fmt.Errorf("failed to scan siacoin element: %w", err)
 			}
@@ -245,7 +245,7 @@ func (s *Store) WalletBalance(walletID string) (sc types.Currency, sf uint64, er
 			var siacoin types.Currency
 			var siafund uint64
 
-			if err := rows.Scan((*sqlCurrency)(&siacoin), &siafund); err != nil {
+			if err := rows.Scan(decode(&siacoin), &siafund); err != nil {
 				return fmt.Errorf("failed to scan address balance: %w", err)
 			}
 			sc = sc.Add(siacoin)
@@ -260,7 +260,7 @@ func (s *Store) WalletBalance(walletID string) (sc types.Currency, sf uint64, er
 func (s *Store) AddressBalance(address types.Address) (sc types.Currency, sf uint64, err error) {
 	err = s.transaction(func(tx txn) error {
 		const query = `SELECT siacoin_balance, siafund_balance FROM address_balance WHERE sia_address=$1`
-		return tx.QueryRow(query, encode(address)).Scan((*sqlCurrency)(&sc), &sf)
+		return tx.QueryRow(query, encode(address)).Scan(decode(&sc), &sf)
 	})
 	return
 }

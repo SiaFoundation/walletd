@@ -16,13 +16,13 @@ import (
 func getPeerInfo(tx txn, peer string) (syncer.PeerInfo, error) {
 	const query = `SELECT first_seen, last_connect, synced_blocks, sync_duration FROM syncer_peers WHERE peer_address=$1`
 	var info syncer.PeerInfo
-	err := tx.QueryRow(query, peer).Scan((*sqlTime)(&info.FirstSeen), (*sqlTime)(&info.LastConnect), &info.SyncedBlocks, &info.SyncDuration)
+	err := tx.QueryRow(query, peer).Scan(decode(&info.FirstSeen), decode(&info.LastConnect), &info.SyncedBlocks, &info.SyncDuration)
 	return info, err
 }
 
 func (s *Store) updatePeerInfo(tx txn, peer string, info syncer.PeerInfo) error {
 	const query = `UPDATE syncer_peers SET first_seen=$1, last_connect=$2, synced_blocks=$3, sync_duration=$4 WHERE peer_address=$5 RETURNING peer_address`
-	err := tx.QueryRow(query, (*sqlTime)(&info.FirstSeen), (*sqlTime)(&info.LastConnect), info.SyncedBlocks, info.SyncDuration, peer).Scan(&peer)
+	err := tx.QueryRow(query, encode(info.FirstSeen), encode(info.LastConnect), info.SyncedBlocks, info.SyncDuration, peer).Scan(&peer)
 	return err
 }
 
@@ -30,7 +30,7 @@ func (s *Store) updatePeerInfo(tx txn, peer string, info syncer.PeerInfo) error 
 func (s *Store) AddPeer(peer string) {
 	err := s.transaction(func(tx txn) error {
 		const query = `INSERT INTO syncer_peers (peer_address, first_seen, last_connect, synced_blocks, sync_duration) VALUES ($1, $2, 0, 0, 0) ON CONFLICT (peer_address) DO NOTHING`
-		_, err := tx.Exec(query, peer, sqlTime(time.Now()))
+		_, err := tx.Exec(query, peer, encode(time.Now()))
 		return err
 	})
 	if err != nil {
@@ -67,7 +67,7 @@ func (s *Store) UpdatePeerInfo(peer string, fn func(*syncer.PeerInfo)) {
 	err := s.transaction(func(tx txn) error {
 		info, err := getPeerInfo(tx, peer)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get peer info: %w", err)
 		}
 		fn(&info)
 		return s.updatePeerInfo(tx, peer, info)
@@ -136,7 +136,7 @@ func (s *Store) Ban(peer string, duration time.Duration, reason string) {
 	}
 	err = s.transaction(func(tx txn) error {
 		const query = `INSERT INTO syncer_bans (net_cidr, expiration, reason) VALUES ($1, $2, $3) ON CONFLICT (net_cidr) DO UPDATE SET expiration=EXCLUDED.expiration, reason=EXCLUDED.reason`
-		_, err := tx.Exec(query, address, sqlTime(time.Now().Add(duration)), reason)
+		_, err := tx.Exec(query, address, encode(time.Now().Add(duration)), reason)
 		return err
 	})
 	if err != nil {
@@ -181,7 +181,7 @@ func (s *Store) Banned(peer string) (banned bool) {
 
 		var subnet string
 		var expiration time.Time
-		err := tx.QueryRow(query, queryArgs(checkSubnets)...).Scan(&subnet, (*sqlTime)(&expiration))
+		err := tx.QueryRow(query, queryArgs(checkSubnets)...).Scan(&subnet, decode(&expiration))
 		banned = time.Now().Before(expiration) // will return false for any sql errors, including ErrNoRows
 		if err == nil && banned {
 			s.log.Debug("found ban", zap.String("subnet", subnet), zap.Time("expiration", expiration))
