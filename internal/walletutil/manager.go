@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"go.sia.tech/core/chain"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/wallet"
 )
@@ -244,6 +244,9 @@ func (wm *JSONWalletManager) AddWallet(name string, info json.RawMessage) error 
 		// update existing wallet
 		mw.info = info
 		return wm.save()
+	} else if _, err := os.Stat(filepath.Join(wm.dir, "wallets", name+".json")); err == nil {
+		// shouldn't happen in normal conditions
+		return errors.New("a wallet with that name already exists, but is absent from wallets.json")
 	}
 	store, _, err := NewJSONStore(filepath.Join(wm.dir, "wallets", name+".json"))
 	if err != nil {

@@ -3,20 +3,22 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
-	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils"
+	"go.sia.tech/coreutils/chain"
+	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/walletd/internal/syncerutil"
 	"go.sia.tech/walletd/internal/walletutil"
-	"go.sia.tech/walletd/syncer"
 	"lukechampine.com/upnp"
 )
 
@@ -58,66 +60,27 @@ var zenBootstrap = []string{
 	"51.81.208.10:9881",
 }
 
-type boltDB struct {
-	tx *bolt.Tx
-	db *bolt.DB
-}
-
-func (db *boltDB) newTx() (err error) {
-	if db.tx == nil {
-		db.tx, err = db.db.Begin(true)
-	}
-	return
-}
-
-func (db *boltDB) Bucket(name []byte) chain.DBBucket {
-	if err := db.newTx(); err != nil {
-		panic(err)
-	}
-
-	b := db.tx.Bucket(name)
-	if b == nil {
-		return nil
-	}
-	return b
-}
-
-func (db *boltDB) CreateBucket(name []byte) (chain.DBBucket, error) {
-	if err := db.newTx(); err != nil {
-		return nil, err
-	}
-
-	b, err := db.tx.CreateBucket(name)
-	if b == nil {
-		return nil, err
-	}
-	return b, nil
-}
-
-func (db *boltDB) Flush() error {
-	if db.tx == nil {
-		return nil
-	}
-
-	if err := db.tx.Commit(); err != nil {
-		return err
-	}
-	db.tx = nil
-	return nil
-}
-
-func (db *boltDB) Cancel() {
-	if db.tx == nil {
-		return
-	}
-
-	db.tx.Rollback()
-	db.tx = nil
-}
-
-func (db *boltDB) Close() error {
-	db.Flush()
-	return db.db.Close()
+var anagamiBootstrap = []string{
+	"147.135.16.182:9781",
+	"98.180.237.163:9981",
+	"98.180.237.163:11981",
+	"98.180.237.163:10981",
+	"94.130.139.59:9801",
+	"84.86.11.238:9801",
+	"69.131.14.86:9981",
+	"68.108.89.92:9981",
+	"62.30.63.93:9981",
+	"46.173.150.154:9111",
+	"195.252.198.117:9981",
+	"174.174.206.214:9981",
+	"172.58.232.54:9981",
+	"172.58.229.31:9981",
+	"172.56.200.90:9981",
+	"172.56.162.155:9981",
+	"163.172.13.180:9981",
+	"154.47.25.194:9981",
+	"138.201.19.49:9981",
+	"100.34.20.44:9981",
 }
 
 type node struct {
@@ -139,16 +102,18 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 	case "zen":
 		network, genesisBlock = chain.TestnetZen()
 		bootstrapPeers = zenBootstrap
+	case "anagami":
+		network, genesisBlock = TestnetAnagami()
+		bootstrapPeers = anagamiBootstrap
 	default:
-		return nil, errors.New("invalid network: must be one of 'mainnet' or 'zen'")
+		return nil, errors.New("invalid network: must be one of 'mainnet', 'zen', or 'anagami'")
 	}
 
-	bdb, err := bolt.Open(filepath.Join(dir, "consensus.db"), 0600, nil)
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	db := &boltDB{db: bdb}
-	dbstore, tipState, err := chain.NewDBStore(db, network, genesisBlock)
+	dbstore, tipState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +165,12 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
 	}
-	s := syncer.New(l, cm, ps, header, syncer.WithLogger(log.Default()))
+	logFile, err := os.OpenFile(filepath.Join(dir, "walletd.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		log.Fatal(err)
+	}
+	logger := log.New(io.MultiWriter(os.Stderr, logFile), "", log.LstdFlags)
+	s := syncer.New(l, cm, ps, header, syncer.WithLogger(logger))
 
 	wm, err := walletutil.NewJSONWalletManager(dir, cm)
 	if err != nil {
@@ -220,7 +190,7 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 			return func() {
 				l.Close()
 				<-ch
-				db.Close()
+				bdb.Close()
 			}
 		},
 	}, nil

@@ -6,7 +6,7 @@ import (
 	"os"
 	"sync"
 
-	"go.sia.tech/core/chain"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/wallet"
 )
@@ -363,17 +363,16 @@ func (s *JSONStore) load() error {
 
 // ProcessChainApplyUpdate implements chain.Subscriber.
 func (s *JSONStore) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, mayCommit bool) error {
-	s.EphemeralStore.ProcessChainApplyUpdate(cau, mayCommit)
-	if mayCommit {
-		return s.save()
+	err := s.EphemeralStore.ProcessChainApplyUpdate(cau, mayCommit)
+	if err == nil && mayCommit {
+		err = s.save()
 	}
-	return nil
+	return err
 }
 
 // ProcessChainRevertUpdate implements chain.Subscriber.
 func (s *JSONStore) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
-	s.EphemeralStore.ProcessChainRevertUpdate(cru)
-	return nil
+	return s.EphemeralStore.ProcessChainRevertUpdate(cru)
 }
 
 // AddAddress implements api.Wallet.
