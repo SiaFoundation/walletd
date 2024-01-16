@@ -15,7 +15,7 @@ import (
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
-	"go.sia.tech/walletd/syncer"
+	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/walletd/wallet"
 )
 
@@ -27,8 +27,8 @@ type (
 		RecommendedFee() types.Currency
 		PoolTransactions() []types.Transaction
 		V2PoolTransactions() []types.V2Transaction
-		AddPoolTransactions(txns []types.Transaction) error
-		AddV2PoolTransactions(txns []types.V2Transaction) error
+		AddPoolTransactions(txns []types.Transaction) (bool, error)
+		AddV2PoolTransactions(index types.ChainIndex, txns []types.V2Transaction) (bool, error)
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
 	}
 
@@ -40,7 +40,7 @@ type (
 		Connect(addr string) (*gateway.Peer, error)
 		BroadcastHeader(bh gateway.BlockHeader)
 		BroadcastTransactionSet(txns []types.Transaction)
-		BroadcastV2TransactionSet(txns []types.V2Transaction)
+		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction)
 		BroadcastV2BlockOutline(bo gateway.V2BlockOutline)
 	}
 
@@ -148,16 +148,19 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		return
 	}
 	if len(tbr.Transactions) != 0 {
-		if jc.Check("invalid transaction set", s.cm.AddPoolTransactions(tbr.Transactions)) != nil {
+		_, err := s.cm.AddPoolTransactions(tbr.Transactions)
+		if jc.Check("invalid transaction set", err) != nil {
 			return
 		}
 		s.s.BroadcastTransactionSet(tbr.Transactions)
 	}
 	if len(tbr.V2Transactions) != 0 {
-		if jc.Check("invalid v2 transaction set", s.cm.AddV2PoolTransactions(tbr.V2Transactions)) != nil {
+		index := s.cm.TipState().Index
+		_, err := s.cm.AddV2PoolTransactions(index, tbr.V2Transactions)
+		if jc.Check("invalid v2 transaction set", err) != nil {
 			return
 		}
-		s.s.BroadcastV2TransactionSet(tbr.V2Transactions)
+		s.s.BroadcastV2TransactionSet(index, tbr.V2Transactions)
 	}
 }
 
@@ -236,17 +239,23 @@ func (s *server) walletsBalanceHandler(jc jape.Context) {
 	if jc.Check("couldn't load outputs", err) != nil {
 		return
 	}
-	var sc types.Currency
+	height := s.cm.TipState().Index.Height
+	var sc, immature types.Currency
 	var sf uint64
 	for _, sco := range scos {
-		sc = sc.Add(sco.SiacoinOutput.Value)
+		if height >= sco.MaturityHeight {
+			sc = sc.Add(sco.SiacoinOutput.Value)
+		} else {
+			immature = immature.Add(sco.SiacoinOutput.Value)
+		}
 	}
 	for _, sfo := range sfos {
 		sf += sfo.SiafundOutput.Value
 	}
 	jc.Encode(WalletBalanceResponse{
-		Siacoins: sc,
-		Siafunds: sf,
+		Siacoins:         sc,
+		ImmatureSiacoins: immature,
+		Siafunds:         sf,
 	})
 }
 
