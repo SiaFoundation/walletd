@@ -6,7 +6,7 @@ require (
 	go.sia.tech/core v0.2.0
 	go.sia.tech/coreutils v0.0.0-20240116230957-2e4a0b211d4f
 	go.sia.tech/jape v0.9.0
-	go.sia.tech/web/walletd v0.10.0
+	go.sia.tech/web/walletd v0.16.0
 	golang.org/x/term v0.6.0
 	lukechampine.com/flagg v1.1.1
 	lukechampine.com/frand v1.4.2

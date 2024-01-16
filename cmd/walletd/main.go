@@ -55,9 +55,6 @@ func getAPIPassword() string {
 		pw, err := term.ReadPassword(int(os.Stdin.Fd()))
 		fmt.Println()
 		check("Could not read API password:", err)
-		if err != nil {
-			log.Fatal(err)
-		}
 		apiPassword = string(pw)
 	}
 	return apiPassword
