@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"go.sia.tech/walletd/syncer"
+	"go.sia.tech/coreutils/syncer"
 )
 
 type peerBan struct {
