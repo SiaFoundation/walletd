@@ -11,14 +11,14 @@ import (
 	"strconv"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
-	"go.sia.tech/core/chain"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils"
+	"go.sia.tech/coreutils/chain"
+	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/walletd/internal/syncerutil"
 	"go.sia.tech/walletd/internal/walletutil"
-	"go.sia.tech/walletd/syncer"
 	"lukechampine.com/upnp"
 )
 
@@ -83,68 +83,6 @@ var anagamiBootstrap = []string{
 	"100.34.20.44:9981",
 }
 
-type boltDB struct {
-	tx *bolt.Tx
-	db *bolt.DB
-}
-
-func (db *boltDB) newTx() (err error) {
-	if db.tx == nil {
-		db.tx, err = db.db.Begin(true)
-	}
-	return
-}
-
-func (db *boltDB) Bucket(name []byte) chain.DBBucket {
-	if err := db.newTx(); err != nil {
-		panic(err)
-	}
-
-	b := db.tx.Bucket(name)
-	if b == nil {
-		return nil
-	}
-	return b
-}
-
-func (db *boltDB) CreateBucket(name []byte) (chain.DBBucket, error) {
-	if err := db.newTx(); err != nil {
-		return nil, err
-	}
-
-	b, err := db.tx.CreateBucket(name)
-	if b == nil {
-		return nil, err
-	}
-	return b, nil
-}
-
-func (db *boltDB) Flush() error {
-	if db.tx == nil {
-		return nil
-	}
-
-	if err := db.tx.Commit(); err != nil {
-		return err
-	}
-	db.tx = nil
-	return nil
-}
-
-func (db *boltDB) Cancel() {
-	if db.tx == nil {
-		return
-	}
-
-	db.tx.Rollback()
-	db.tx = nil
-}
-
-func (db *boltDB) Close() error {
-	db.Flush()
-	return db.db.Close()
-}
-
 type node struct {
 	cm *chain.Manager
 	s  *syncer.Syncer
@@ -167,18 +105,15 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 	case "anagami":
 		network, genesisBlock = TestnetAnagami()
 		bootstrapPeers = anagamiBootstrap
-		testnetFixDBTree(dir)
-		testnetFixMultiproofs(dir)
 	default:
 		return nil, errors.New("invalid network: must be one of 'mainnet', 'zen', or 'anagami'")
 	}
 
-	bdb, err := bolt.Open(filepath.Join(dir, "consensus.db"), 0600, nil)
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	db := &boltDB{db: bdb}
-	dbstore, tipState, err := chain.NewDBStore(db, network, genesisBlock)
+	dbstore, tipState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +190,7 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 			return func() {
 				l.Close()
 				<-ch
-				db.Close()
+				bdb.Close()
 			}
 		},
 	}, nil

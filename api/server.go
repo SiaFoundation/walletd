@@ -18,7 +18,7 @@ import (
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
-	"go.sia.tech/walletd/syncer"
+	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/walletd/wallet"
 )
 

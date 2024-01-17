@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"go.sia.tech/walletd/syncer"
+	"go.sia.tech/coreutils/syncer"
 )
 
 type peerBan struct {
@@ -149,6 +149,12 @@ func (jps *JSONPeerStore) save() error {
 		return nil
 	}
 	defer func() { jps.lastSave = time.Now() }()
+	// clear out expired bans
+	for peer, b := range jps.EphemeralPeerStore.bans {
+		if time.Until(b.Expiry) <= 0 {
+			delete(jps.EphemeralPeerStore.bans, peer)
+		}
+	}
 	p := jsonPersist{
 		Peers: jps.EphemeralPeerStore.peers,
 		Bans:  jps.EphemeralPeerStore.bans,
