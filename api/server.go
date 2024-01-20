@@ -342,11 +342,23 @@ func (s *server) walletsEventsPrometheusHandler(jc jape.Context) {
 	for i, event := range events {
 		event_txt := ""
 		if e, ok := event.Val.(*wallet.EventTransaction); ok {
-			event_txt = fmt.Sprintf(`walletd_wallet_event_transaction{name="%s", height="%d", timestamp="%s", txid="%s"} 1`,
-				name,
-				event.Index.Height,
-				event.Timestamp.Format(time.RFC3339),
-				hex.EncodeToString(e.ID[:]),
+
+			var inflow, outflow types.Currency
+			var inflow_overflow, outflow_overflow bool
+			for _, input := range e.SiacoinInputs {
+				inflow, inflow_overflow = inflow.AddWithOverflow(input.SiacoinOutput.Value)
+			}
+			for _, output := range e.SiacoinOutputs {
+				outflow, outflow_overflow = outflow.AddWithOverflow(output.SiacoinOutput.Value)
+			}
+			total, total_underflow := inflow.SubWithUnderflow(outflow)
+			labels := fmt.Sprintf(`name="%s", height="%d", timestamp="%s", txid="%s"`, name, event.Index.Height, event.Timestamp.Format(time.RFC3339), hex.EncodeToString(e.ID[:]))
+			event_txt = fmt.Sprintf(`walletd_wallet_event_transaction_inflow{%s, overflow="%v"} %s
+walletd_wallet_event_transaction_outflow{%s, overflow="%v"} %s
+walletd_wallet_event_transaction_total{%s, underflow="%v"} %s`,
+				labels, inflow_overflow, inflow.ExactString(),
+				labels, outflow_overflow, outflow.ExactString(),
+				labels, total_underflow, total.ExactString(),
 			)
 		} else if e, ok := event.Val.(*wallet.EventMinerPayout); ok {
 			event_txt = fmt.Sprintf(`walletd_wallet_event_minerpayout{name="%s", height="%d", timestamp="%s"} %s`,
