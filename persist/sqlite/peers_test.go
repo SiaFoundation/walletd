@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"go.sia.tech/walletd/syncer"
+	"go.sia.tech/coreutils/syncer"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -20,15 +20,13 @@ func TestAddPeer(t *testing.T) {
 
 	const peer = "1.2.3.4:9981"
 
-	if err := db.AddPeer(peer); err != nil {
-		t.Fatal(err)
-	}
+	db.AddPeer(peer)
 
 	lastConnect := time.Now().Truncate(time.Second) // stored as unix milliseconds
 	syncedBlocks := uint64(15)
 	syncDuration := 5 * time.Second
 
-	err = db.UpdatePeerInfo(peer, func(info *syncer.PeerInfo) {
+	db.UpdatePeerInfo(peer, func(info *syncer.PeerInfo) {
 		info.LastConnect = lastConnect
 		info.SyncedBlocks = syncedBlocks
 		info.SyncDuration = syncDuration
@@ -37,9 +35,9 @@ func TestAddPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	info, err := db.PeerInfo(peer)
-	if err != nil {
-		t.Fatal(err)
+	info, ok := db.PeerInfo(peer)
+	if !ok {
+		t.Fatal("expected peer to be in database")
 	}
 
 	if !info.LastConnect.Equal(lastConnect) {
@@ -68,9 +66,7 @@ func TestBanPeer(t *testing.T) {
 	}
 
 	// ban the peer
-	if err := db.Ban(peer, time.Second, "test"); err != nil {
-		t.Fatal(err)
-	}
+	db.Ban(peer, time.Second, "test")
 
 	if !db.Banned(peer) {
 		t.Fatal("expected peer to be banned")
@@ -90,11 +86,7 @@ func TestBanPeer(t *testing.T) {
 	}
 
 	t.Log("banning", subnet)
-
-	if err := db.Ban(subnet.String(), time.Second, "test"); err != nil {
-		t.Fatal(err)
-	}
-
+	db.Ban(subnet.String(), time.Second, "test")
 	if !db.Banned(peer) {
 		t.Fatal("expected peer to be banned")
 	}
