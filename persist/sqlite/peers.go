@@ -13,14 +13,14 @@ import (
 	"go.uber.org/zap"
 )
 
-func getPeerInfo(tx txn, peer string) (syncer.PeerInfo, error) {
+func getPeerInfo(tx *txn, peer string) (syncer.PeerInfo, error) {
 	const query = `SELECT first_seen, last_connect, synced_blocks, sync_duration FROM syncer_peers WHERE peer_address=$1`
 	var info syncer.PeerInfo
 	err := tx.QueryRow(query, peer).Scan(decode(&info.FirstSeen), decode(&info.LastConnect), &info.SyncedBlocks, &info.SyncDuration)
 	return info, err
 }
 
-func (s *Store) updatePeerInfo(tx txn, peer string, info syncer.PeerInfo) error {
+func (s *Store) updatePeerInfo(tx *txn, peer string, info syncer.PeerInfo) error {
 	const query = `UPDATE syncer_peers SET first_seen=$1, last_connect=$2, synced_blocks=$3, sync_duration=$4 WHERE peer_address=$5 RETURNING peer_address`
 	err := tx.QueryRow(query, encode(info.FirstSeen), encode(info.LastConnect), info.SyncedBlocks, info.SyncDuration, peer).Scan(&peer)
 	return err
@@ -28,7 +28,7 @@ func (s *Store) updatePeerInfo(tx txn, peer string, info syncer.PeerInfo) error 
 
 // AddPeer adds the given peer to the store.
 func (s *Store) AddPeer(peer string) {
-	err := s.transaction(func(tx txn) error {
+	err := s.transaction(func(tx *txn) error {
 		const query = `INSERT INTO syncer_peers (peer_address, first_seen, last_connect, synced_blocks, sync_duration) VALUES ($1, $2, 0, 0, 0) ON CONFLICT (peer_address) DO NOTHING`
 		_, err := tx.Exec(query, peer, encode(time.Now()))
 		return err
@@ -40,7 +40,7 @@ func (s *Store) AddPeer(peer string) {
 
 // Peers returns the addresses of all known peers.
 func (s *Store) Peers() (peers []string) {
-	err := s.transaction(func(tx txn) error {
+	err := s.transaction(func(tx *txn) error {
 		const query = `SELECT peer_address FROM syncer_peers`
 		rows, err := tx.Query(query)
 		if err != nil {
@@ -64,7 +64,7 @@ func (s *Store) Peers() (peers []string) {
 
 // UpdatePeerInfo updates the info for the given peer.
 func (s *Store) UpdatePeerInfo(peer string, fn func(*syncer.PeerInfo)) {
-	err := s.transaction(func(tx txn) error {
+	err := s.transaction(func(tx *txn) error {
 		info, err := getPeerInfo(tx, peer)
 		if err != nil {
 			return fmt.Errorf("failed to get peer info: %w", err)
@@ -81,7 +81,7 @@ func (s *Store) UpdatePeerInfo(peer string, fn func(*syncer.PeerInfo)) {
 func (s *Store) PeerInfo(peer string) (syncer.PeerInfo, bool) {
 	var info syncer.PeerInfo
 	var err error
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		info, err = getPeerInfo(tx, peer)
 		return err
 	})
@@ -134,7 +134,7 @@ func (s *Store) Ban(peer string, duration time.Duration, reason string) {
 		s.log.Error("failed to normalize peer", zap.Error(err))
 		return
 	}
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		const query = `INSERT INTO syncer_bans (net_cidr, expiration, reason) VALUES ($1, $2, $3) ON CONFLICT (net_cidr) DO UPDATE SET expiration=EXCLUDED.expiration, reason=EXCLUDED.reason`
 		_, err := tx.Exec(query, address, encode(time.Now().Add(duration)), reason)
 		return err
@@ -176,7 +176,7 @@ func (s *Store) Banned(peer string) (banned bool) {
 		checkSubnets = append(checkSubnets, subnet.String())
 	}
 
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		query := `SELECT net_cidr, expiration FROM syncer_bans WHERE net_cidr IN (` + queryPlaceHolders(len(checkSubnets)) + `) ORDER BY expiration DESC LIMIT 1`
 
 		var subnet string

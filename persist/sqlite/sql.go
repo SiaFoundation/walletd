@@ -22,122 +22,107 @@ type (
 		Scan(dest ...any) error
 	}
 
-	// A txn is an interface for executing queries within a transaction.
-	txn interface {
-		// Exec executes a query without returning any rows. The args are for
-		// any placeholder parameters in the query.
-		Exec(query string, args ...any) (sql.Result, error)
-		// Prepare creates a prepared statement for later queries or executions.
-		// Multiple queries or executions may be run concurrently from the
-		// returned statement. The caller must call the statement's Close method
-		// when the statement is no longer needed.
-		Prepare(query string) (*loggedStmt, error)
-		// Query executes a query that returns rows, typically a SELECT. The
-		// args are for any placeholder parameters in the query.
-		Query(query string, args ...any) (*loggedRows, error)
-		// QueryRow executes a query that is expected to return at most one row.
-		// QueryRow always returns a non-nil value. Errors are deferred until
-		// Row's Scan method is called. If the query selects no rows, the *Row's
-		// Scan will return ErrNoRows. Otherwise, the *Row's Scan scans the
-		// first selected row and discards the rest.
-		QueryRow(query string, args ...any) *loggedRow
-	}
-
-	loggedStmt struct {
+	// A stmt wraps a *sql.Stmt, logging slow queries.
+	stmt struct {
 		*sql.Stmt
 		query string
-		log   *zap.Logger
+
+		log *zap.Logger
 	}
 
-	loggedTxn struct {
+	// A txn wraps a *sql.Tx, logging slow queries.
+	txn struct {
 		*sql.Tx
 		log *zap.Logger
 	}
 
-	loggedRow struct {
+	// A row wraps a *sql.Row, logging slow queries.
+	row struct {
 		*sql.Row
 		log *zap.Logger
 	}
 
-	loggedRows struct {
+	// rows wraps a *sql.Rows, logging slow queries.
+	rows struct {
 		*sql.Rows
+
 		log *zap.Logger
 	}
 )
 
-func (lr *loggedRows) Next() bool {
+func (r *rows) Next() bool {
 	start := time.Now()
-	next := lr.Rows.Next()
+	next := r.Rows.Next()
 	if dur := time.Since(start); dur > longQueryDuration {
-		lr.log.Debug("slow next", zap.Duration("elapsed", dur), zap.Stack("stack"))
+		r.log.Debug("slow next", zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return next
 }
 
-func (lr *loggedRows) Scan(dest ...any) error {
+func (r *rows) Scan(dest ...any) error {
 	start := time.Now()
-	err := lr.Rows.Scan(dest...)
+	err := r.Rows.Scan(dest...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		lr.log.Debug("slow scan", zap.Duration("elapsed", dur), zap.Stack("stack"))
+		r.log.Debug("slow scan", zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return err
 }
 
-func (lr *loggedRow) Scan(dest ...any) error {
+func (r *row) Scan(dest ...any) error {
 	start := time.Now()
-	err := lr.Row.Scan(dest...)
+	err := r.Row.Scan(dest...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		lr.log.Debug("slow scan", zap.Duration("elapsed", dur), zap.Stack("stack"))
+		r.log.Debug("slow scan", zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return err
 }
 
-func (ls *loggedStmt) Exec(args ...any) (sql.Result, error) {
-	return ls.ExecContext(context.Background(), args...)
+func (s *stmt) Exec(args ...any) (sql.Result, error) {
+	return s.ExecContext(context.Background(), args...)
 }
 
-func (ls *loggedStmt) ExecContext(ctx context.Context, args ...any) (sql.Result, error) {
+func (s *stmt) ExecContext(ctx context.Context, args ...any) (sql.Result, error) {
 	start := time.Now()
-	result, err := ls.Stmt.ExecContext(ctx, args...)
+	result, err := s.Stmt.ExecContext(ctx, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		ls.log.Debug("slow exec", zap.String("query", ls.query), zap.Duration("elapsed", dur), zap.Stack("stack"))
+		s.log.Debug("slow exec", zap.String("query", s.query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return result, err
 }
 
-func (ls *loggedStmt) Query(args ...any) (*sql.Rows, error) {
-	return ls.QueryContext(context.Background(), args...)
+func (s *stmt) Query(args ...any) (*sql.Rows, error) {
+	return s.QueryContext(context.Background(), args...)
 }
 
-func (ls *loggedStmt) QueryContext(ctx context.Context, args ...any) (*sql.Rows, error) {
+func (s *stmt) QueryContext(ctx context.Context, args ...any) (*sql.Rows, error) {
 	start := time.Now()
-	rows, err := ls.Stmt.QueryContext(ctx, args...)
+	rows, err := s.Stmt.QueryContext(ctx, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		ls.log.Debug("slow query", zap.String("query", ls.query), zap.Duration("elapsed", dur), zap.Stack("stack"))
+		s.log.Debug("slow query", zap.String("query", s.query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return rows, err
 }
 
-func (ls *loggedStmt) QueryRow(args ...any) *loggedRow {
-	return ls.QueryRowContext(context.Background(), args...)
+func (s *stmt) QueryRow(args ...any) *row {
+	return s.QueryRowContext(context.Background(), args...)
 }
 
-func (ls *loggedStmt) QueryRowContext(ctx context.Context, args ...any) *loggedRow {
+func (s *stmt) QueryRowContext(ctx context.Context, args ...any) *row {
 	start := time.Now()
-	row := ls.Stmt.QueryRowContext(ctx, args...)
+	r := s.Stmt.QueryRowContext(ctx, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		ls.log.Debug("slow query row", zap.String("query", ls.query), zap.Duration("elapsed", dur), zap.Stack("stack"))
+		s.log.Debug("slow query row", zap.String("query", s.query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
-	return &loggedRow{row, ls.log.Named("row")}
+	return &row{r, s.log.Named("row")}
 }
 
 // Exec executes a query without returning any rows. The args are for
 // any placeholder parameters in the query.
-func (lt *loggedTxn) Exec(query string, args ...any) (sql.Result, error) {
+func (tx *txn) Exec(query string, args ...any) (sql.Result, error) {
 	start := time.Now()
-	result, err := lt.Tx.Exec(query, args...)
+	result, err := tx.Tx.Exec(query, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		lt.log.Debug("slow exec", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
+		tx.log.Debug("slow exec", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
 	return result, err
 }
@@ -146,30 +131,30 @@ func (lt *loggedTxn) Exec(query string, args ...any) (sql.Result, error) {
 // Multiple queries or executions may be run concurrently from the
 // returned statement. The caller must call the statement's Close method
 // when the statement is no longer needed.
-func (lt *loggedTxn) Prepare(query string) (*loggedStmt, error) {
+func (tx *txn) Prepare(query string) (*stmt, error) {
 	start := time.Now()
-	stmt, err := lt.Tx.Prepare(query)
+	s, err := tx.Tx.Prepare(query)
 	if dur := time.Since(start); dur > longQueryDuration {
-		lt.log.Debug("slow prepare", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
+		tx.log.Debug("slow prepare", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	} else if err != nil {
 		return nil, err
 	}
-	return &loggedStmt{
-		Stmt:  stmt,
+	return &stmt{
+		Stmt:  s,
 		query: query,
-		log:   lt.log.Named("statement"),
+		log:   tx.log.Named("statement"),
 	}, nil
 }
 
 // Query executes a query that returns rows, typically a SELECT. The
 // args are for any placeholder parameters in the query.
-func (lt *loggedTxn) Query(query string, args ...any) (*loggedRows, error) {
+func (tx *txn) Query(query string, args ...any) (*rows, error) {
 	start := time.Now()
-	rows, err := lt.Tx.Query(query, args...)
+	r, err := tx.Tx.Query(query, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		lt.log.Debug("slow query", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
+		tx.log.Debug("slow query", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
-	return &loggedRows{rows, lt.log.Named("rows")}, err
+	return &rows{r, tx.log.Named("rows")}, err
 }
 
 // QueryRow executes a query that is expected to return at most one row.
@@ -177,13 +162,13 @@ func (lt *loggedTxn) Query(query string, args ...any) (*loggedRows, error) {
 // Row's Scan method is called. If the query selects no rows, the *Row's
 // Scan will return ErrNoRows. Otherwise, the *Row's Scan scans the
 // first selected row and discards the rest.
-func (lt *loggedTxn) QueryRow(query string, args ...any) *loggedRow {
+func (tx *txn) QueryRow(query string, args ...any) *row {
 	start := time.Now()
-	row := lt.Tx.QueryRow(query, args...)
+	r := tx.Tx.QueryRow(query, args...)
 	if dur := time.Since(start); dur > longQueryDuration {
-		lt.log.Debug("slow query row", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
+		tx.log.Debug("slow query row", zap.String("query", query), zap.Duration("elapsed", dur), zap.Stack("stack"))
 	}
-	return &loggedRow{row, lt.log.Named("row")}
+	return &row{r, tx.log.Named("row")}
 }
 
 func queryPlaceHolders(n int) string {
@@ -220,7 +205,7 @@ func getDBVersion(db *sql.DB) (version int64) {
 }
 
 // setDBVersion sets the current version of the database.
-func setDBVersion(tx txn, version int64) error {
+func setDBVersion(tx *txn, version int64) error {
 	const query = `UPDATE global_settings SET db_version=$1 RETURNING id;`
 	var dbID int64
 	return tx.QueryRow(query, version).Scan(&dbID)

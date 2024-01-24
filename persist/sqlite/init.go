@@ -17,13 +17,13 @@ import (
 //go:embed init.sql
 var initDatabase string
 
-func initializeSettings(tx txn, target int64) error {
+func initializeSettings(tx *txn, target int64) error {
 	_, err := tx.Exec(`INSERT INTO global_settings (id, db_version, last_indexed_tip) VALUES (0, ?, ?)`, target, encode(types.ChainIndex{}))
 	return err
 }
 
 func (s *Store) initNewDatabase(target int64) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		if _, err := tx.Exec(initDatabase); err != nil {
 			return fmt.Errorf("failed to initialize database: %w", err)
 		} else if err := initializeSettings(tx, target); err != nil {
@@ -48,7 +48,7 @@ func (s *Store) upgradeDatabase(current, target int64) error {
 		}
 	}()
 
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		for _, fn := range migrations[current-1:] {
 			current++
 			start := time.Now()

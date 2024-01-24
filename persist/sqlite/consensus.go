@@ -17,12 +17,12 @@ type proofUpdater interface {
 	UpdateElementProof(*types.StateElement)
 }
 
-func insertChainIndex(tx txn, index types.ChainIndex) (id int64, err error) {
+func insertChainIndex(tx *txn, index types.ChainIndex) (id int64, err error) {
 	err = tx.QueryRow(`INSERT INTO chain_indices (height, block_id) VALUES ($1, $2) ON CONFLICT (block_id) DO UPDATE SET height=EXCLUDED.height RETURNING id`, index.Height, encode(index.ID)).Scan(&id)
 	return
 }
 
-func applyEvents(tx txn, events []wallet.Event) error {
+func applyEvents(tx *txn, events []wallet.Event) error {
 	stmt, err := tx.Prepare(`INSERT INTO events (date_created, index_id, event_type, event_data) VALUES ($1, $2, $3, $4) RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -64,7 +64,7 @@ func applyEvents(tx txn, events []wallet.Event) error {
 	return nil
 }
 
-func deleteSiacoinOutputs(tx txn, spent []types.SiacoinElement) error {
+func deleteSiacoinOutputs(tx *txn, spent []types.SiacoinElement) error {
 	addrStmt, err := tx.Prepare(`SELECT id, siacoin_balance FROM sia_addresses WHERE sia_address=$1 LIMIT 1`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare lookup statement: %w", err)
@@ -108,7 +108,7 @@ func deleteSiacoinOutputs(tx txn, spent []types.SiacoinElement) error {
 	return nil
 }
 
-func applySiacoinOutputs(tx txn, added map[types.Hash256]types.SiacoinElement) error {
+func applySiacoinOutputs(tx *txn, added map[types.Hash256]types.SiacoinElement) error {
 	addrStmt, err := tx.Prepare(`SELECT id, siacoin_balance FROM sia_addresses WHERE sia_address=$1 LIMIT 1`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare lookup statement: %w", err)
@@ -152,7 +152,7 @@ func applySiacoinOutputs(tx txn, added map[types.Hash256]types.SiacoinElement) e
 	return nil
 }
 
-func deleteSiafundOutputs(tx txn, spent []types.SiafundElement) error {
+func deleteSiafundOutputs(tx *txn, spent []types.SiafundElement) error {
 	addrStmt, err := tx.Prepare(`SELECT id, siafund_balance FROM sia_addresses WHERE sia_address=$1 LIMIT 1`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare lookup statement: %w", err)
@@ -199,7 +199,7 @@ func deleteSiafundOutputs(tx txn, spent []types.SiafundElement) error {
 	return nil
 }
 
-func applySiafundOutputs(tx txn, added map[types.Hash256]types.SiafundElement) error {
+func applySiafundOutputs(tx *txn, added map[types.Hash256]types.SiafundElement) error {
 	addrStmt, err := tx.Prepare(`SELECT id, siafund_balance FROM sia_addresses WHERE sia_address=$1 LIMIT 1`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare lookup statement: %w", err)
@@ -245,13 +245,13 @@ func applySiafundOutputs(tx txn, added map[types.Hash256]types.SiafundElement) e
 	return nil
 }
 
-func updateLastIndexedTip(tx txn, tip types.ChainIndex) error {
+func updateLastIndexedTip(tx *txn, tip types.ChainIndex) error {
 	_, err := tx.Exec(`UPDATE global_settings SET last_indexed_tip=$1`, encode(tip))
 	return err
 }
 
-func getStateElementBatch(stmt *loggedStmt, offset, limit int) ([]types.StateElement, error) {
-	rows, err := stmt.Query(limit, offset)
+func getStateElementBatch(s *stmt, offset, limit int) ([]types.StateElement, error) {
+	rows, err := s.Query(limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
 	}
@@ -269,8 +269,8 @@ func getStateElementBatch(stmt *loggedStmt, offset, limit int) ([]types.StateEle
 	return updated, nil
 }
 
-func updateStateElement(stmt *loggedStmt, se types.StateElement) error {
-	res, err := stmt.Exec(encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ID))
+func updateStateElement(s *stmt, se types.StateElement) error {
+	res, err := s.Exec(encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ID))
 	if err != nil {
 		return fmt.Errorf("failed to update siacoin element %q: %w", se.ID, err)
 	} else if n, err := res.RowsAffected(); err != nil {
@@ -282,7 +282,7 @@ func updateStateElement(stmt *loggedStmt, se types.StateElement) error {
 }
 
 // how slow is this going to be 😬?
-func updateElementProofs(tx txn, table string, updater proofUpdater) error {
+func updateElementProofs(tx *txn, table string, updater proofUpdater) error {
 	stmt, err := tx.Prepare(`SELECT id, merkle_proof, leaf_index FROM ` + table + ` LIMIT $1 OFFSET $2`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch statement: %w", err)
@@ -314,7 +314,7 @@ func updateElementProofs(tx txn, table string, updater proofUpdater) error {
 }
 
 // applyChainUpdates applies the given chain updates to the database.
-func applyChainUpdates(tx txn, updates []*chain.ApplyUpdate) error {
+func applyChainUpdates(tx *txn, updates []*chain.ApplyUpdate) error {
 	stmt, err := tx.Prepare(`SELECT id FROM sia_addresses WHERE sia_address=$1 LIMIT 1`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -404,7 +404,7 @@ func (s *Store) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, mayCommit bool) 
 	s.updates = append(s.updates, cau)
 
 	if mayCommit {
-		return s.transaction(func(tx txn) error {
+		return s.transaction(func(tx *txn) error {
 			if err := applyChainUpdates(tx, s.updates); err != nil {
 				return err
 			}
@@ -424,7 +424,7 @@ func (s *Store) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
 	}
 
 	// update has been committed, revert it
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		stmt, err := tx.Prepare(`SELECT id FROM sia_addresses WHERE sia_address=$1 LIMIT 1`)
 		if err != nil {
 			return fmt.Errorf("failed to prepare statement: %w", err)

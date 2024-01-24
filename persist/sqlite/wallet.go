@@ -10,7 +10,7 @@ import (
 	"go.sia.tech/walletd/wallet"
 )
 
-func insertAddress(tx txn, addr types.Address) (id int64, err error) {
+func insertAddress(tx *txn, addr types.Address) (id int64, err error) {
 	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, siafund_balance) 
 VALUES ($1, $2, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
 RETURNING id`
@@ -21,7 +21,7 @@ RETURNING id`
 
 // WalletEvents returns the events relevant to a wallet, sorted by height descending.
 func (s *Store) WalletEvents(walletID string, offset, limit int) (events []wallet.Event, err error) {
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT ev.id, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
 FROM events ev
 INNER JOIN chain_indices ci ON (ev.index_id = ci.id)
@@ -79,7 +79,7 @@ LIMIT $2 OFFSET $3`
 
 // AddWallet adds a wallet to the database.
 func (s *Store) AddWallet(name string, info json.RawMessage) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		const query = `INSERT INTO wallets (id, extra_data) VALUES ($1, $2)`
 
 		_, err := tx.Exec(query, name, info)
@@ -93,7 +93,7 @@ func (s *Store) AddWallet(name string, info json.RawMessage) error {
 // DeleteWallet deletes a wallet from the database. This does not stop tracking
 // addresses that were previously associated with the wallet.
 func (s *Store) DeleteWallet(name string) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		_, err := tx.Exec(`DELETE FROM wallets WHERE id=$1`, name)
 		return err
 	})
@@ -102,7 +102,7 @@ func (s *Store) DeleteWallet(name string) error {
 // Wallets returns a map of wallet names to wallet extra data.
 func (s *Store) Wallets() (map[string]json.RawMessage, error) {
 	wallets := make(map[string]json.RawMessage)
-	err := s.transaction(func(tx txn) error {
+	err := s.transaction(func(tx *txn) error {
 		const query = `SELECT id, extra_data FROM wallets`
 
 		rows, err := tx.Query(query)
@@ -126,7 +126,7 @@ func (s *Store) Wallets() (map[string]json.RawMessage, error) {
 
 // AddAddress adds an address to a wallet.
 func (s *Store) AddAddress(walletID string, address types.Address, info json.RawMessage) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		addressID, err := insertAddress(tx, address)
 		if err != nil {
 			return fmt.Errorf("failed to insert address: %w", err)
@@ -139,7 +139,7 @@ func (s *Store) AddAddress(walletID string, address types.Address, info json.Raw
 // RemoveAddress removes an address from a wallet. This does not stop tracking
 // the address.
 func (s *Store) RemoveAddress(walletID string, address types.Address) error {
-	return s.transaction(func(tx txn) error {
+	return s.transaction(func(tx *txn) error {
 		const query = `DELETE FROM wallet_addresses WHERE wallet_id=$1 AND address_id=(SELECT id FROM sia_addresses WHERE sia_address=$2)`
 		_, err := tx.Exec(query, walletID, encode(address))
 		return err
@@ -149,7 +149,7 @@ func (s *Store) RemoveAddress(walletID string, address types.Address) error {
 // Addresses returns a map of addresses to their extra data for a wallet.
 func (s *Store) Addresses(walletID string) (map[types.Address]json.RawMessage, error) {
 	addresses := make(map[types.Address]json.RawMessage)
-	err := s.transaction(func(tx txn) error {
+	err := s.transaction(func(tx *txn) error {
 		const query = `SELECT sa.sia_address, wa.extra_data 
 FROM wallet_addresses wa
 INNER JOIN sia_addresses sa ON (sa.id = wa.address_id)
@@ -176,7 +176,7 @@ WHERE wa.wallet_id=$1`
 
 // UnspentSiacoinOutputs returns the unspent siacoin outputs for a wallet.
 func (s *Store) UnspentSiacoinOutputs(walletID string) (siacoins []types.SiacoinElement, err error) {
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siacoin_value, sa.sia_address, se.maturity_height 
 		FROM siacoin_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
@@ -204,7 +204,7 @@ func (s *Store) UnspentSiacoinOutputs(walletID string) (siacoins []types.Siacoin
 
 // UnspentSiafundOutputs returns the unspent siafund outputs for a wallet.
 func (s *Store) UnspentSiafundOutputs(walletID string) (siafunds []types.SiafundElement, err error) {
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
 		FROM siafund_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
@@ -231,7 +231,7 @@ func (s *Store) UnspentSiafundOutputs(walletID string) (siafunds []types.Siafund
 
 // WalletBalance returns the total balance of a wallet.
 func (s *Store) WalletBalance(walletID string) (sc types.Currency, sf uint64, err error) {
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT siacoin_balance, siafund_balance FROM sia_addresses sa
 		INNER JOIN wallet_addresses wa ON (sa.id = wa.address_id)
 		WHERE wa.wallet_id=$1`
@@ -258,7 +258,7 @@ func (s *Store) WalletBalance(walletID string) (sc types.Currency, sf uint64, er
 
 // AddressBalance returns the balance of a single address.
 func (s *Store) AddressBalance(address types.Address) (sc types.Currency, sf uint64, err error) {
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT siacoin_balance, siafund_balance FROM address_balance WHERE sia_address=$1`
 		return tx.QueryRow(query, encode(address)).Scan(decode(&sc), &sf)
 	})
@@ -267,7 +267,7 @@ func (s *Store) AddressBalance(address types.Address) (sc types.Currency, sf uin
 
 // Annotate annotates a list of transactions using the wallet's addresses.
 func (s *Store) Annotate(walletID string, txns []types.Transaction) (annotated []wallet.PoolTransaction, err error) {
-	err = s.transaction(func(tx txn) error {
+	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT sa.id FROM sia_addresses sa
 INNER JOIN wallet_addresses wa ON (sa.id = wa.address_id)
 WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`

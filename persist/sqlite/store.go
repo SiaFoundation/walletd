@@ -3,6 +3,7 @@ package sqlite
 import (
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -27,7 +28,7 @@ type (
 // function returns an error, the transaction is rolled back. Otherwise, the
 // transaction is committed. If the transaction fails due to a busy error, it is
 // retried up to 10 times before returning.
-func (s *Store) transaction(fn func(txn) error) error {
+func (s *Store) transaction(fn func(*txn) error) error {
 	var err error
 	txnID := hex.EncodeToString(frand.Bytes(4))
 	log := s.log.Named("transaction").With(zap.String("id", txnID))
@@ -76,25 +77,27 @@ func sqliteFilepath(fp string) string {
 // doTransaction is a helper function to execute a function within a transaction. If fn returns
 // an error, the transaction is rolled back. Otherwise, the transaction is
 // committed.
-func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx txn) error) error {
+func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx *txn) error) error {
 	start := time.Now()
-	tx, err := db.Begin()
+	dbtx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
 	defer func() {
+		if err := dbtx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			log.Error("failed to rollback transaction", zap.Error(err))
+		}
 		// log the transaction if it took longer than txn duration
 		if time.Since(start) > longTxnDuration {
 			log.Debug("long transaction", zap.Duration("elapsed", time.Since(start)), zap.Stack("stack"), zap.Bool("failed", err != nil))
 		}
 	}()
 
-	ltx := &loggedTxn{
-		Tx:  tx,
+	tx := &txn{
+		Tx:  dbtx,
 		log: log,
 	}
-	if err = fn(ltx); err != nil {
+	if err = fn(tx); err != nil {
 		return err
 	} else if err = tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
