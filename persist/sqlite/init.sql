@@ -8,6 +8,7 @@ CREATE TABLE sia_addresses (
 	id INTEGER PRIMARY KEY,
 	sia_address BLOB UNIQUE NOT NULL,
 	siacoin_balance BLOB NOT NULL,
+	immature_siacoin_balance BLOB NOT NULL,
 	siafund_balance INTEGER NOT NULL
 );
 

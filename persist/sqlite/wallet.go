@@ -11,8 +11,8 @@ import (
 )
 
 func insertAddress(tx *txn, addr types.Address) (id int64, err error) {
-	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, siafund_balance) 
-VALUES ($1, $2, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
+	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) 
+VALUES ($1, $2, $2, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
 RETURNING id`
 
 	err = tx.QueryRow(query, encode(addr), encode(types.ZeroCurrency)).Scan(&id)
@@ -230,9 +230,9 @@ func (s *Store) UnspentSiafundOutputs(walletID string) (siafunds []types.Siafund
 }
 
 // WalletBalance returns the total balance of a wallet.
-func (s *Store) WalletBalance(walletID string) (sc types.Currency, sf uint64, err error) {
+func (s *Store) WalletBalance(walletID string) (sc, immatureSC types.Currency, sf uint64, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT siacoin_balance, siafund_balance FROM sia_addresses sa
+		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses sa
 		INNER JOIN wallet_addresses wa ON (sa.id = wa.address_id)
 		WHERE wa.wallet_id=$1`
 
@@ -242,14 +242,16 @@ func (s *Store) WalletBalance(walletID string) (sc types.Currency, sf uint64, er
 		}
 
 		for rows.Next() {
-			var siacoin types.Currency
-			var siafund uint64
+			var addressSC types.Currency
+			var addressISC types.Currency
+			var addressSF uint64
 
-			if err := rows.Scan(decode(&siacoin), &siafund); err != nil {
+			if err := rows.Scan(decode(&addressSC), decode(&addressISC), decode(&addressSF)); err != nil {
 				return fmt.Errorf("failed to scan address balance: %w", err)
 			}
-			sc = sc.Add(siacoin)
-			sf += siafund
+			sc = sc.Add(addressSC)
+			immatureSC = immatureSC.Add(addressISC)
+			sf += addressSF
 		}
 		return nil
 	})

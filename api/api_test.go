@@ -90,7 +90,7 @@ func TestWallet(t *testing.T) {
 	balance, err := wc.Balance()
 	if err != nil {
 		t.Fatal(err)
-	} else if !balance.Siacoins.IsZero() || balance.Siafunds != 0 {
+	} else if !balance.Siacoins.IsZero() || !balance.ImmatureSiacoins.IsZero() || balance.Siafunds != 0 {
 		t.Fatal("balance should be 0")
 	}
 
@@ -163,6 +163,8 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	} else if !balance.Siacoins.Equals(types.Siacoins(1)) {
 		t.Error("balance should be 1 SC, got", balance.Siacoins)
+	} else if !balance.ImmatureSiacoins.IsZero() {
+		t.Error("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
 	}
 
 	// transaction should appear in history
@@ -178,6 +180,58 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	} else if len(outputs) != 2 {
 		t.Error("should have two UTXOs, got", len(outputs))
+	}
+
+	// mine a block to add an immature balance
+	cs = cm.TipState()
+	b = types.Block{
+		ParentID:     cs.Index.ID,
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: addr, Value: cs.BlockReward()}},
+	}
+	for b.ID().CmpWork(cs.ChildTarget) < 0 {
+		b.Nonce += cs.NonceFactor()
+	}
+	if err := cm.AddBlocks([]types.Block{b}); err != nil {
+		t.Fatal(err)
+	}
+
+	// get new balance
+	balance, err = wc.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Siacoins.Equals(types.Siacoins(1)) {
+		t.Error("balance should be 1 SC, got", balance.Siacoins)
+	} else if !balance.ImmatureSiacoins.Equals(b.MinerPayouts[0].Value) {
+		t.Errorf("immature balance should be %d SC, got %d SC", b.MinerPayouts[0].Value, balance.ImmatureSiacoins)
+	}
+
+	// mine enough blocks for the miner payout to mature
+	expectedBalance := types.Siacoins(1).Add(b.MinerPayouts[0].Value)
+	target := cs.MaturityHeight()
+	for cs.Index.Height < target {
+		cs = cm.TipState()
+		b := types.Block{
+			ParentID:     cs.Index.ID,
+			Timestamp:    types.CurrentTimestamp(),
+			MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
+		}
+		for b.ID().CmpWork(cs.ChildTarget) < 0 {
+			b.Nonce += cs.NonceFactor()
+		}
+		if err := cm.AddBlocks([]types.Block{b}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// get new balance
+	balance, err = wc.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Siacoins.Equals(expectedBalance) {
+		t.Errorf("balance should be %d, got %d", expectedBalance, balance.Siacoins)
+	} else if !balance.ImmatureSiacoins.IsZero() {
+		t.Error("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
 	}
 }
 

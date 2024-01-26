@@ -68,16 +68,16 @@ func applyEvents(tx *txn, events []wallet.Event) error {
 	return nil
 }
 
-func applySiacoinElements(tx *txn, cu chainUpdate, relevantAddress func(types.Address) bool, log *zap.Logger) error {
-	addrStatement, err := tx.Prepare(`INSERT INTO sia_addresses (sia_address, siacoin_balance, siafund_balance) VALUES ($1, $2, 0) 
+func applySiacoinElements(tx *txn, index types.ChainIndex, cu chainUpdate, relevantAddress func(types.Address) bool, log *zap.Logger) error {
+	addrStatement, err := tx.Prepare(`INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) VALUES ($1, $2, $2, 0) 
 ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
-RETURNING id, siacoin_balance`)
+RETURNING id, siacoin_balance, immature_siacoin_balance`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
 	defer addrStatement.Close()
 
-	updateBalanceStmt, err := tx.Prepare(`UPDATE sia_addresses SET siacoin_balance=$1 WHERE id=$2`)
+	updateBalanceStmt, err := tx.Prepare(`UPDATE sia_addresses SET siacoin_balance=$1, immature_siacoin_balance=$2 WHERE id=$3`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update statement: %w", err)
 	}
@@ -119,8 +119,8 @@ RETURNING id, siacoin_balance`)
 
 		// query the address database ID and balance
 		var addressID int64
-		var balance types.Currency
-		err = addrStatement.QueryRow(encode(se.SiacoinOutput.Address), encode(types.ZeroCurrency)).Scan(&addressID, decode(&balance))
+		var balance, immatureBalance types.Currency
+		err = addrStatement.QueryRow(encode(se.SiacoinOutput.Address), encode(types.ZeroCurrency)).Scan(&addressID, decode(&balance), decode(&immatureBalance))
 		if err != nil {
 			err = fmt.Errorf("failed to query address %q: %w", se.SiacoinOutput.Address, err)
 			return
@@ -138,13 +138,13 @@ RETURNING id, siacoin_balance`)
 				return
 			}
 
-			// update the balance after making sure the utxo was in the database
-			// and not an ephemeral output
-			updated, underflow := balance.SubWithUnderflow(se.SiacoinOutput.Value)
-			if underflow {
-				log.Panic("balance is negative", zap.Stringer("address", se.SiacoinOutput.Address), zap.String("balance", balance.ExactString()), zap.Stringer("outputID", se.ID), zap.String("value", se.SiacoinOutput.Value.ExactString()))
+			if se.MaturityHeight > index.Height {
+				immatureBalance = immatureBalance.Sub(se.SiacoinOutput.Value)
+			} else {
+				balance = balance.Sub(se.SiacoinOutput.Value)
 			}
-			_, err = updateBalanceStmt.Exec(encode(updated), addressID)
+
+			_, err = updateBalanceStmt.Exec(encode(balance), encode(immatureBalance), addressID)
 			if err != nil {
 				err = fmt.Errorf("failed to update address %q balance: %w", se.SiacoinOutput.Address, err)
 				return
@@ -152,29 +152,36 @@ RETURNING id, siacoin_balance`)
 
 			log.Debug("removed utxo", zap.Stringer("address", se.SiacoinOutput.Address), zap.Stringer("outputID", se.ID), zap.String("value", se.SiacoinOutput.Value.ExactString()), zap.Int64("addressID", addressID))
 		} else {
-			balance = balance.Add(se.SiacoinOutput.Value)
-
-			// update the balance
-			_, err = updateBalanceStmt.Exec(encode(balance), addressID)
-			if err != nil {
-				err = fmt.Errorf("failed to update address %q balance: %w", se.SiacoinOutput.Address, err)
-				return
-			}
-
 			// insert the created utxo
 			_, err = addStmt.Exec(encode(se.ID), addressID, encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight)
 			if err != nil {
 				err = fmt.Errorf("failed to insert output %q: %w", se.ID, err)
 				return
 			}
-			log.Debug("added utxo", zap.Stringer("address", se.SiacoinOutput.Address), zap.Stringer("outputID", se.ID), zap.String("value", se.SiacoinOutput.Value.ExactString()), zap.Int64("addressID", addressID))
+
+			if se.MaturityHeight > index.Height {
+				immatureBalance = immatureBalance.Add(se.SiacoinOutput.Value)
+				log.Debug("adding immature balance")
+			} else {
+				balance = balance.Add(se.SiacoinOutput.Value)
+				log.Debug("adding balance")
+			}
+
+			// update the balance
+			_, err = updateBalanceStmt.Exec(encode(balance), encode(immatureBalance), addressID)
+			if err != nil {
+				err = fmt.Errorf("failed to update address %q balance: %w", se.SiacoinOutput.Address, err)
+				return
+			}
+			log.Debug("added utxo", zap.Uint64("maturityHeight", se.MaturityHeight), zap.Stringer("address", se.SiacoinOutput.Address), zap.Stringer("outputID", se.ID), zap.String("value", se.SiacoinOutput.Value.ExactString()), zap.Int64("addressID", addressID))
 		}
 	})
 	return err
 }
 
 func applySiafundElements(tx *txn, cu chainUpdate, relevantAddress func(types.Address) bool, log *zap.Logger) error {
-	addrStatement, err := tx.Prepare(`INSERT INTO sia_addresses (sia_address, siacoin_balance, siafund_balance) VALUES ($1, $2, 0) 
+	// create the address if it doesn't exist
+	addrStatement, err := tx.Prepare(`INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) VALUES ($1, $2, $2, 0)
 ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
 RETURNING id, siafund_balance`)
 	if err != nil {
@@ -211,6 +218,7 @@ RETURNING id, siafund_balance`)
 		// query the address database ID and balance
 		var addressID int64
 		var balance uint64
+		// get the address ID
 		err = addrStatement.QueryRow(encode(se.SiafundOutput.Address), encode(types.ZeroCurrency)).Scan(&addressID, &balance)
 		if err != nil {
 			err = fmt.Errorf("failed to query address %q: %w", se.SiafundOutput.Address, err)
@@ -330,6 +338,67 @@ func updateElementProofs(tx *txn, table string, cu chainUpdate) error {
 	return nil
 }
 
+func getMaturedValue(tx *txn, index types.ChainIndex) (matured map[int64]types.Currency, err error) {
+	rows, err := tx.Query(`SELECT address_id, siacoin_value FROM siacoin_elements WHERE maturity_height=$1`, index.Height)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
+	}
+	defer rows.Close()
+
+	matured = make(map[int64]types.Currency)
+	for rows.Next() {
+		var addressID int64
+		var value types.Currency
+		err := rows.Scan(&addressID, decode(&value))
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan matured balance: %w", err)
+		}
+		matured[addressID] = matured[addressID].Add(value)
+	}
+	return
+}
+
+func updateImmatureBalance(tx *txn, index types.ChainIndex, revert bool) error {
+	balanceStmt, err := tx.Prepare(`SELECT siacoin_balance, immature_siacoin_balance FROM sia_addresses WHERE id=$1`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer balanceStmt.Close()
+
+	updateStmt, err := tx.Prepare(`UPDATE sia_addresses SET siacoin_balance=$1, immature_siacoin_balance=$2 WHERE id=$3`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer updateStmt.Close()
+
+	delta, err := getMaturedValue(tx, index)
+	if err != nil {
+		return fmt.Errorf("failed to get matured utxos: %w", err)
+	}
+
+	for addressID, value := range delta {
+		var balance, immatureBalance types.Currency
+		err := balanceStmt.QueryRow(addressID).Scan(decode(&balance), decode(&immatureBalance))
+		if err != nil {
+			return fmt.Errorf("failed to query address %d: %w", addressID, err)
+		}
+
+		if revert {
+			balance = balance.Sub(value)
+			immatureBalance = immatureBalance.Add(value)
+		} else {
+			balance = balance.Add(value)
+			immatureBalance = immatureBalance.Sub(value)
+		}
+
+		_, err = updateStmt.Exec(encode(balance), encode(immatureBalance), addressID)
+		if err != nil {
+			return fmt.Errorf("failed to update address %d: %w", addressID, err)
+		}
+	}
+	return nil
+}
+
 // applyChainUpdates applies the given chain updates to the database.
 func applyChainUpdates(tx *txn, updates []*chain.ApplyUpdate, log *zap.Logger) error {
 	stmt, err := tx.Prepare(`SELECT id FROM sia_addresses WHERE sia_address=$1 LIMIT 1`)
@@ -354,12 +423,18 @@ func applyChainUpdates(tx *txn, updates []*chain.ApplyUpdate, log *zap.Logger) e
 	}
 
 	for _, update := range updates {
+		// mature the immature balance first
+		if err := updateImmatureBalance(tx, update.State.Index, false); err != nil {
+			return fmt.Errorf("failed to update immature balance: %w", err)
+		}
+		// apply new events
 		events := wallet.AppliedEvents(update.State, update.Block, update, relevantAddress)
 		if err := applyEvents(tx, events); err != nil {
 			return fmt.Errorf("failed to apply events: %w", err)
 		}
 
-		if err := applySiacoinElements(tx, update, relevantAddress, log.Named("siacoins")); err != nil {
+		// apply new elements
+		if err := applySiacoinElements(tx, update.State.Index, update, relevantAddress, log.Named("siacoins")); err != nil {
 			return fmt.Errorf("failed to apply siacoin elements: %w", err)
 		} else if err := applySiafundElements(tx, update, relevantAddress, log.Named("siafunds")); err != nil {
 			return fmt.Errorf("failed to apply siafund elements: %w", err)
@@ -429,7 +504,7 @@ func (s *Store) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
 			return err == nil
 		}
 
-		if err := applySiacoinElements(tx, cru, relevantAddress, log.Named("siacoins")); err != nil {
+		if err := applySiacoinElements(tx, cru.State.Index, cru, relevantAddress, log.Named("siacoins")); err != nil {
 			return fmt.Errorf("failed to apply siacoin elements: %w", err)
 		} else if err := applySiafundElements(tx, cru, relevantAddress, log.Named("siafunds")); err != nil {
 			return fmt.Errorf("failed to apply siafund elements: %w", err)
@@ -439,6 +514,11 @@ func (s *Store) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
 		_, err = tx.Exec(`DELETE FROM chain_indices WHERE block_id=$1`, cru.Block.ID())
 		if err != nil {
 			return fmt.Errorf("failed to delete chain index: %w", err)
+		}
+
+		// revert immature balance
+		if err := updateImmatureBalance(tx, cru.State.Index, true); err != nil {
+			return fmt.Errorf("failed to update immature balance: %w", err)
 		}
 
 		// update proofs
