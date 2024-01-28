@@ -682,6 +682,7 @@ func NewPrometheusServer(cm ChainManager, s Syncer, wm WalletManager) http.Handl
 		"GET    /txpool/fee":          srv.txpoolFeePrometheusHandler,
 		// "GET    /wallets":    srv.walletsPrometheusHandler, 						//intentionally left out.
 		// "GET    /wallets/:name/addresses":       srv.walletsAddressesHandlerGET, //intentionally left out.
+		"GET    /wallets":               srv.walletsHandler, //reuse implementation. sia-to-prometheus-config.py uses this endpoint to generate the following 2 endpoints for each wallet
 		"GET    /wallets/:name/balance": srv.walletsBalancePrometheusHandler,
 		"GET    /wallets/:name/events":  srv.walletsEventsPrometheusHandler,
 		// "GET    /wallets/:name/txpool":          srv.walletsTxpoolHandler, 		//intentionally left out.
