@@ -35,9 +35,9 @@ type (
 	// A Syncer can connect to other peers and synchronize the blockchain.
 	Syncer interface {
 		Addr() string
-		Peers() []*gateway.Peer
+		Peers() []*syncer.Peer
 		PeerInfo(peer string) (syncer.PeerInfo, bool)
-		Connect(addr string) (*gateway.Peer, error)
+		Connect(addr string) (*syncer.Peer, error)
 		BroadcastHeader(bh gateway.BlockHeader)
 		BroadcastTransactionSet(txns []types.Transaction)
 		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction)
@@ -85,14 +85,14 @@ func (s *server) consensusTipStateHandler(jc jape.Context) {
 func (s *server) syncerPeersHandler(jc jape.Context) {
 	var peers []GatewayPeer
 	for _, p := range s.s.Peers() {
-		info, ok := s.s.PeerInfo(p.Addr)
+		info, ok := s.s.PeerInfo(p.Addr())
 		if !ok {
 			continue
 		}
 		peers = append(peers, GatewayPeer{
-			Addr:    p.Addr,
+			Addr:    p.Addr(),
 			Inbound: p.Inbound,
-			Version: p.Version,
+			Version: p.Version(),
 
 			FirstSeen:      info.FirstSeen,
 			ConnectedSince: info.LastConnect,

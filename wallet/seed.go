@@ -8,7 +8,7 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
-	"go.sia.tech/coreutils"
+	"go.sia.tech/coreutils/wallet"
 	"lukechampine.com/frand"
 )
 
@@ -20,14 +20,14 @@ type Seed struct {
 
 // PublicKey derives the public key for the specified index.
 func (s Seed) PublicKey(index uint64) (pk types.PublicKey) {
-	key := coreutils.KeyFromSeed(s.entropy, index)
+	key := wallet.KeyFromSeed(s.entropy, index)
 	copy(pk[:], key[len(key)-ed25519.PublicKeySize:])
 	return
 }
 
 // PrivateKey derives the private key for the specified index.
 func (s Seed) PrivateKey(index uint64) types.PrivateKey {
-	key := coreutils.KeyFromSeed(s.entropy, index)
+	key := wallet.KeyFromSeed(s.entropy, index)
 	return key[:]
 }
 
