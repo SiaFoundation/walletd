@@ -4,7 +4,7 @@ go 1.21
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.21
-	go.sia.tech/core v0.2.1-0.20240130145801-8067f34b2ecc
+	go.sia.tech/core v0.2.1
 	go.sia.tech/coreutils v0.0.0-20240130201319-8303550528d7
 	go.sia.tech/jape v0.9.0
 	go.sia.tech/web/walletd v0.16.0

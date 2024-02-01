@@ -13,6 +13,11 @@ import (
 
 func encode(obj any) any {
 	switch obj := obj.(type) {
+	case types.Currency:
+		buf := make([]byte, 16)
+		binary.LittleEndian.PutUint64(buf, obj.Lo)
+		binary.LittleEndian.PutUint64(buf[8:], obj.Hi)
+		return buf
 	case types.EncoderTo:
 		var buf bytes.Buffer
 		e := types.NewEncoder(&buf)
@@ -43,6 +48,12 @@ func (d *decodable) Scan(src any) error {
 	switch src := src.(type) {
 	case []byte:
 		switch v := d.v.(type) {
+		case *types.Currency:
+			if len(src) != 16 {
+				return fmt.Errorf("cannot scan %d bytes into Currency", len(src))
+			}
+			v.Lo = binary.LittleEndian.Uint64(src)
+			v.Hi = binary.LittleEndian.Uint64(src[8:])
 		case types.DecoderFrom:
 			dec := types.NewBufDecoder(src)
 			v.DecodeFrom(dec)
