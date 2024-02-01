@@ -11,6 +11,8 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/wallet"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/term"
 	"lukechampine.com/flagg"
 	"lukechampine.com/frand"
@@ -157,12 +159,37 @@ func main() {
 			cmd.Usage()
 			return
 		}
+
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			log.Fatal(err)
+		}
+
 		apiPassword := getAPIPassword()
 		l, err := net.Listen("tcp", apiAddr)
 		if err != nil {
 			log.Fatal(err)
 		}
-		n, err := newNode(gatewayAddr, dir, network, upnp)
+
+		// configure console logging note: this is configured before anything else
+		// to have consistent logging. File logging will be added after the cli
+		// flags and config is parsed
+		consoleCfg := zap.NewProductionEncoderConfig()
+		consoleCfg.TimeKey = "" // prevent duplicate timestamps
+		consoleCfg.EncodeTime = zapcore.RFC3339TimeEncoder
+		consoleCfg.EncodeDuration = zapcore.StringDurationEncoder
+		consoleCfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		consoleCfg.StacktraceKey = ""
+		consoleCfg.CallerKey = ""
+		consoleEncoder := zapcore.NewConsoleEncoder(consoleCfg)
+
+		// only log info messages to console unless stdout logging is enabled
+		consoleCore := zapcore.NewCore(consoleEncoder, zapcore.Lock(os.Stdout), zap.NewAtomicLevelAt(zap.InfoLevel))
+		logger := zap.New(consoleCore, zap.AddCaller())
+		defer logger.Sync()
+		// redirect stdlib log to zap
+		zap.RedirectStdLog(logger.Named("stdlib"))
+
+		n, err := newNode(gatewayAddr, dir, network, upnp, logger)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -204,7 +231,6 @@ func main() {
 		seed := loadTestnetSeed(seed)
 		c := initTestnetClient(apiAddr, network, seed)
 		runTestnetMiner(c, seed)
-
 	case balanceCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()

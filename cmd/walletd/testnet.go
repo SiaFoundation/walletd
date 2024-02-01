@@ -115,12 +115,13 @@ func initTestnetClient(addr string, network string, seed wallet.Seed) *api.Clien
 		} else if err := wc.AddAddress(ourAddr, nil); err != nil {
 			fmt.Println()
 			log.Fatal(err)
-		} else if err := wc.Subscribe(0); err != nil {
+		} else if err := c.Resubscribe(0); err != nil {
 			fmt.Println()
 			log.Fatal(err)
 		}
 		fmt.Println("done.")
 	}
+
 	return c
 }
 

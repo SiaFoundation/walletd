@@ -105,18 +105,18 @@ func (c *Client) Wallet(name string) *WalletClient {
 	return &WalletClient{c: c.c, name: name}
 }
 
+// Resubscribe subscribes the wallet to consensus updates, starting at the
+// specified height.
+func (c *Client) Resubscribe(height uint64) (err error) {
+	err = c.c.POST("/resubscribe", height, nil)
+	return
+}
+
 // A WalletClient provides methods for interacting with a particular wallet on a
 // walletd API server.
 type WalletClient struct {
 	c    jape.Client
 	name string
-}
-
-// Subscribe subscribes the wallet to consensus updates, starting at the
-// specified height. This can only be done once.
-func (c *WalletClient) Subscribe(height uint64) (err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v/subscribe", c.name), height, nil)
-	return
 }
 
 // AddAddress adds the specified address and associated metadata to the

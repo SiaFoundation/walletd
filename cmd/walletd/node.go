@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
 	"net"
 	"path/filepath"
 	"strconv"
@@ -15,8 +15,9 @@ import (
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
-	"go.sia.tech/walletd/internal/syncerutil"
-	"go.sia.tech/walletd/internal/walletutil"
+	"go.sia.tech/walletd/persist/sqlite"
+	"go.sia.tech/walletd/wallet"
+	"go.uber.org/zap"
 	"lukechampine.com/upnp"
 )
 
@@ -82,14 +83,23 @@ var anagamiBootstrap = []string{
 }
 
 type node struct {
-	cm *chain.Manager
-	s  *syncer.Syncer
-	wm *walletutil.JSONWalletManager
+	chainStore *coreutils.BoltChainDB
+	cm         *chain.Manager
+
+	store *sqlite.Store
+	s     *syncer.Syncer
+	wm    *wallet.Manager
 
 	Start func() (stop func())
 }
 
-func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error) {
+// Close shuts down the node and closes its database.
+func (n *node) Close() error {
+	n.chainStore.Close()
+	return n.store.Close()
+}
+
+func newNode(addr, dir string, chainNetwork string, useUPNP bool, log *zap.Logger) (*node, error) {
 	var network *consensus.Network
 	var genesisBlock types.Block
 	var bootstrapPeers []string
@@ -109,11 +119,11 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 
 	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("failed to open consensus database: %w", err)
 	}
 	dbstore, tipState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create chain store: %w", err)
 	}
 	cm := chain.NewManager(dbstore, tipState)
 
@@ -126,21 +136,21 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if d, err := upnp.Discover(ctx); err != nil {
-			log.Println("WARN: couldn't discover UPnP device:", err)
+			log.Debug("couldn't discover UPnP router", zap.Error(err))
 		} else {
 			_, portStr, _ := net.SplitHostPort(addr)
 			port, _ := strconv.Atoi(portStr)
 			if !d.IsForwarded(uint16(port), "TCP") {
 				if err := d.Forward(uint16(port), "TCP", "walletd"); err != nil {
-					log.Println("WARN: couldn't forward port:", err)
+					log.Debug("couldn't forward port", zap.Error(err))
 				} else {
-					log.Println("p2p: Forwarded port", port)
+					log.Debug("upnp: forwarded p2p port", zap.Int("port", port))
 				}
 			}
 			if ip, err := d.ExternalIP(); err != nil {
-				log.Println("WARN: couldn't determine external IP:", err)
+				log.Debug("couldn't determine external IP", zap.Error(err))
 			} else {
-				log.Println("p2p: External IP is", ip)
+				log.Debug("external IP is", zap.String("ip", ip))
 				syncerAddr = net.JoinHostPort(ip, portStr)
 			}
 		}
@@ -151,30 +161,31 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool) (*node, error)
 		syncerAddr = net.JoinHostPort("127.0.0.1", port)
 	}
 
-	ps, err := syncerutil.NewJSONPeerStore(filepath.Join(dir, "peers.json"))
+	store, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("failed to open wallet database: %w", err)
 	}
+
 	for _, peer := range bootstrapPeers {
-		ps.AddPeer(peer)
+		store.AddPeer(peer)
 	}
 	header := gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
 	}
-
-	s := syncer.New(l, cm, ps, header)
-
-	wm, err := walletutil.NewJSONWalletManager(dir, cm)
+	s := syncer.New(l, cm, store, header, syncer.WithLogger(log.Named("syncer")))
+	wm, err := wallet.NewManager(cm, store, log.Named("wallet"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create wallet manager: %w", err)
 	}
 
 	return &node{
-		cm: cm,
-		s:  s,
-		wm: wm,
+		chainStore: bdb,
+		cm:         cm,
+		store:      store,
+		s:          s,
+		wm:         wm,
 		Start: func() func() {
 			ch := make(chan struct{})
 			go func() {

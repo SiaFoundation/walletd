@@ -9,6 +9,13 @@ import (
 	"go.sia.tech/core/types"
 )
 
+// event type constants
+const (
+	EventTypeTransaction        = "transaction"
+	EventTypeMinerPayout        = "miner payout"
+	EventTypeMissedFileContract = "missed file contract"
+)
+
 // StandardTransactionSignature is the most common form of TransactionSignature.
 // It covers the entire transaction, references a sole public key, and has no
 // timelock.
@@ -143,12 +150,17 @@ type Event struct {
 	Index     types.ChainIndex
 	Timestamp time.Time
 	Relevant  []types.Address
-	Val       interface{ eventType() string }
+	Val       interface{ EventType() string }
 }
 
-func (*EventTransaction) eventType() string        { return "transaction" }
-func (*EventMinerPayout) eventType() string        { return "miner payout" }
-func (*EventMissedFileContract) eventType() string { return "missed file contract" }
+// EventType implements Event.
+func (*EventTransaction) EventType() string { return EventTypeTransaction }
+
+// EventType implements Event.
+func (*EventMinerPayout) EventType() string { return EventTypeMinerPayout }
+
+// EventType implements Event.
+func (*EventMissedFileContract) EventType() string { return EventTypeMissedFileContract }
 
 // MarshalJSON implements json.Marshaler.
 func (e Event) MarshalJSON() ([]byte, error) {
@@ -163,7 +175,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 		Timestamp: e.Timestamp,
 		Index:     e.Index,
 		Relevant:  e.Relevant,
-		Type:      e.Val.eventType(),
+		Type:      e.Val.EventType(),
 		Val:       val,
 	})
 }
@@ -184,11 +196,11 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	e.Index = s.Index
 	e.Relevant = s.Relevant
 	switch s.Type {
-	case (*EventTransaction)(nil).eventType():
+	case (*EventTransaction)(nil).EventType():
 		e.Val = new(EventTransaction)
-	case (*EventMinerPayout)(nil).eventType():
+	case (*EventMinerPayout)(nil).EventType():
 		e.Val = new(EventMinerPayout)
-	case (*EventMissedFileContract)(nil).eventType():
+	case (*EventMissedFileContract)(nil).EventType():
 		e.Val = new(EventMissedFileContract)
 	}
 	if e.Val == nil {
@@ -228,6 +240,7 @@ type V2FileContract struct {
 	Outputs    []types.SiacoinElement             `json:"outputs,omitempty"`
 }
 
+// An EventTransaction represents a transaction that affects the wallet.
 type EventTransaction struct {
 	ID                types.TransactionID    `json:"id"`
 	SiacoinInputs     []types.SiacoinElement `json:"siacoinInputs"`
@@ -240,15 +253,19 @@ type EventTransaction struct {
 	Fee               types.Currency         `json:"fee"`
 }
 
+// An EventMinerPayout represents a miner payout from a block.
 type EventMinerPayout struct {
 	SiacoinOutput types.SiacoinElement `json:"siacoinOutput"`
 }
 
+// An EventMissedFileContract represents a file contract that has expired
+// without a storage proof
 type EventMissedFileContract struct {
 	FileContract  types.FileContractElement `json:"fileContract"`
 	MissedOutputs []types.SiacoinElement    `json:"missedOutputs"`
 }
 
+// A ChainUpdate is a set of changes to the consensus state.
 type ChainUpdate interface {
 	ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool))
 	ForEachSiafundElement(func(sfe types.SiafundElement, spent bool))
@@ -259,7 +276,7 @@ type ChainUpdate interface {
 // AppliedEvents extracts a list of relevant events from a chain update.
 func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant func(types.Address) bool) []Event {
 	var events []Event
-	addEvent := func(v interface{ eventType() string }, relevant []types.Address) {
+	addEvent := func(v interface{ EventType() string }, relevant []types.Address) {
 		// dedup relevant addresses
 		seen := make(map[types.Address]bool)
 		unique := relevant[:0]
