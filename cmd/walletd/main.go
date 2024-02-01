@@ -197,8 +197,6 @@ func main() {
 		stop := n.Start()
 		log.Println("api: Listening on", l.Addr())
 		go startWeb(l, n, apiPassword)
-		log.Println("api: Listening on", l.Addr())
-		go startWeb(l, n, apiPassword)
 		signalCh := make(chan os.Signal, 1)
 		signal.Notify(signalCh, os.Interrupt)
 		<-signalCh
