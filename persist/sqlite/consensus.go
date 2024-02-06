@@ -241,7 +241,7 @@ RETURNING id, siafund_balance`)
 
 			// update the balance only if the utxo was successfully deleted
 			if se.SiafundOutput.Value > balance {
-				log.Panic("balance is negative", zap.Stringer("address", se.SiafundOutput.Address), zap.Uint64("balance", se.SiafundOutput.Value), zap.Stringer("outputID", se.ID), zap.Uint64("value", se.SiafundOutput.Value))
+				log.Panic("balance is negative", zap.Stringer("address", se.SiafundOutput.Address), zap.Uint64("balance", balance), zap.Stringer("outputID", se.ID), zap.Uint64("value", se.SiafundOutput.Value))
 			}
 
 			balance -= se.SiafundOutput.Value
