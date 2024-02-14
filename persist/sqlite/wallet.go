@@ -230,7 +230,7 @@ func (s *Store) UnspentSiafundOutputs(walletID string) (siafunds []types.Siafund
 }
 
 // WalletBalance returns the total balance of a wallet.
-func (s *Store) WalletBalance(walletID string) (sc, immatureSC types.Currency, sf uint64, err error) {
+func (s *Store) WalletBalance(walletID string) (balance wallet.Balance, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses sa
 		INNER JOIN wallet_addresses wa ON (sa.id = wa.address_id)
@@ -249,9 +249,9 @@ func (s *Store) WalletBalance(walletID string) (sc, immatureSC types.Currency, s
 			if err := rows.Scan(decode(&addressSC), decode(&addressISC), decode(&addressSF)); err != nil {
 				return fmt.Errorf("failed to scan address balance: %w", err)
 			}
-			sc = sc.Add(addressSC)
-			immatureSC = immatureSC.Add(addressISC)
-			sf += addressSF
+			balance.Siacoin = balance.Siacoin.Add(addressSC)
+			balance.Immature = balance.Immature.Add(addressISC)
+			balance.Siafund += addressSF
 		}
 		return nil
 	})
@@ -259,10 +259,10 @@ func (s *Store) WalletBalance(walletID string) (sc, immatureSC types.Currency, s
 }
 
 // AddressBalance returns the balance of a single address.
-func (s *Store) AddressBalance(address types.Address) (sc types.Currency, sf uint64, err error) {
+func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT siacoin_balance, siafund_balance FROM address_balance WHERE sia_address=$1`
-		return tx.QueryRow(query, encode(address)).Scan(decode(&sc), &sf)
+		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM address_balance WHERE sia_address=$1`
+		return tx.QueryRow(query, encode(address)).Scan(decode(&balance.Siacoin), decode(&balance.Immature), &balance.Siafund)
 	})
 	return
 }

@@ -57,11 +57,11 @@ type (
 		Events(name string, offset, limit int) ([]wallet.Event, error)
 		UnspentSiacoinOutputs(name string) ([]types.SiacoinElement, error)
 		UnspentSiafundOutputs(name string) ([]types.SiafundElement, error)
-		WalletBalance(walletID string) (sc, immatureSC types.Currency, sf uint64, err error)
+		WalletBalance(walletID string) (wallet.Balance, error)
 		Annotate(name string, pool []types.Transaction) ([]wallet.PoolTransaction, error)
 
 		Reserve(ids []types.Hash256, duration time.Duration) error
-		AddressBalance(address types.Address) (sc types.Currency, sf uint64, err error)
+		AddressBalance(address types.Address) (wallet.Balance, error)
 	}
 )
 
@@ -245,15 +245,11 @@ func (s *server) walletsBalanceHandler(jc jape.Context) {
 		return
 	}
 
-	sc, isc, sf, err := s.wm.WalletBalance(name)
+	b, err := s.wm.WalletBalance(name)
 	if jc.Check("couldn't load balance", err) != nil {
 		return
 	}
-	jc.Encode(WalletBalanceResponse{
-		Siacoins:         sc,
-		ImmatureSiacoins: isc,
-		Siafunds:         sf,
-	})
+	jc.Encode(BalanceResponse(b))
 }
 
 func (s *server) walletsEventsHandler(jc jape.Context) {

@@ -240,9 +240,9 @@ func main() {
 		c := initTestnetClient(apiAddr, network, seed)
 		b, err := c.Wallet("primary").Balance()
 		check("Couldn't get balance:", err)
-		out := fmt.Sprint(b.Siacoins)
-		if !b.ImmatureSiacoins.IsZero() {
-			out += fmt.Sprintf(" + %v immature", b.ImmatureSiacoins)
+		out := fmt.Sprint(b.Siacoin)
+		if !b.Immature.IsZero() {
+			out += fmt.Sprintf(" + %v immature", b.Immature)
 		}
 		poolGained, poolLost := testnetTxpoolBalance(c, seed)
 		if !poolGained.IsZero() || !poolLost.IsZero() {

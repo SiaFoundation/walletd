@@ -16,6 +16,14 @@ const (
 	EventTypeMissedFileContract = "missed file contract"
 )
 
+type (
+	Balance struct {
+		Siacoin  types.Currency
+		Immature types.Currency
+		Siafund  uint64
+	}
+)
+
 // StandardTransactionSignature is the most common form of TransactionSignature.
 // It covers the entire transaction, references a sole public key, and has no
 // timelock.
