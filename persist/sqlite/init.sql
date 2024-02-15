@@ -47,6 +47,8 @@ CREATE INDEX wallet_addresses_address_id ON wallet_addresses (address_id);
 
 CREATE TABLE events (
 	id INTEGER PRIMARY KEY,
+	event_id BLOB NOT NULL,
+	maturity_height INTEGER NOT NULL,
 	date_created INTEGER NOT NULL,
 	index_id BLOB NOT NULL REFERENCES chain_indices (id) ON DELETE CASCADE,
 	event_type TEXT NOT NULL,
@@ -54,15 +56,12 @@ CREATE TABLE events (
 );
 
 CREATE TABLE event_addresses (
-	id INTEGER PRIMARY KEY,
 	event_id INTEGER NOT NULL REFERENCES events (id) ON DELETE CASCADE,
 	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
-	block_height INTEGER NOT NULL, /* prevents extra join when querying for events */
-	UNIQUE (event_id, address_id)
+	PRIMARY KEY (event_id, address_id)
 );
 CREATE INDEX event_addresses_event_id_idx ON event_addresses (event_id);
 CREATE INDEX event_addresses_address_id_idx ON event_addresses (address_id);
-CREATE INDEX event_addresses_event_id_address_id_block_height ON event_addresses(event_id, address_id, block_height DESC);
 
 CREATE TABLE syncer_peers (
 	peer_address TEXT PRIMARY KEY NOT NULL,

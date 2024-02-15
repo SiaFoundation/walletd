@@ -11,9 +11,11 @@ import (
 
 // event type constants
 const (
-	EventTypeTransaction        = "transaction"
-	EventTypeMinerPayout        = "miner payout"
-	EventTypeMissedFileContract = "missed file contract"
+	EventTypeTransaction       = "transaction"
+	EventTypeMinerPayout       = "miner payout"
+	EventTypeContractPayout    = "contract payout"
+	EventTypeSiafundClaim      = "siafund claim"
+	EventTypeFoundationSubsidy = "foundation subsidy"
 )
 
 type (
@@ -153,12 +155,18 @@ func Annotate(txn types.Transaction, ownsAddress func(types.Address) bool) PoolT
 	return ptxn
 }
 
+type eventData interface {
+	EventType() string
+}
+
 // An Event is something interesting that happened on the Sia blockchain.
 type Event struct {
-	Index     types.ChainIndex
-	Timestamp time.Time
-	Relevant  []types.Address
-	Val       interface{ EventType() string }
+	ID             types.Hash256    `json:"id"`
+	Index          types.ChainIndex `json:"index"`
+	Timestamp      time.Time        `json:"timestamp"`
+	MaturityHeight uint64           `json:"maturityHeight"`
+	Relevant       []types.Address  `json:"relevant"`
+	Data           eventData        `json:"data"`
 }
 
 // EventType implements Event.
@@ -168,11 +176,14 @@ func (*EventTransaction) EventType() string { return EventTypeTransaction }
 func (*EventMinerPayout) EventType() string { return EventTypeMinerPayout }
 
 // EventType implements Event.
-func (*EventMissedFileContract) EventType() string { return EventTypeMissedFileContract }
+func (*EventFoundationSubsidy) EventType() string { return EventTypeFoundationSubsidy }
+
+// EventType implements Event.
+func (*EventContractPayout) EventType() string { return EventTypeContractPayout }
 
 // MarshalJSON implements json.Marshaler.
 func (e Event) MarshalJSON() ([]byte, error) {
-	val, _ := json.Marshal(e.Val)
+	val, _ := json.Marshal(e.Data)
 	return json.Marshal(struct {
 		Timestamp time.Time        `json:"timestamp"`
 		Index     types.ChainIndex `json:"index"`
@@ -183,7 +194,7 @@ func (e Event) MarshalJSON() ([]byte, error) {
 		Timestamp: e.Timestamp,
 		Index:     e.Index,
 		Relevant:  e.Relevant,
-		Type:      e.Val.EventType(),
+		Type:      e.Data.EventType(),
 		Val:       val,
 	})
 }
@@ -205,16 +216,16 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	e.Relevant = s.Relevant
 	switch s.Type {
 	case (*EventTransaction)(nil).EventType():
-		e.Val = new(EventTransaction)
+		e.Data = new(EventTransaction)
 	case (*EventMinerPayout)(nil).EventType():
-		e.Val = new(EventMinerPayout)
-	case (*EventMissedFileContract)(nil).EventType():
-		e.Val = new(EventMissedFileContract)
+		e.Data = new(EventMinerPayout)
+	case (*EventContractPayout)(nil).EventType():
+		e.Data = new(EventContractPayout)
 	}
-	if e.Val == nil {
+	if e.Data == nil {
 		return fmt.Errorf("unknown event type %q", s.Type)
 	}
-	return json.Unmarshal(s.Val, e.Val)
+	return json.Unmarshal(s.Val, e.Data)
 }
 
 // A HostAnnouncement represents a host announcement within an EventTransaction.
@@ -250,7 +261,6 @@ type V2FileContract struct {
 
 // An EventTransaction represents a transaction that affects the wallet.
 type EventTransaction struct {
-	ID                types.TransactionID    `json:"id"`
 	SiacoinInputs     []types.SiacoinElement `json:"siacoinInputs"`
 	SiacoinOutputs    []types.SiacoinElement `json:"siacoinOutputs"`
 	SiafundInputs     []SiafundInput         `json:"siafundInputs"`
@@ -266,11 +276,15 @@ type EventMinerPayout struct {
 	SiacoinOutput types.SiacoinElement `json:"siacoinOutput"`
 }
 
-// An EventMissedFileContract represents a file contract that has expired
-// without a storage proof
-type EventMissedFileContract struct {
+type EventFoundationSubsidy struct {
+	SiacoinOutput types.SiacoinElement `json:"siacoinOutput"`
+}
+
+// An EventContractPayout represents a file contract payout
+type EventContractPayout struct {
 	FileContract  types.FileContractElement `json:"fileContract"`
-	MissedOutputs []types.SiacoinElement    `json:"missedOutputs"`
+	SiacoinOutput types.SiacoinElement      `json:"siacoinOutput"`
+	Missed        bool                      `json:"missed"`
 }
 
 // A ChainUpdate is a set of changes to the consensus state.
@@ -284,7 +298,7 @@ type ChainUpdate interface {
 // AppliedEvents extracts a list of relevant events from a chain update.
 func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant func(types.Address) bool) []Event {
 	var events []Event
-	addEvent := func(v interface{ EventType() string }, relevant []types.Address) {
+	addEvent := func(id types.Hash256, maturityHeight uint64, v eventData, relevant []types.Address) {
 		// dedup relevant addresses
 		seen := make(map[types.Address]bool)
 		unique := relevant[:0]
@@ -296,10 +310,11 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		}
 
 		events = append(events, Event{
-			Timestamp: b.Timestamp,
-			Index:     cs.Index,
-			Relevant:  unique,
-			Val:       v,
+			Timestamp:      b.Timestamp,
+			Index:          cs.Index,
+			MaturityHeight: maturityHeight,
+			Relevant:       unique,
+			Data:           v,
 		})
 	}
 
@@ -469,7 +484,6 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		}
 
 		e := &EventTransaction{
-			ID:             txn.ID(),
 			SiacoinInputs:  make([]types.SiacoinElement, len(txn.SiacoinInputs)),
 			SiacoinOutputs: make([]types.SiacoinElement, len(txn.SiacoinOutputs)),
 			SiafundInputs:  make([]SiafundInput, len(txn.SiafundInputs)),
@@ -534,7 +548,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			e.Fee = e.Fee.Add(txn.MinerFees[i])
 		}
 
-		addEvent(e, relevant)
+		addEvent(types.Hash256(txn.ID()), cs.Index.Height, e, relevant) // transaction maturity height is the current block height
 	}
 
 	// handle v2 transactions
@@ -546,7 +560,6 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 		txid := txn.ID()
 		e := &EventTransaction{
-			ID:             txid,
 			SiacoinInputs:  make([]types.SiacoinElement, len(txn.SiacoinInputs)),
 			SiacoinOutputs: make([]types.SiacoinElement, len(txn.SiacoinOutputs)),
 			SiafundInputs:  make([]SiafundInput, len(txn.SiafundInputs)),
@@ -605,33 +618,59 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		}
 
 		e.Fee = txn.MinerFee
-		addEvent(e, relevant)
+		addEvent(types.Hash256(txid), cs.Index.Height, e, relevant) // transaction maturity height is the current block height
 	}
 
 	// handle missed contracts
 	cu.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
-		if resolved && !valid {
-			relevant := relevantContract(fce.FileContract)
-			if len(relevant) == 0 {
-				return
+		if !resolved {
+			return
+		}
+
+		relevant := relevantContract(fce.FileContract)
+		if len(relevant) == 0 {
+			return
+		}
+
+		if valid {
+			for i := range fce.FileContract.ValidProofOutputs {
+				outputID := types.FileContractID(fce.ID).ValidOutputID(i)
+				addEvent(types.Hash256(outputID), cs.MaturityHeight(), &EventContractPayout{
+					FileContract:  fce,
+					SiacoinOutput: sces[outputID],
+					Missed:        false,
+				}, relevant)
 			}
-			missedOutputs := make([]types.SiacoinElement, len(fce.FileContract.MissedProofOutputs))
-			for i := range missedOutputs {
-				missedOutputs[i] = sces[types.FileContractID(fce.ID).MissedOutputID(i)]
+		} else {
+			for i := range fce.FileContract.MissedProofOutputs {
+				outputID := types.FileContractID(fce.ID).MissedOutputID(i)
+				addEvent(types.Hash256(outputID), cs.MaturityHeight(), &EventContractPayout{
+					FileContract:  fce,
+					SiacoinOutput: sces[outputID],
+					Missed:        true,
+				}, relevant)
 			}
-			addEvent(&EventMissedFileContract{
-				FileContract:  fce,
-				MissedOutputs: missedOutputs,
-			}, relevant)
 		}
 	})
 
 	// handle block rewards
 	for i := range b.MinerPayouts {
 		if relevant(b.MinerPayouts[i].Address) {
-			addEvent(&EventMinerPayout{
-				SiacoinOutput: sces[cs.Index.ID.MinerOutputID(i)],
+			outputID := cs.Index.ID.MinerOutputID(i)
+			addEvent(types.Hash256(outputID), cs.MaturityHeight(), &EventMinerPayout{
+				SiacoinOutput: sces[outputID],
 			}, []types.Address{b.MinerPayouts[i].Address})
+		}
+	}
+
+	// handle foundation subsidy
+	if relevant(cs.FoundationPrimaryAddress) {
+		outputID := cs.Index.ID.FoundationOutputID()
+		sce, ok := sces[outputID]
+		if ok {
+			addEvent(types.Hash256(outputID), cs.MaturityHeight(), &EventFoundationSubsidy{
+				SiacoinOutput: sce,
+			}, []types.Address{cs.FoundationPrimaryAddress})
 		}
 	}
 

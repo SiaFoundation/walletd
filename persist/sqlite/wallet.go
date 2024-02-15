@@ -19,58 +19,105 @@ RETURNING id`
 	return
 }
 
+func getWalletEvents(tx *txn, walletID string, offset, limit int) (events []wallet.Event, eventIDs []int64, err error) {
+	const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
+	FROM events ev
+	INNER JOIN chain_indices ci ON (ev.index_id = ci.id)
+	WHERE ev.id IN (SELECT event_id FROM event_addresses WHERE address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1))
+	ORDER BY ev.maturity_height DESC
+	LIMIT $2 OFFSET $3`
+
+	rows, err := tx.Query(query, walletID, limit, offset)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var eventID int64
+		var event wallet.Event
+		var eventType string
+		var eventBuf []byte
+
+		err := rows.Scan(&eventID, decode(&event.ID), &event.MaturityHeight, decode(&event.Timestamp), &event.Index.Height, decode(&event.Index.ID), &eventType, &eventBuf)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to scan event: %w", err)
+		}
+
+		switch eventType {
+		case wallet.EventTypeTransaction:
+			var tx wallet.EventTransaction
+			if err = json.Unmarshal(eventBuf, &tx); err != nil {
+				return nil, nil, fmt.Errorf("failed to unmarshal transaction event: %w", err)
+			}
+			event.Data = &tx
+		case wallet.EventTypeContractPayout:
+			var m wallet.EventContractPayout
+			if err = json.Unmarshal(eventBuf, &m); err != nil {
+				return nil, nil, fmt.Errorf("failed to unmarshal missed file contract event: %w", err)
+			}
+			event.Data = &m
+		case wallet.EventTypeMinerPayout:
+			var m wallet.EventMinerPayout
+			if err = json.Unmarshal(eventBuf, &m); err != nil {
+				return nil, nil, fmt.Errorf("failed to unmarshal payout event: %w", err)
+			}
+			event.Data = &m
+		case wallet.EventTypeFoundationSubsidy:
+			var m wallet.EventFoundationSubsidy
+			if err = json.Unmarshal(eventBuf, &m); err != nil {
+				return nil, nil, fmt.Errorf("failed to unmarshal foundation subsidy event: %w", err)
+			}
+		default:
+			return nil, nil, fmt.Errorf("unknown event type: %s", eventType)
+		}
+
+		events = append(events, event)
+		eventIDs = append(eventIDs, eventID)
+	}
+	return
+}
+
+func (s *Store) getWalletEventRelevantAddresses(tx *txn, walletID string, eventIDs []int64) (map[int64][]types.Address, error) {
+	query := `SELECT ea.event_id, sa.sia_address
+FROM event_addresses ea
+INNER JOIN sia_addresses sa ON (ea.address_id = sa.id)
+WHERE event_id IN (` + queryPlaceHolders(len(eventIDs)) + `) AND address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=?)`
+
+	rows, err := tx.Query(query, append(queryArgs(eventIDs), walletID)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	relevantAddresses := make(map[int64][]types.Address)
+	for rows.Next() {
+		var eventID int64
+		var address types.Address
+		if err := rows.Scan(&eventID, decode(&address)); err != nil {
+			return nil, fmt.Errorf("failed to scan relevant address: %w", err)
+		}
+		relevantAddresses[eventID] = append(relevantAddresses[eventID], address)
+	}
+	return relevantAddresses, nil
+}
+
 // WalletEvents returns the events relevant to a wallet, sorted by height descending.
 func (s *Store) WalletEvents(walletID string, offset, limit int) (events []wallet.Event, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT ev.id, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
-FROM events ev
-INNER JOIN chain_indices ci ON (ev.index_id = ci.id)
-WHERE ev.id IN (SELECT event_id FROM event_addresses WHERE address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1))
-ORDER BY ci.height DESC, ev.id ASC
-LIMIT $2 OFFSET $3`
-
-		rows, err := tx.Query(query, walletID, limit, offset)
+		var dbIDs []int64
+		events, dbIDs, err = getWalletEvents(tx, walletID, offset, limit)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get wallet events: %w", err)
 		}
-		defer rows.Close()
 
-		for rows.Next() {
-			var eventID int64
-			var event wallet.Event
-			var eventType string
-			var eventBuf []byte
+		eventRelevantAddresses, err := s.getWalletEventRelevantAddresses(tx, walletID, dbIDs)
+		if err != nil {
+			return fmt.Errorf("failed to get relevant addresses: %w", err)
+		}
 
-			err := rows.Scan(&eventID, decode(&event.Timestamp), &event.Index.Height, decode(&event.Index.ID), &eventType, &eventBuf)
-			if err != nil {
-				return fmt.Errorf("failed to scan event: %w", err)
-			}
-
-			switch eventType {
-			case wallet.EventTypeTransaction:
-				var tx wallet.EventTransaction
-				if err = json.Unmarshal(eventBuf, &tx); err != nil {
-					return fmt.Errorf("failed to unmarshal transaction event: %w", err)
-				}
-				event.Val = &tx
-			case wallet.EventTypeMissedFileContract:
-				var m wallet.EventMissedFileContract
-				if err = json.Unmarshal(eventBuf, &m); err != nil {
-					return fmt.Errorf("failed to unmarshal missed file contract event: %w", err)
-				}
-				event.Val = &m
-			case wallet.EventTypeMinerPayout:
-				var m wallet.EventMinerPayout
-				if err = json.Unmarshal(eventBuf, &m); err != nil {
-					return fmt.Errorf("failed to unmarshal payout event: %w", err)
-				}
-				event.Val = &m
-			default:
-				return fmt.Errorf("unknown event type: %s", eventType)
-			}
-
-			// event.Relevant = relevantAddresses[eventID]
-			events = append(events, event)
+		for i := range events {
+			events[i].Relevant = eventRelevantAddresses[dbIDs[i]]
 		}
 		return nil
 	})
@@ -79,6 +126,9 @@ LIMIT $2 OFFSET $3`
 
 // AddWallet adds a wallet to the database.
 func (s *Store) AddWallet(name string, info json.RawMessage) error {
+	if info == nil {
+		info = json.RawMessage("{}")
+	}
 	return s.transaction(func(tx *txn) error {
 		const query = `INSERT INTO wallets (id, extra_data) VALUES ($1, $2)`
 
@@ -126,6 +176,9 @@ func (s *Store) Wallets() (map[string]json.RawMessage, error) {
 
 // AddAddress adds an address to a wallet.
 func (s *Store) AddAddress(walletID string, address types.Address, info json.RawMessage) error {
+	if info == nil {
+		info = json.RawMessage("{}")
+	}
 	return s.transaction(func(tx *txn) error {
 		addressID, err := insertAddress(tx, address)
 		if err != nil {
@@ -246,7 +299,7 @@ func (s *Store) WalletBalance(walletID string) (balance wallet.Balance, err erro
 			var addressISC types.Currency
 			var addressSF uint64
 
-			if err := rows.Scan(decode(&addressSC), decode(&addressISC), decode(&addressSF)); err != nil {
+			if err := rows.Scan(decode(&addressSC), decode(&addressISC), &addressSF); err != nil {
 				return fmt.Errorf("failed to scan address balance: %w", err)
 			}
 			balance.Siacoin = balance.Siacoin.Add(addressSC)
@@ -261,7 +314,7 @@ func (s *Store) WalletBalance(walletID string) (balance wallet.Balance, err erro
 // AddressBalance returns the balance of a single address.
 func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM address_balance WHERE sia_address=$1`
+		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses WHERE sia_address=$1`
 		return tx.QueryRow(query, encode(address)).Scan(decode(&balance.Siacoin), decode(&balance.Immature), &balance.Siafund)
 	})
 	return
