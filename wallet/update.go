@@ -195,12 +195,12 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 
 			err = updateBalance(se.SiafundOutput.Address, func(b *Balance) {
 				if spent {
-					if b.Siafund < se.SiafundOutput.Value {
+					if b.Siafunds < se.SiafundOutput.Value {
 						panic(fmt.Errorf("negative siafund balance"))
 					}
-					b.Siafund -= se.SiafundOutput.Value
+					b.Siafunds -= se.SiafundOutput.Value
 				} else {
-					b.Siafund += se.SiafundOutput.Value
+					b.Siafunds += se.SiafundOutput.Value
 				}
 			})
 			if err != nil {
@@ -427,9 +427,9 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 
 		siafundElementErr = updateBalance(se.SiafundOutput.Address, func(b *Balance) {
 			if spent {
-				b.Siafund -= se.SiafundOutput.Value
+				b.Siafunds -= se.SiafundOutput.Value
 			} else {
-				b.Siafund += se.SiafundOutput.Value
+				b.Siafunds += se.SiafundOutput.Value
 			}
 		})
 	})

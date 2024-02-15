@@ -23,7 +23,7 @@ type (
 	Balance struct {
 		Siacoins         types.Currency `json:"siacoins"`
 		ImmatureSiacoins types.Currency `json:"immatureSiacoins"`
-		Siafund          uint64         `json:"siafund"`
+		Siafunds         uint64         `json:"siafunds"`
 	}
 )
 

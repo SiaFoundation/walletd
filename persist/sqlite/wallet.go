@@ -304,7 +304,7 @@ func (s *Store) WalletBalance(walletID string) (balance wallet.Balance, err erro
 			}
 			balance.Siacoins = balance.Siacoins.Add(addressSC)
 			balance.ImmatureSiacoins = balance.ImmatureSiacoins.Add(addressISC)
-			balance.Siafund += addressSF
+			balance.Siafunds += addressSF
 		}
 		return nil
 	})
@@ -315,7 +315,7 @@ func (s *Store) WalletBalance(walletID string) (balance wallet.Balance, err erro
 func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses WHERE sia_address=$1`
-		return tx.QueryRow(query, encode(address)).Scan(decode(&balance.Siacoins), decode(&balance.ImmatureSiacoins), &balance.Siafund)
+		return tx.QueryRow(query, encode(address)).Scan(decode(&balance.Siacoins), decode(&balance.ImmatureSiacoins), &balance.Siafunds)
 	})
 	return
 }

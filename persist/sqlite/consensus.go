@@ -121,7 +121,7 @@ func (ut *updateTx) AddressRelevant(addr types.Address) (bool, error) {
 }
 
 func (ut *updateTx) AddressBalance(addr types.Address) (balance wallet.Balance, err error) {
-	err = ut.tx.QueryRow(`SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses WHERE sia_address=$1`, encode(addr)).Scan(decode(&balance.Siacoins), decode(&balance.ImmatureSiacoins), &balance.Siafund)
+	err = ut.tx.QueryRow(`SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses WHERE sia_address=$1`, encode(addr)).Scan(decode(&balance.Siacoins), decode(&balance.ImmatureSiacoins), &balance.Siafunds)
 	return
 }
 
@@ -134,7 +134,7 @@ func (ut *updateTx) UpdateBalances(balances []wallet.AddressBalance) error {
 	defer stmt.Close()
 
 	for _, ab := range balances {
-		_, err := stmt.Exec(encode(ab.Balance.Siacoins), encode(ab.Balance.ImmatureSiacoins), ab.Balance.Siafund, encode(ab.Address))
+		_, err := stmt.Exec(encode(ab.Balance.Siacoins), encode(ab.Balance.ImmatureSiacoins), ab.Balance.Siafunds, encode(ab.Address))
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}

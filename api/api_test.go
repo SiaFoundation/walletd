@@ -90,7 +90,7 @@ func TestWallet(t *testing.T) {
 	balance, err := wc.Balance()
 	if err != nil {
 		t.Fatal(err)
-	} else if !balance.Siacoins.IsZero() || !balance.ImmatureSiacoins.IsZero() || balance.Siafund != 0 {
+	} else if !balance.Siacoins.IsZero() || !balance.ImmatureSiacoins.IsZero() || balance.Siafunds != 0 {
 		t.Fatal("balance should be 0")
 	}
 
