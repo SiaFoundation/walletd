@@ -68,6 +68,7 @@ func getWalletEvents(tx *txn, walletID string, offset, limit int) (events []wall
 			if err = json.Unmarshal(eventBuf, &m); err != nil {
 				return nil, nil, fmt.Errorf("failed to unmarshal foundation subsidy event: %w", err)
 			}
+			event.Data = &m
 		default:
 			return nil, nil, fmt.Errorf("unknown event type: %s", eventType)
 		}
