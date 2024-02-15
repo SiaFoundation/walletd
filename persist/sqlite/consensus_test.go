@@ -13,7 +13,7 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func testNetwork() (*consensus.Network, types.Block) {
+func testV1Network() (*consensus.Network, types.Block) {
 	// use a modified version of Zen
 	n, genesisBlock := chain.TestnetZen()
 	n.InitialTarget = types.BlockID{0xFF}
@@ -28,6 +28,21 @@ func testNetwork() (*consensus.Network, types.Block) {
 	return n, genesisBlock
 }
 
+func testV2Network() (*consensus.Network, types.Block) {
+	// use a modified version of Zen
+	n, genesisBlock := chain.TestnetZen()
+	n.InitialTarget = types.BlockID{0xFF}
+	n.HardforkDevAddr.Height = 1
+	n.HardforkTax.Height = 1
+	n.HardforkStorageProof.Height = 1
+	n.HardforkOak.Height = 1
+	n.HardforkASIC.Height = 1
+	n.HardforkFoundation.Height = 1
+	n.HardforkV2.AllowHeight = 100
+	n.HardforkV2.RequireHeight = 110
+	return n, genesisBlock
+}
+
 func mineBlock(state consensus.State, txns []types.Transaction, minerAddr types.Address) types.Block {
 	b := types.Block{
 		ParentID:     state.Index.ID,
@@ -35,6 +50,24 @@ func mineBlock(state consensus.State, txns []types.Transaction, minerAddr types.
 		Transactions: txns,
 		MinerPayouts: []types.SiacoinOutput{{Address: minerAddr, Value: state.BlockReward()}},
 	}
+	for b.ID().CmpWork(state.ChildTarget) < 0 {
+		b.Nonce += state.NonceFactor()
+	}
+	return b
+}
+
+func mineV2Block(state consensus.State, txns []types.V2Transaction, minerAddr types.Address) types.Block {
+	b := types.Block{
+		ParentID:     state.Index.ID,
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: minerAddr, Value: state.BlockReward()}},
+
+		V2: &types.V2BlockData{
+			Transactions: txns,
+			Height:       state.Index.Height + 1,
+		},
+	}
+	b.V2.Commitment = state.Commitment(state.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address)
 	for b.ID().CmpWork(state.ChildTarget) < 0 {
 		b.Nonce += state.NonceFactor()
 	}
@@ -56,7 +89,7 @@ func TestReorg(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	network, genesisBlock := testNetwork()
+	network, genesisBlock := testV1Network()
 
 	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
@@ -147,7 +180,7 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	network, genesisBlock := testNetwork()
+	network, genesisBlock := testV1Network()
 
 	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
@@ -301,5 +334,122 @@ func TestEphemeralBalance(t *testing.T) {
 		t.Fatalf("expected 1 events, got %v", len(events))
 	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
 		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	}
+}
+
+func TestV2(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	network, genesisBlock := testV2Network()
+
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	cm := chain.NewManager(store, genesisState)
+
+	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
+		t.Fatal(err)
+	}
+
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
+	if err := db.AddWallet("test", nil); err != nil {
+		t.Fatal(err)
+	} else if err := db.AddAddress("test", addr, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	expectedPayout := cm.TipState().BlockReward()
+	// mine a block sending the payout to the wallet
+	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the payout was received
+	balance, err := db.AddressBalance(addr)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.ImmatureSiacoins.Equals(expectedPayout) {
+		t.Fatalf("expected %v, got %v", expectedPayout, balance.ImmatureSiacoins)
+	}
+
+	// check that a payout event was recorded
+	events, err := db.WalletEvents("test", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	}
+
+	// mine until the payout matures
+	maturityHeight := cm.TipState().MaturityHeight() + 1
+	for i := cm.TipState().Index.Height; i < maturityHeight; i++ {
+		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// create a v2 transaction that spends the matured payout
+	utxos, err := db.UnspentSiacoinOutputs("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sce := utxos[0]
+	policy := types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey()))
+	txn := types.V2Transaction{
+		SiacoinInputs: []types.V2SiacoinInput{{
+			Parent: sce,
+			SatisfiedPolicy: types.SatisfiedPolicy{
+				Policy: types.SpendPolicy{Type: policy},
+			},
+		}},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: types.VoidAddress, Value: sce.SiacoinOutput.Value.Sub(types.Siacoins(100))},
+			{Address: addr, Value: types.Siacoins(100)},
+		},
+	}
+	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(cm.TipState().InputSigHash(txn))}
+
+	if err := cm.AddBlocks([]types.Block{mineV2Block(cm.TipState(), []types.V2Transaction{txn}, types.VoidAddress)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the change was received
+	balance, err = db.AddressBalance(addr)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Siacoins.Equals(types.Siacoins(100)) {
+		t.Fatalf("expected %v, got %v", expectedPayout, balance.ImmatureSiacoins)
+	}
+
+	// check that a transaction event was recorded
+	events, err = db.WalletEvents("test", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if events[0].Relevant[0] != addr {
+		t.Fatalf("expected address %v, got %v", addr, events[0].Relevant[0])
 	}
 }
