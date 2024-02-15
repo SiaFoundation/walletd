@@ -345,12 +345,15 @@ func (s *Store) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, mayCommit bool) 
 			}
 
 			if err := wallet.ApplyChainUpdates(utx, s.updates); err != nil {
-				return err
+				return fmt.Errorf("failed to apply updates: %w", err)
+			} else if err := setLastCommittedIndex(tx, cau.State.Index); err != nil {
+				return fmt.Errorf("failed to set last committed index: %w", err)
 			}
 			s.updates = nil
 			return nil
 		})
 	}
+
 	return nil
 }
 
@@ -373,7 +376,12 @@ func (s *Store) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
 			relevantAddresses: make(map[types.Address]bool),
 		}
 
-		return wallet.RevertChainUpdate(utx, cru)
+		if err := wallet.RevertChainUpdate(utx, cru); err != nil {
+			return fmt.Errorf("failed to revert update: %w", err)
+		} else if err := setLastCommittedIndex(tx, cru.State.Index); err != nil {
+			return fmt.Errorf("failed to set last committed index: %w", err)
+		}
+		return nil
 	})
 }
 
@@ -381,6 +389,11 @@ func (s *Store) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
 func (s *Store) LastCommittedIndex() (index types.ChainIndex, err error) {
 	err = s.db.QueryRow(`SELECT last_indexed_tip FROM global_settings`).Scan(decode(&index))
 	return
+}
+
+func setLastCommittedIndex(tx *txn, index types.ChainIndex) error {
+	_, err := tx.Exec(`UPDATE global_settings SET last_indexed_tip=$1`, encode(index))
+	return err
 }
 
 func insertAddressStatement(tx *txn) (*stmt, error) {
