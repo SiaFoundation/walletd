@@ -90,7 +90,7 @@ func TestWallet(t *testing.T) {
 	balance, err := wc.Balance()
 	if err != nil {
 		t.Fatal(err)
-	} else if !balance.Siacoin.IsZero() || !balance.Immature.IsZero() || balance.Siafund != 0 {
+	} else if !balance.Siacoins.IsZero() || !balance.ImmatureSiacoins.IsZero() || balance.Siafund != 0 {
 		t.Fatal("balance should be 0")
 	}
 
@@ -161,10 +161,10 @@ func TestWallet(t *testing.T) {
 	balance, err = wc.Balance()
 	if err != nil {
 		t.Fatal(err)
-	} else if !balance.Siacoin.Equals(types.Siacoins(1)) {
-		t.Error("balance should be 1 SC, got", balance.Siacoin)
-	} else if !balance.Immature.IsZero() {
-		t.Error("immature balance should be 0 SC, got", balance.Immature)
+	} else if !balance.Siacoins.Equals(types.Siacoins(1)) {
+		t.Error("balance should be 1 SC, got", balance.Siacoins)
+	} else if !balance.ImmatureSiacoins.IsZero() {
+		t.Error("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
 	}
 
 	// transaction should appear in history
@@ -200,10 +200,10 @@ func TestWallet(t *testing.T) {
 	balance, err = wc.Balance()
 	if err != nil {
 		t.Fatal(err)
-	} else if !balance.Siacoin.Equals(types.Siacoins(1)) {
-		t.Error("balance should be 1 SC, got", balance.Siacoin)
-	} else if !balance.Immature.Equals(b.MinerPayouts[0].Value) {
-		t.Errorf("immature balance should be %d SC, got %d SC", b.MinerPayouts[0].Value, balance.Immature)
+	} else if !balance.Siacoins.Equals(types.Siacoins(1)) {
+		t.Error("balance should be 1 SC, got", balance.Siacoins)
+	} else if !balance.ImmatureSiacoins.Equals(b.MinerPayouts[0].Value) {
+		t.Errorf("immature balance should be %d SC, got %d SC", b.MinerPayouts[0].Value, balance.ImmatureSiacoins)
 	}
 
 	// mine enough blocks for the miner payout to mature
@@ -228,10 +228,10 @@ func TestWallet(t *testing.T) {
 	balance, err = wc.Balance()
 	if err != nil {
 		t.Fatal(err)
-	} else if !balance.Siacoin.Equals(expectedBalance) {
-		t.Errorf("balance should be %d, got %d", expectedBalance, balance.Siacoin)
-	} else if !balance.Immature.IsZero() {
-		t.Error("immature balance should be 0 SC, got", balance.Immature)
+	} else if !balance.Siacoins.Equals(expectedBalance) {
+		t.Errorf("balance should be %d, got %d", expectedBalance, balance.Siacoins)
+	} else if !balance.ImmatureSiacoins.IsZero() {
+		t.Error("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
 	}
 }
 
@@ -307,13 +307,13 @@ func TestV2(t *testing.T) {
 		t.Helper()
 		if primaryBalance, err := primary.Balance(); err != nil {
 			t.Fatal(err)
-		} else if !primaryBalance.Siacoin.Equals(p) {
-			t.Fatalf("primary should have balance of %v, got %v", p, primaryBalance.Siacoin)
+		} else if !primaryBalance.Siacoins.Equals(p) {
+			t.Fatalf("primary should have balance of %v, got %v", p, primaryBalance.Siacoins)
 		}
 		if secondaryBalance, err := secondary.Balance(); err != nil {
 			t.Fatal(err)
-		} else if !secondaryBalance.Siacoin.Equals(s) {
-			t.Fatalf("secondary should have balance of %v, got %v", s, secondaryBalance.Siacoin)
+		} else if !secondaryBalance.Siacoins.Equals(s) {
+			t.Fatalf("secondary should have balance of %v, got %v", s, secondaryBalance.Siacoins)
 		}
 	}
 	sendV1 := func() error {
@@ -588,13 +588,13 @@ func TestP2P(t *testing.T) {
 		t.Helper()
 		if primaryBalance, err := primary.Balance(); err != nil {
 			t.Fatal(err)
-		} else if !primaryBalance.Siacoin.Equals(p) {
-			t.Fatalf("primary should have balance of %v, got %v", p, primaryBalance.Siacoin)
+		} else if !primaryBalance.Siacoins.Equals(p) {
+			t.Fatalf("primary should have balance of %v, got %v", p, primaryBalance.Siacoins)
 		}
 		if secondaryBalance, err := secondary.Balance(); err != nil {
 			t.Fatal(err)
-		} else if !secondaryBalance.Siacoin.Equals(s) {
-			t.Fatalf("secondary should have balance of %v, got %v", s, secondaryBalance.Siacoin)
+		} else if !secondaryBalance.Siacoins.Equals(s) {
+			t.Fatalf("secondary should have balance of %v, got %v", s, secondaryBalance.Siacoins)
 		}
 	}
 	sendV1 := func() error {

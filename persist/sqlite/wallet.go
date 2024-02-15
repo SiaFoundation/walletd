@@ -302,8 +302,8 @@ func (s *Store) WalletBalance(walletID string) (balance wallet.Balance, err erro
 			if err := rows.Scan(decode(&addressSC), decode(&addressISC), &addressSF); err != nil {
 				return fmt.Errorf("failed to scan address balance: %w", err)
 			}
-			balance.Siacoin = balance.Siacoin.Add(addressSC)
-			balance.Immature = balance.Immature.Add(addressISC)
+			balance.Siacoins = balance.Siacoins.Add(addressSC)
+			balance.ImmatureSiacoins = balance.ImmatureSiacoins.Add(addressISC)
 			balance.Siafund += addressSF
 		}
 		return nil
@@ -315,7 +315,7 @@ func (s *Store) WalletBalance(walletID string) (balance wallet.Balance, err erro
 func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses WHERE sia_address=$1`
-		return tx.QueryRow(query, encode(address)).Scan(decode(&balance.Siacoin), decode(&balance.Immature), &balance.Siafund)
+		return tx.QueryRow(query, encode(address)).Scan(decode(&balance.Siacoins), decode(&balance.ImmatureSiacoins), &balance.Siafund)
 	})
 	return
 }

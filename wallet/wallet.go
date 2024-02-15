@@ -20,9 +20,9 @@ const (
 
 type (
 	Balance struct {
-		Siacoin  types.Currency
-		Immature types.Currency
-		Siafund  uint64
+		Siacoins         types.Currency `json:"siacoins"`
+		ImmatureSiacoins types.Currency `json:"immatureSiacoins"`
+		Siafund          uint64         `json:"siafund"`
 	}
 )
 
