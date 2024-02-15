@@ -95,11 +95,32 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 		}
 		for _, se := range matured {
 			err := updateBalance(se.SiacoinOutput.Address, func(b *Balance) {
-				b.Immature = b.Immature.Sub(se.SiacoinOutput.Value)
-				b.Siacoin = b.Siacoin.Add(se.SiacoinOutput.Value)
+				b.ImmatureSiacoins = b.ImmatureSiacoins.Sub(se.SiacoinOutput.Value)
+				b.Siacoins = b.Siacoins.Add(se.SiacoinOutput.Value)
 			})
 			if err != nil {
 				return fmt.Errorf("failed to update address balance: %w", err)
+			}
+		}
+
+		// determine which siacoin and siafund elements are ephemeral
+		//
+		// note: I thought we could use LeafIndex == EphemeralLeafIndex, but
+		// it seems to be set before the subscriber is called.
+		created := make(map[types.Hash256]bool)
+		ephemeral := make(map[types.Hash256]bool)
+		for _, txn := range cau.Block.Transactions {
+			for i := range txn.SiacoinOutputs {
+				created[types.Hash256(txn.SiacoinOutputID(i))] = true
+			}
+			for _, input := range txn.SiacoinInputs {
+				ephemeral[types.Hash256(input.ParentID)] = created[types.Hash256(input.ParentID)]
+			}
+			for i := range txn.SiafundOutputs {
+				created[types.Hash256(txn.SiafundOutputID(i))] = true
+			}
+			for _, input := range txn.SiafundInputs {
+				ephemeral[types.Hash256(input.ParentID)] = created[types.Hash256(input.ParentID)]
 			}
 		}
 
@@ -108,9 +129,7 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 		cau.ForEachSiacoinElement(func(se types.SiacoinElement, spent bool) {
 			if siacoinElementErr != nil {
 				return
-			}
-
-			if se.LeafIndex == types.EphemeralLeafIndex {
+			} else if ephemeral[se.ID] {
 				return
 			}
 
@@ -132,11 +151,11 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 			err = updateBalance(se.SiacoinOutput.Address, func(b *Balance) {
 				switch {
 				case se.MaturityHeight > cau.State.Index.Height:
-					b.Immature = b.Immature.Add(se.SiacoinOutput.Value)
+					b.ImmatureSiacoins = b.ImmatureSiacoins.Add(se.SiacoinOutput.Value)
 				case spent:
-					b.Siacoin = b.Siacoin.Sub(se.SiacoinOutput.Value)
+					b.Siacoins = b.Siacoins.Sub(se.SiacoinOutput.Value)
 				default:
-					b.Siacoin = b.Siacoin.Add(se.SiacoinOutput.Value)
+					b.Siacoins = b.Siacoins.Add(se.SiacoinOutput.Value)
 				}
 			})
 			if err != nil {
@@ -151,6 +170,8 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 		var siafundElementErr error
 		cau.ForEachSiafundElement(func(se types.SiafundElement, spent bool) {
 			if siafundElementErr != nil {
+				return
+			} else if ephemeral[se.ID] {
 				return
 			}
 
@@ -171,6 +192,9 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 
 			err = updateBalance(se.SiafundOutput.Address, func(b *Balance) {
 				if spent {
+					if b.Siafund < se.SiafundOutput.Value {
+						panic(fmt.Errorf("negative siafund balance"))
+					}
 					b.Siafund -= se.SiafundOutput.Value
 				} else {
 					b.Siafund += se.SiafundOutput.Value
@@ -318,13 +342,40 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 		return nil
 	}
 
+	// determine which siacoin and siafund elements are ephemeral
+	//
+	// note: I thought we could use LeafIndex == EphemeralLeafIndex, but
+	// it seems to be set before the subscriber is called.
+	created := make(map[types.Hash256]bool)
+	ephemeral := make(map[types.Hash256]bool)
+	for _, txn := range cru.Block.Transactions {
+		for i := range txn.SiacoinOutputs {
+			created[types.Hash256(txn.SiacoinOutputID(i))] = true
+		}
+		for _, input := range txn.SiacoinInputs {
+			ephemeral[types.Hash256(input.ParentID)] = created[types.Hash256(input.ParentID)]
+		}
+		for i := range txn.SiafundOutputs {
+			created[types.Hash256(txn.SiafundOutputID(i))] = true
+		}
+		for _, input := range txn.SiafundInputs {
+			ephemeral[types.Hash256(input.ParentID)] = created[types.Hash256(input.ParentID)]
+		}
+	}
+
 	var siacoinElementErr error
 	cru.ForEachSiacoinElement(func(se types.SiacoinElement, spent bool) {
+		if siacoinElementErr != nil {
+			return
+		}
+
 		relevant, err := tx.AddressRelevant(se.SiacoinOutput.Address)
 		if err != nil {
 			siacoinElementErr = fmt.Errorf("failed to check if address is relevant: %w", err)
 			return
 		} else if !relevant {
+			return
+		} else if ephemeral[se.ID] {
 			return
 		}
 
@@ -337,11 +388,11 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 		siacoinElementErr = updateBalance(se.SiacoinOutput.Address, func(b *Balance) {
 			switch {
 			case se.MaturityHeight > cru.State.Index.Height:
-				b.Immature = b.Immature.Sub(se.SiacoinOutput.Value)
-			case !spent:
-				b.Siacoin = b.Siacoin.Add(se.SiacoinOutput.Value)
+				b.ImmatureSiacoins = b.ImmatureSiacoins.Sub(se.SiacoinOutput.Value)
+			case spent:
+				b.Siacoins = b.Siacoins.Add(se.SiacoinOutput.Value)
 			default:
-				b.Siacoin = b.Siacoin.Sub(se.SiacoinOutput.Value)
+				b.Siacoins = b.Siacoins.Sub(se.SiacoinOutput.Value)
 			}
 		})
 	})
@@ -351,11 +402,17 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 
 	var siafundElementErr error
 	cru.ForEachSiafundElement(func(se types.SiafundElement, spent bool) {
+		if siafundElementErr != nil {
+			return
+		}
+
 		relevant, err := tx.AddressRelevant(se.SiafundOutput.Address)
 		if err != nil {
 			siacoinElementErr = fmt.Errorf("failed to check if address is relevant: %w", err)
 			return
 		} else if !relevant {
+			return
+		} else if ephemeral[se.ID] {
 			return
 		}
 
