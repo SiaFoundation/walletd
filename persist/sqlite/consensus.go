@@ -317,7 +317,6 @@ func (ut *updateTx) AddEvents(events []wallet.Event) error {
 
 			used[addr] = true
 		}
-
 	}
 	return nil
 }

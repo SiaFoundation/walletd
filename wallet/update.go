@@ -8,11 +8,13 @@ import (
 )
 
 type (
+	// AddressBalance pairs an address with its balance.
 	AddressBalance struct {
 		Address types.Address `json:"address"`
 		Balance
 	}
 
+	// An ApplyTx atomically applies a set of updates to a store.
 	ApplyTx interface {
 		SiacoinStateElements() ([]types.StateElement, error)
 		UpdateSiacoinStateElements([]types.StateElement) error
@@ -34,6 +36,7 @@ type (
 		AddEvents([]Event) error
 	}
 
+	// RevertTx atomically reverts an update from a store.
 	RevertTx interface {
 		RevertEvents(types.BlockID) error
 

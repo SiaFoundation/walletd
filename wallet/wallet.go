@@ -19,6 +19,7 @@ const (
 )
 
 type (
+	// Balance is a summary of a siacoin and siafund balance
 	Balance struct {
 		Siacoins         types.Currency `json:"siacoins"`
 		ImmatureSiacoins types.Currency `json:"immatureSiacoins"`
@@ -276,6 +277,7 @@ type EventMinerPayout struct {
 	SiacoinOutput types.SiacoinElement `json:"siacoinOutput"`
 }
 
+// EventFoundationSubsidy represents a foundation subsidy from a block.
 type EventFoundationSubsidy struct {
 	SiacoinOutput types.SiacoinElement `json:"siacoinOutput"`
 }
