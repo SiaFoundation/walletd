@@ -71,6 +71,7 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ws.Close()
+
 	wm, err := wallet.NewManager(cm, ws, log.Named("wallet"))
 	if err != nil {
 		t.Fatal(err)

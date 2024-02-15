@@ -48,6 +48,7 @@ func TestReorg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
 	if err != nil {
@@ -138,6 +139,7 @@ func TestEphemeralBalance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 
 	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
 	if err != nil {
