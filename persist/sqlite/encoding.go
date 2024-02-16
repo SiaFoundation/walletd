@@ -14,9 +14,10 @@ import (
 func encode(obj any) any {
 	switch obj := obj.(type) {
 	case types.Currency:
+		// Currency is encoded as two 64-bit big-endian integers for sorting
 		buf := make([]byte, 16)
-		binary.LittleEndian.PutUint64(buf, obj.Lo)
-		binary.LittleEndian.PutUint64(buf[8:], obj.Hi)
+		binary.BigEndian.PutUint64(buf, obj.Hi)
+		binary.BigEndian.PutUint64(buf[8:], obj.Lo)
 		return buf
 	case types.EncoderTo:
 		var buf bytes.Buffer
@@ -52,8 +53,8 @@ func (d *decodable) Scan(src any) error {
 			if len(src) != 16 {
 				return fmt.Errorf("cannot scan %d bytes into Currency", len(src))
 			}
-			v.Lo = binary.LittleEndian.Uint64(src)
-			v.Hi = binary.LittleEndian.Uint64(src[8:])
+			v.Hi = binary.BigEndian.Uint64(src)
+			v.Lo = binary.BigEndian.Uint64(src[8:])
 		case types.DecoderFrom:
 			dec := types.NewBufDecoder(src)
 			v.DecodeFrom(dec)

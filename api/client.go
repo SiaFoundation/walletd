@@ -139,7 +139,7 @@ func (c *WalletClient) Addresses() (resp map[types.Address]json.RawMessage, err 
 }
 
 // Balance returns the current wallet balance.
-func (c *WalletClient) Balance() (resp WalletBalanceResponse, err error) {
+func (c *WalletClient) Balance() (resp BalanceResponse, err error) {
 	err = c.c.GET(fmt.Sprintf("/wallets/%v/balance", c.name), &resp)
 	return
 }

@@ -324,7 +324,7 @@ func printTestnetEvents(c *api.Client, seed wallet.Seed) {
 	check("Couldn't get events:", err)
 	for i := range events {
 		e := events[len(events)-1-i]
-		switch t := e.Val.(type) {
+		switch t := e.Data.(type) {
 		case *wallet.EventTransaction:
 			if len(t.SiacoinInputs) == 0 || len(t.SiacoinOutputs) == 0 {
 				continue

@@ -36,9 +36,9 @@ type (
 		UnspentSiacoinOutputs(walletID string) ([]types.SiacoinElement, error)
 		UnspentSiafundOutputs(walletID string) ([]types.SiafundElement, error)
 		Annotate(walletID string, txns []types.Transaction) ([]PoolTransaction, error)
-		WalletBalance(walletID string) (sc, immature types.Currency, sf uint64, err error)
+		WalletBalance(walletID string) (Balance, error)
 
-		AddressBalance(address types.Address) (sc types.Currency, sf uint64, err error)
+		AddressBalance(address types.Address) (Balance, error)
 
 		LastCommittedIndex() (types.ChainIndex, error)
 	}
@@ -105,12 +105,12 @@ func (m *Manager) Annotate(name string, pool []types.Transaction) ([]PoolTransac
 }
 
 // WalletBalance returns the balance of the given wallet.
-func (m *Manager) WalletBalance(walletID string) (sc, immature types.Currency, sf uint64, err error) {
+func (m *Manager) WalletBalance(walletID string) (Balance, error) {
 	return m.store.WalletBalance(walletID)
 }
 
 // AddressBalance returns the balance of the given address.
-func (m *Manager) AddressBalance(address types.Address) (sc types.Currency, sf uint64, err error) {
+func (m *Manager) AddressBalance(address types.Address) (Balance, error) {
 	return m.store.AddressBalance(address)
 }
 
