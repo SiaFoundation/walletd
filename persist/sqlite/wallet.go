@@ -24,7 +24,7 @@ func getWalletEvents(tx *txn, walletID string, offset, limit int) (events []wall
 	FROM events ev
 	INNER JOIN chain_indices ci ON (ev.index_id = ci.id)
 	WHERE ev.id IN (SELECT event_id FROM event_addresses WHERE address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1))
-	ORDER BY ev.maturity_height DESC
+	ORDER BY ev.maturity_height DESC, ev.id DESC
 	LIMIT $2 OFFSET $3`
 
 	rows, err := tx.Query(query, walletID, limit, offset)

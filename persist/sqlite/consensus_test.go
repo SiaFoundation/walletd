@@ -318,8 +318,10 @@ func TestEphemeralBalance(t *testing.T) {
 
 	expectedPayout := cm.TipState().BlockReward()
 	maturityHeight := cm.TipState().MaturityHeight() + 1
+	block := mineBlock(cm.TipState(), nil, addr)
+	minerPayoutID := block.ID().MinerOutputID(0)
 	// mine a block sending the payout to the wallet
-	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
+	if err := cm.AddBlocks([]types.Block{block}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -339,6 +341,8 @@ func TestEphemeralBalance(t *testing.T) {
 		t.Fatalf("expected 1 event, got %v", len(events))
 	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
 		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	} else if events[0].ID != types.Hash256(minerPayoutID) {
+		t.Fatalf("expected %v, got %v", minerPayoutID, events[0].ID)
 	}
 
 	// mine until the payout matures
@@ -417,6 +421,24 @@ func TestEphemeralBalance(t *testing.T) {
 		t.Fatal(err)
 	} else if !balance.Siacoins.IsZero() {
 		t.Fatalf("expected 0, got %v", balance.Siacoins)
+	}
+
+	// check that both transactions were added
+	events, err = db.WalletEvents("test", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 3 { // 1 payout, 2 transactions
+		t.Fatalf("expected 3 events, got %v", len(events))
+	} else if events[2].Data.EventType() != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected miner payout event, got %v", events[2].Data.EventType())
+	} else if events[1].Data.EventType() != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[1].Data.EventType())
+	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if events[1].ID != types.Hash256(parentTxn.ID()) { // parent txn first
+		t.Fatalf("expected %v, got %v", parentTxn.ID(), events[1].ID)
+	} else if events[0].ID != types.Hash256(txn.ID()) { // child txn second
+		t.Fatalf("expected %v, got %v", txn.ID(), events[0].ID)
 	}
 
 	// trigger a reorg
