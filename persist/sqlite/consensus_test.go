@@ -77,7 +77,7 @@ func mineV2Block(state consensus.State, txns []types.V2Transaction, minerAddr ty
 func TestReorg(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLogger(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestReorg(t *testing.T) {
 func TestEphemeralBalance(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLogger(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +475,7 @@ func TestEphemeralBalance(t *testing.T) {
 func TestV2(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLogger(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
