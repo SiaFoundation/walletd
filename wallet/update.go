@@ -14,45 +14,38 @@ type (
 		Balance
 	}
 
-	// An ApplyTx atomically applies a set of updates to a store.
-	ApplyTx interface {
+	UpdateTx interface {
 		SiacoinStateElements() ([]types.StateElement, error)
 		UpdateSiacoinStateElements([]types.StateElement) error
 
 		SiafundStateElements() ([]types.StateElement, error)
 		UpdateSiafundStateElements([]types.StateElement) error
 
-		AddressRelevant(types.Address) (bool, error)
-		AddressBalance(types.Address) (Balance, error)
-		UpdateBalances([]AddressBalance) error
-
-		MaturedSiacoinElements(types.ChainIndex) ([]types.SiacoinElement, error)
 		AddSiacoinElements([]types.SiacoinElement) error
 		RemoveSiacoinElements([]types.SiacoinOutputID) error
 
 		AddSiafundElements([]types.SiafundElement) error
 		RemoveSiafundElements([]types.SiafundOutputID) error
 
+		MaturedSiacoinElements(types.ChainIndex) ([]types.SiacoinElement, error)
+
+		AddressRelevant(types.Address) (bool, error)
+		AddressBalance(types.Address) (Balance, error)
+		UpdateBalances([]AddressBalance) error
+	}
+
+	// An ApplyTx atomically applies a set of updates to a store.
+	ApplyTx interface {
+		UpdateTx
+
 		AddEvents([]Event) error
 	}
 
 	// RevertTx atomically reverts an update from a store.
 	RevertTx interface {
-		RevertEvents(types.BlockID) error
+		UpdateTx
 
-		SiacoinStateElements() ([]types.StateElement, error)
-		UpdateSiacoinStateElements([]types.StateElement) error
-
-		SiafundStateElements() ([]types.StateElement, error)
-		UpdateSiafundStateElements([]types.StateElement) error
-
-		AddressRelevant(types.Address) (bool, error)
-		AddressBalance(types.Address) (Balance, error)
-		UpdateBalances([]AddressBalance) error
-
-		MaturedSiacoinElements(types.ChainIndex) ([]types.SiacoinElement, error)
-		AddSiacoinElements([]types.SiacoinElement) error
-		RemoveSiacoinElements([]types.SiacoinOutputID) error
+		RevertEvents(index types.ChainIndex) error
 	}
 )
 
@@ -325,10 +318,11 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 // RevertChainUpdate atomically reverts a chain update from a store
 func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 	balances := make(map[types.Address]Balance)
-	newSiacoinElements := make(map[types.SiacoinOutputID]types.SiacoinElement)
-	newSiafundElements := make(map[types.SiafundOutputID]types.SiafundElement)
-	spentSiacoinElements := make(map[types.SiacoinOutputID]bool)
-	spentSiafundElements := make(map[types.SiafundOutputID]bool)
+
+	var deletedSiacoinElements []types.SiacoinOutputID
+	var addedSiacoinElements []types.SiacoinElement
+	var deletedSiafundElements []types.SiafundOutputID
+	var addedSiafundElements []types.SiafundElement
 
 	updateBalance := func(addr types.Address, fn func(b *Balance)) error {
 		balance, ok := balances[addr]
@@ -366,6 +360,26 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 		}
 	}
 
+	// revert the immature balance of each relevant address
+	revertedIndex := types.ChainIndex{
+		Height: cru.State.Index.Height + 1,
+		ID:     cru.Block.ID(),
+	}
+
+	matured, err := tx.MaturedSiacoinElements(revertedIndex)
+	if err != nil {
+		return fmt.Errorf("failed to get matured siacoin elements: %w", err)
+	}
+	for _, se := range matured {
+		err := updateBalance(se.SiacoinOutput.Address, func(b *Balance) {
+			b.ImmatureSiacoins = b.ImmatureSiacoins.Add(se.SiacoinOutput.Value)
+			b.Siacoins = b.Siacoins.Sub(se.SiacoinOutput.Value)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update address balance: %w", err)
+		}
+	}
+
 	var siacoinElementErr error
 	cru.ForEachSiacoinElement(func(se types.SiacoinElement, spent bool) {
 		if siacoinElementErr != nil {
@@ -382,10 +396,12 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 			return
 		}
 
-		if !spent {
-			newSiacoinElements[types.SiacoinOutputID(se.ID)] = se
+		if spent {
+			// re-add any spent siacoin elements
+			addedSiacoinElements = append(addedSiacoinElements, se)
 		} else {
-			spentSiacoinElements[types.SiacoinOutputID(se.ID)] = true
+			// delete any created siacoin elements
+			deletedSiacoinElements = append(deletedSiacoinElements, types.SiacoinOutputID(se.ID))
 		}
 
 		siacoinElementErr = updateBalance(se.SiacoinOutput.Address, func(b *Balance) {
@@ -419,17 +435,19 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 			return
 		}
 
-		if !spent {
-			newSiafundElements[types.SiafundOutputID(se.ID)] = se
+		if spent {
+			// re-add any spent siafund elements
+			addedSiafundElements = append(addedSiafundElements, se)
 		} else {
-			spentSiafundElements[types.SiafundOutputID(se.ID)] = true
+			// delete any created siafund elements
+			deletedSiafundElements = append(deletedSiafundElements, types.SiafundOutputID(se.ID))
 		}
 
 		siafundElementErr = updateBalance(se.SiafundOutput.Address, func(b *Balance) {
 			if spent {
-				b.Siafunds -= se.SiafundOutput.Value
-			} else {
 				b.Siafunds += se.SiafundOutput.Value
+			} else {
+				b.Siafunds -= se.SiafundOutput.Value
 			}
 		})
 	})
@@ -448,5 +466,37 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 		return fmt.Errorf("failed to update address balance: %w", err)
 	}
 
-	return tx.RevertEvents(cru.Block.ID())
+	// revert siacoin element changes
+	if err := tx.AddSiacoinElements(addedSiacoinElements); err != nil {
+		return fmt.Errorf("failed to add siacoin elements: %w", err)
+	} else if err := tx.RemoveSiacoinElements(deletedSiacoinElements); err != nil {
+		return fmt.Errorf("failed to remove siacoin elements: %w", err)
+	}
+
+	// update siacoin element proofs
+	siacoinElements, err := tx.SiacoinStateElements()
+	if err != nil {
+		return fmt.Errorf("failed to get siacoin state elements: %w", err)
+	}
+	for i := range siacoinElements {
+		cru.UpdateElementProof(&siacoinElements[i])
+	}
+
+	// revert siafund element changes
+	if err := tx.AddSiafundElements(addedSiafundElements); err != nil {
+		return fmt.Errorf("failed to add siafund elements: %w", err)
+	} else if err := tx.RemoveSiafundElements(deletedSiafundElements); err != nil {
+		return fmt.Errorf("failed to remove siafund elements: %w", err)
+	}
+
+	// update siafund element proofs
+	siafundElements, err := tx.SiafundStateElements()
+	if err != nil {
+		return fmt.Errorf("failed to get siafund state elements: %w", err)
+	}
+	for i := range siafundElements {
+		cru.UpdateElementProof(&siafundElements[i])
+	}
+
+	return tx.RevertEvents(revertedIndex)
 }

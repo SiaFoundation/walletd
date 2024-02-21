@@ -170,20 +170,20 @@ func (ut *updateTx) AddSiacoinElements(elements []types.SiacoinElement) error {
 	}
 	defer addrStmt.Close()
 
-	inserStmt, err := ut.tx.Prepare(`INSERT INTO siacoin_elements (id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id) VALUES ($1, $2, $3, $4, $5, $6)`)
+	insertStmt, err := ut.tx.Prepare(`INSERT INTO siacoin_elements (id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id) VALUES ($1, $2, $3, $4, $5, $6)`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert statement: %w", err)
 	}
-	defer inserStmt.Close()
+	defer insertStmt.Close()
 
 	for _, se := range elements {
 		var addressID int64
-		err := addrStmt.QueryRow(encode(se.SiacoinOutput.Address), encode(types.ZeroCurrency), 0).Scan(&addressID)
+		err = addrStmt.QueryRow(encode(se.SiacoinOutput.Address), encode(types.ZeroCurrency), 0).Scan(&addressID)
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
 		}
 
-		_, err = inserStmt.Exec(encode(se.ID), encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addressID)
+		_, err = insertStmt.Exec(encode(se.ID), encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addressID)
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
@@ -215,20 +215,20 @@ func (ut *updateTx) AddSiafundElements(elements []types.SiafundElement) error {
 	}
 	defer addrStmt.Close()
 
-	inserStmt, err := ut.tx.Prepare(`INSERT INTO siafund_elements (id, siafund_value, merkle_proof, leaf_index, claim_start, address_id) VALUES ($1, $2, $3, $4, $5, $6)`)
+	insertStmt, err := ut.tx.Prepare(`INSERT INTO siafund_elements (id, siafund_value, merkle_proof, leaf_index, claim_start, address_id) VALUES ($1, $2, $3, $4, $5, $6)`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer inserStmt.Close()
+	defer insertStmt.Close()
 
 	for _, se := range elements {
 		var addressID int64
-		err := addrStmt.QueryRow(encode(se.SiafundOutput.Address), encode(types.ZeroCurrency), 0).Scan(&addressID)
+		err = addrStmt.QueryRow(encode(se.SiafundOutput.Address), encode(types.ZeroCurrency), 0).Scan(&addressID)
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
 		}
 
-		_, err = inserStmt.Exec(encode(se.ID), se.SiafundOutput.Value, encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ClaimStart), addressID)
+		_, err = insertStmt.Exec(encode(se.ID), se.SiafundOutput.Value, encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ClaimStart), addressID)
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
@@ -254,7 +254,7 @@ func (ut *updateTx) RemoveSiafundElements(elements []types.SiafundOutputID) erro
 }
 
 func (ut *updateTx) AddEvents(events []wallet.Event) error {
-	indexStmt, err := ut.tx.Prepare(`INSERT INTO chain_indices (height, block_id) VALUES ($1, $2) ON CONFLICT (block_id) DO UPDATE SET height=EXCLUDED.height RETURNING id`)
+	indexStmt, err := insertIndexStmt(ut.tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare index statement: %w", err)
 	}
@@ -321,10 +321,10 @@ func (ut *updateTx) AddEvents(events []wallet.Event) error {
 	return nil
 }
 
-// RevertEvents reverts the events that were added in the given block.
-func (ut *updateTx) RevertEvents(blockID types.BlockID) error {
+// RevertEvents reverts any events that were added by the index
+func (ut *updateTx) RevertEvents(index types.ChainIndex) error {
 	var id int64
-	err := ut.tx.QueryRow(`DELETE FROM chain_indices WHERE block_id=$1 RETURNING id`, encode(blockID)).Scan(&id)
+	err := ut.tx.QueryRow(`DELETE FROM chain_indices WHERE block_id=$1 AND height=$2 RETURNING id`, encode(index.ID), index.Height).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -398,4 +398,8 @@ func setLastCommittedIndex(tx *txn, index types.ChainIndex) error {
 
 func insertAddressStatement(tx *txn) (*stmt, error) {
 	return tx.Prepare(`INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) VALUES ($1, $2, $2, $3) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address RETURNING id`)
+}
+
+func insertIndexStmt(tx *txn) (*stmt, error) {
+	return tx.Prepare(`INSERT INTO chain_indices (height, block_id) VALUES ($1, $2) ON CONFLICT (block_id) DO UPDATE SET height=EXCLUDED.height RETURNING id`)
 }

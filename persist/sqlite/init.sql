@@ -21,6 +21,7 @@ CREATE TABLE siacoin_elements (
 	address_id INTEGER NOT NULL REFERENCES sia_addresses (id)
 );
 CREATE INDEX siacoin_elements_address_id ON siacoin_elements (address_id);
+CREATE INDEX siacoin_elements_maturity_height ON siacoin_elements (maturity_height);
 
 CREATE TABLE siafund_elements (
 	id BLOB PRIMARY KEY,
@@ -48,9 +49,9 @@ CREATE INDEX wallet_addresses_address_id ON wallet_addresses (address_id);
 CREATE TABLE events (
 	id INTEGER PRIMARY KEY,
 	event_id BLOB NOT NULL,
+	index_id BLOB NOT NULL REFERENCES chain_indices (id) ON DELETE CASCADE,
 	maturity_height INTEGER NOT NULL,
 	date_created INTEGER NOT NULL,
-	index_id BLOB NOT NULL REFERENCES chain_indices (id) ON DELETE CASCADE,
 	event_type TEXT NOT NULL,
 	event_data TEXT NOT NULL
 );
