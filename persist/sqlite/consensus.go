@@ -16,6 +16,7 @@ import (
 type updateTx struct {
 	tx *txn
 
+	fullIndex         bool
 	relevantAddresses map[types.Address]bool
 }
 
@@ -49,6 +50,10 @@ func (ut *updateTx) SiacoinStateElements() ([]types.StateElement, error) {
 }
 
 func (ut *updateTx) UpdateSiacoinStateElements(elements []types.StateElement) error {
+	if ut.fullIndex {
+		panic("UpdateSiafundStateElements should not be called with full index enabled")
+	}
+
 	const query = `UPDATE siacoin_elements SET merkle_proof=$1, leaf_index=$2 WHERE id=$3 RETURNING id`
 	stmt, err := ut.tx.Prepare(query)
 	if err != nil {
@@ -86,6 +91,10 @@ func (ut *updateTx) SiafundStateElements() ([]types.StateElement, error) {
 }
 
 func (ut *updateTx) UpdateSiafundStateElements(elements []types.StateElement) error {
+	if ut.fullIndex {
+		panic("UpdateSiafundStateElements should not be called with full index enabled")
+	}
+
 	const query = `UPDATE siafund_elements SET merkle_proof=$1, leaf_index=$2 WHERE id=$3 RETURNING id`
 	stmt, err := ut.tx.Prepare(query)
 	if err != nil {
@@ -103,7 +112,32 @@ func (ut *updateTx) UpdateSiafundStateElements(elements []types.StateElement) er
 	return nil
 }
 
+// UpdateStateTree updates the state tree with the given changes.
+func (ut *updateTx) UpdateStateTree(changes []wallet.TreeNodeUpdate) error {
+	if !ut.fullIndex {
+		panic("UpdateStateTree should not be called with full index disabled")
+	}
+
+	stmt, err := ut.tx.Prepare(`INSERT INTO state_tree (row, column, value) VALUES($1, $2, $3) ON CONFLICT (row, column) DO UPDATE SET value=EXCLUDED.value;`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, change := range changes {
+		_, err := stmt.Exec(change.Row, change.Column, encode(change.Hash))
+		if err != nil {
+			return fmt.Errorf("failed to execute statement: %w", err)
+		}
+	}
+	return nil
+}
+
 func (ut *updateTx) AddressRelevant(addr types.Address) (bool, error) {
+	if ut.fullIndex {
+		panic("AddressRelevant should not be called with full index enabled")
+	}
+
 	if relevant, ok := ut.relevantAddresses[addr]; ok {
 		return relevant, nil
 	}
@@ -122,11 +156,17 @@ func (ut *updateTx) AddressRelevant(addr types.Address) (bool, error) {
 
 func (ut *updateTx) AddressBalance(addr types.Address) (balance wallet.Balance, err error) {
 	err = ut.tx.QueryRow(`SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses WHERE sia_address=$1`, encode(addr)).Scan(decode(&balance.Siacoins), decode(&balance.ImmatureSiacoins), &balance.Siafunds)
+	if errors.Is(err, sql.ErrNoRows) {
+		if ut.fullIndex {
+			return wallet.Balance{}, nil
+		}
+		return wallet.Balance{}, wallet.ErrNotFound
+	}
 	return
 }
 
 func (ut *updateTx) UpdateBalances(balances []wallet.AddressBalance) error {
-	const query = `UPDATE sia_addresses SET siacoin_balance=$1, immature_siacoin_balance=$2, siafund_balance=$3 WHERE sia_address=$4`
+	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) VALUES ($1, $2, $3, $4) ON CONFLICT (sia_address) DO UPDATE SET siacoin_balance=EXCLUDED.siacoin_balance, immature_siacoin_balance=EXCLUDED.immature_siacoin_balance, siafund_balance=EXCLUDED.siafund_balance;`
 	stmt, err := ut.tx.Prepare(query)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -134,7 +174,7 @@ func (ut *updateTx) UpdateBalances(balances []wallet.AddressBalance) error {
 	defer stmt.Close()
 
 	for _, ab := range balances {
-		_, err := stmt.Exec(encode(ab.Balance.Siacoins), encode(ab.Balance.ImmatureSiacoins), ab.Balance.Siafunds, encode(ab.Address))
+		_, err := stmt.Exec(encode(ab.Address), encode(ab.Balance.Siacoins), encode(ab.Balance.ImmatureSiacoins), ab.Balance.Siafunds)
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
@@ -341,10 +381,11 @@ func (s *Store) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, mayCommit bool) 
 		return s.transaction(func(tx *txn) error {
 			utx := &updateTx{
 				tx:                tx,
+				fullIndex:         s.fullIndex,
 				relevantAddresses: make(map[types.Address]bool),
 			}
 
-			if err := wallet.ApplyChainUpdates(utx, s.updates); err != nil {
+			if err := wallet.ApplyChainUpdates(utx, s.updates, s.fullIndex); err != nil {
 				return fmt.Errorf("failed to apply updates: %w", err)
 			} else if err := setLastCommittedIndex(tx, cau.State.Index); err != nil {
 				return fmt.Errorf("failed to set last committed index: %w", err)
@@ -373,10 +414,11 @@ func (s *Store) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
 	return s.transaction(func(tx *txn) error {
 		utx := &updateTx{
 			tx:                tx,
+			fullIndex:         s.fullIndex,
 			relevantAddresses: make(map[types.Address]bool),
 		}
 
-		if err := wallet.RevertChainUpdate(utx, cru); err != nil {
+		if err := wallet.RevertChainUpdate(utx, cru, s.fullIndex); err != nil {
 			return fmt.Errorf("failed to revert update: %w", err)
 		} else if err := setLastCommittedIndex(tx, cru.State.Index); err != nil {
 			return fmt.Errorf("failed to set last committed index: %w", err)

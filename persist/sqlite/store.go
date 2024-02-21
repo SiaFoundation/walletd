@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"go.sia.tech/coreutils/chain"
-	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -21,7 +20,7 @@ type (
 		db *sql.DB
 
 		log       *zap.Logger
-		indexMode wallet.IndexMode
+		fullIndex bool
 
 		updates []*chain.ApplyUpdate
 	}
@@ -116,10 +115,8 @@ func OpenDatabase(fp string, opts ...Option) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{
-		db: db,
-
-		log:       zap.NewNop(),
-		indexMode: wallet.IndexModeDefault,
+		db:  db,
+		log: zap.NewNop(),
 	}
 	for _, opt := range opts {
 		opt(store)

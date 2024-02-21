@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
 )
 
@@ -15,8 +14,10 @@ func WithLogger(log *zap.Logger) Option {
 	}
 }
 
-func WithIndexMode(mode wallet.IndexMode) Option {
+// WithFullIndex sets the store to index all transactions and outputs, rather
+// than just those relevant to the wallet.
+func WithFullIndex() Option {
 	return func(s *Store) {
-		s.indexMode = mode
+		s.fullIndex = true
 	}
 }

@@ -18,18 +18,7 @@ const (
 	EventTypeFoundationSubsidy = "foundation subsidy"
 )
 
-const (
-	// IndexModeDefault is the default index mode. It only indexes transactions
-	// and outputs that are relevant to an existing wallet address.
-	IndexModeDefault IndexMode = iota + 1
-	// IndexModeFull indexes all transactions and outputs, regardless of
-	// relevance to a wallet.
-	IndexModeFull
-)
-
 type (
-	IndexMode uint8
-
 	// Balance is a summary of a siacoin and siafund balance
 	Balance struct {
 		Siacoins         types.Currency `json:"siacoins"`

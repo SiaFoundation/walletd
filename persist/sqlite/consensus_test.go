@@ -588,3 +588,157 @@ func TestV2(t *testing.T) {
 		t.Fatalf("expected address %v, got %v", addr, events[0].Relevant[0])
 	}
 }
+
+func TestFullIndex(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"),
+		sqlite.WithLogger(log.Named("sqlite3")),
+		sqlite.WithFullIndex())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	network, genesisBlock := testV1Network()
+
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	cm := chain.NewManager(store, genesisState)
+
+	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
+		t.Fatal(err)
+	}
+
+	siacoinAirdropAddr, err := types.ParseAddress("addr:3d7f707d05f2e0ec7ccc9220ed7c8af3bc560fbee84d068c2cc28151d617899e1ee8bc069946")
+	if err != nil {
+		t.Fatal(err)
+	}
+	siacoinAirdropValue := types.Siacoins(1).Mul64(1e12)
+
+	siafundAirdropAddr, err := types.ParseAddress("addr:053b2def3cbdd078c19d62ce2b4f0b1a3c5e0ffbeeff01280efb1f8969b2f5bb4fdc680f0807")
+	if err != nil {
+		t.Fatal(err)
+	}
+	siafundAirdropValue := uint64(10000)
+
+	balance, err := db.AddressBalance(siacoinAirdropAddr)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Siacoins.Equals(siacoinAirdropValue) {
+		t.Fatalf("expected %v, got %v", siacoinAirdropValue, balance.Siacoins)
+	}
+
+	events, err := db.AddressEvents(siacoinAirdropAddr, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if events[0].ID != types.Hash256(genesisBlock.Transactions[0].ID()) {
+		t.Fatalf("expected transaction ID %q got %q", genesisBlock.Transactions[0].ID(), events[0].ID)
+	}
+
+	tx, ok := events[0].Data.(*wallet.EventTransaction)
+	if !ok {
+		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if tx.SiacoinOutputs[0].SiacoinOutput.Address != siacoinAirdropAddr {
+		t.Fatalf("expected address %v, got %v", siacoinAirdropAddr, tx.SiacoinOutputs[0].SiacoinOutput.Address)
+	} else if !tx.SiacoinOutputs[0].SiacoinOutput.Value.Equals(siacoinAirdropValue) {
+		t.Fatalf("expected %v, got %v", siacoinAirdropValue, tx.SiacoinOutputs[0].SiacoinOutput.Value)
+	}
+
+	balance, err = db.AddressBalance(siafundAirdropAddr)
+	if err != nil {
+		t.Fatal(err)
+	} else if balance.Siafunds != siafundAirdropValue {
+		t.Fatalf("expected %v, got %v", siafundAirdropValue, balance.Siafunds)
+	}
+
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
+	expectedPayout := cm.TipState().BlockReward()
+	block := mineBlock(cm.TipState(), nil, addr)
+	minerPayoutID := block.ID().MinerOutputID(0)
+	// mine a block sending the payout to the wallet
+	if err := cm.AddBlocks([]types.Block{block}); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the payout was received
+	balance, err = db.AddressBalance(addr)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.ImmatureSiacoins.Equals(expectedPayout) {
+		t.Fatalf("expected %v, got %v", expectedPayout, balance.ImmatureSiacoins)
+	}
+
+	// check that a payout event was recorded
+	events, err = db.AddressEvents(addr, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	} else if events[0].ID != types.Hash256(minerPayoutID) {
+		t.Fatalf("expected %v, got %v", minerPayoutID, events[0].ID)
+	}
+
+	// mine until the payout matures
+	maturityHeight := cm.TipState().MaturityHeight() + 1
+	for i := cm.TipState().Index.Height; i < maturityHeight; i++ {
+		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// check that the balance matured
+	balance, err = db.AddressBalance(addr)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.ImmatureSiacoins.IsZero() {
+		t.Fatalf("expected 0, got %v", balance.ImmatureSiacoins)
+	} else if !balance.Siacoins.Equals(expectedPayout) {
+		t.Fatalf("expected %v, got %v", expectedPayout, balance.Siacoins)
+	}
+
+	// add the address to a wallet
+	if err := db.AddWallet("test", nil); err != nil {
+		t.Fatal(err)
+	} else if err := db.AddAddress("test", addr, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the wallet balance is correct
+	walletBalance, err := db.WalletBalance("test")
+	if err != nil {
+		t.Fatal(err)
+	} else if !walletBalance.Siacoins.Equals(expectedPayout) {
+		t.Fatalf("expected %v, got %v", expectedPayout, walletBalance.Siacoins)
+	}
+
+	// check that the payout event was associated with the wallet
+	events, err = db.WalletEvents("test", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	} else if events[0].ID != types.Hash256(minerPayoutID) {
+		t.Fatalf("expected %v, got %v", minerPayoutID, events[0].ID)
+	}
+}
