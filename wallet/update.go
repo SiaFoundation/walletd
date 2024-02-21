@@ -14,6 +14,7 @@ type (
 		Balance
 	}
 
+	// An UpdateTx atomically updates the state of a store.
 	UpdateTx interface {
 		SiacoinStateElements() ([]types.StateElement, error)
 		UpdateSiacoinStateElements([]types.StateElement) error
