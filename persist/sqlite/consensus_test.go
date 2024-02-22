@@ -113,6 +113,7 @@ func TestReorg(t *testing.T) {
 	}
 
 	expectedPayout := cm.TipState().BlockReward()
+	maturityHeight := cm.TipState().MaturityHeight()
 	// mine a block sending the payout to the wallet
 	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
 		t.Fatal(err)
@@ -134,6 +135,18 @@ func TestReorg(t *testing.T) {
 		t.Fatalf("expected 1 event, got %v", len(events))
 	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
 		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	}
+
+	// check that the utxo was created
+	utxos, err := db.UnspentSiacoinOutputs("test")
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 1 {
+		t.Fatalf("expected 1 output, got %v", len(utxos))
+	} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
+		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
+	} else if utxos[0].MaturityHeight != maturityHeight {
+		t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
 	}
 
 	// mine to trigger a reorg
@@ -162,6 +175,106 @@ func TestReorg(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 0 {
 		t.Fatalf("expected 0 events, got %v", len(events))
+	}
+
+	// check that the utxo was removed
+	utxos, err = db.UnspentSiacoinOutputs("test")
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 0 {
+		t.Fatalf("expected 0 outputs, got %v", len(utxos))
+	}
+
+	// mine a new payout
+	expectedPayout = cm.TipState().BlockReward()
+	maturityHeight = cm.TipState().MaturityHeight()
+	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the payout was received
+	balance, err = db.AddressBalance(addr)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.ImmatureSiacoins.Equals(expectedPayout) {
+		t.Fatalf("expected %v, got %v", expectedPayout, balance.ImmatureSiacoins)
+	}
+
+	// check that a payout event was recorded
+	events, err = db.WalletEvents("test", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	}
+
+	// check that the utxo was created
+	utxos, err = db.UnspentSiacoinOutputs("test")
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 1 {
+		t.Fatalf("expected 1 output, got %v", len(utxos))
+	} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
+		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
+	} else if utxos[0].MaturityHeight != maturityHeight {
+		t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
+	}
+
+	// mine until the payout matures
+	var prevState consensus.State
+	for i := cm.TipState().Index.Height; i < maturityHeight+1; i++ {
+		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
+			t.Fatal(err)
+		}
+		if i == maturityHeight-5 {
+			prevState = cm.TipState()
+		}
+	}
+
+	// check that the balance was updated
+	balance, err = db.AddressBalance(addr)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.ImmatureSiacoins.IsZero() {
+		t.Fatalf("expected %v, got %v", types.ZeroCurrency, balance.ImmatureSiacoins)
+	} else if !balance.Siacoins.Equals(expectedPayout) {
+		t.Fatalf("expected %v, got %v", expectedPayout, balance.Siacoins)
+	}
+
+	// reorg the last few blocks to re-mature the payout
+	blocks = nil
+	state = prevState
+	for i := 0; i < 10; i++ {
+		blocks = append(blocks, mineBlock(state, nil, types.VoidAddress))
+		state.Index.ID = blocks[len(blocks)-1].ID()
+		state.Index.Height = state.Index.Height + 1
+	}
+	if err := cm.AddBlocks(blocks); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the balance is correct
+	balance, err = db.AddressBalance(addr)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.ImmatureSiacoins.IsZero() {
+		t.Fatalf("expected %v, got %v", types.ZeroCurrency, balance.ImmatureSiacoins)
+	} else if !balance.Siacoins.Equals(expectedPayout) {
+		t.Fatalf("expected %v, got %v", expectedPayout, balance.Siacoins)
+	}
+
+	// check that only the single utxo still exists
+	utxos, err = db.UnspentSiacoinOutputs("test")
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 1 {
+		t.Fatalf("expected 1 output, got %v", len(utxos))
+	} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
+		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
+	} else if utxos[0].MaturityHeight != maturityHeight {
+		t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
 	}
 }
 
@@ -205,8 +318,10 @@ func TestEphemeralBalance(t *testing.T) {
 
 	expectedPayout := cm.TipState().BlockReward()
 	maturityHeight := cm.TipState().MaturityHeight() + 1
+	block := mineBlock(cm.TipState(), nil, addr)
+	minerPayoutID := block.ID().MinerOutputID(0)
 	// mine a block sending the payout to the wallet
-	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
+	if err := cm.AddBlocks([]types.Block{block}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -226,6 +341,8 @@ func TestEphemeralBalance(t *testing.T) {
 		t.Fatalf("expected 1 event, got %v", len(events))
 	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
 		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	} else if events[0].ID != types.Hash256(minerPayoutID) {
+		t.Fatalf("expected %v, got %v", minerPayoutID, events[0].ID)
 	}
 
 	// mine until the payout matures
@@ -304,6 +421,24 @@ func TestEphemeralBalance(t *testing.T) {
 		t.Fatal(err)
 	} else if !balance.Siacoins.IsZero() {
 		t.Fatalf("expected 0, got %v", balance.Siacoins)
+	}
+
+	// check that both transactions were added
+	events, err = db.WalletEvents("test", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 3 { // 1 payout, 2 transactions
+		t.Fatalf("expected 3 events, got %v", len(events))
+	} else if events[2].Data.EventType() != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected miner payout event, got %v", events[2].Data.EventType())
+	} else if events[1].Data.EventType() != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[1].Data.EventType())
+	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if events[1].ID != types.Hash256(parentTxn.ID()) { // parent txn first
+		t.Fatalf("expected %v, got %v", parentTxn.ID(), events[1].ID)
+	} else if events[0].ID != types.Hash256(txn.ID()) { // child txn second
+		t.Fatalf("expected %v, got %v", txn.ID(), events[0].ID)
 	}
 
 	// trigger a reorg

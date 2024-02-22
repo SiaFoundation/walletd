@@ -186,12 +186,14 @@ func (*EventContractPayout) EventType() string { return EventTypeContractPayout 
 func (e Event) MarshalJSON() ([]byte, error) {
 	val, _ := json.Marshal(e.Data)
 	return json.Marshal(struct {
+		ID        types.Hash256    `json:"id"`
 		Timestamp time.Time        `json:"timestamp"`
 		Index     types.ChainIndex `json:"index"`
 		Relevant  []types.Address  `json:"relevant"`
 		Type      string           `json:"type"`
 		Val       json.RawMessage  `json:"val"`
 	}{
+		ID:        e.ID,
 		Timestamp: e.Timestamp,
 		Index:     e.Index,
 		Relevant:  e.Relevant,
@@ -203,15 +205,17 @@ func (e Event) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unarshaler.
 func (e *Event) UnmarshalJSON(data []byte) error {
 	var s struct {
-		Timestamp time.Time
-		Index     types.ChainIndex
-		Relevant  []types.Address
-		Type      string
-		Val       json.RawMessage
+		ID        types.Hash256    `json:"id"`
+		Timestamp time.Time        `json:"timestamp"`
+		Index     types.ChainIndex `json:"index"`
+		Relevant  []types.Address  `json:"relevant"`
+		Type      string           `json:"type"`
+		Val       json.RawMessage  `json:"val"`
 	}
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
+	e.ID = s.ID
 	e.Timestamp = s.Timestamp
 	e.Index = s.Index
 	e.Relevant = s.Relevant
@@ -312,6 +316,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		}
 
 		events = append(events, Event{
+			ID:             id,
 			Timestamp:      b.Timestamp,
 			Index:          cs.Index,
 			MaturityHeight: maturityHeight,
