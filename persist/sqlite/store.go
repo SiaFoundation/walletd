@@ -17,8 +17,10 @@ import (
 type (
 	// A Store is a persistent store that uses a SQL database as its backend.
 	Store struct {
-		db  *sql.DB
-		log *zap.Logger
+		db *sql.DB
+
+		log       *zap.Logger
+		fullIndex bool
 
 		updates []*chain.ApplyUpdate
 	}
@@ -107,14 +109,17 @@ func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx *txn) error) error {
 
 // OpenDatabase creates a new SQLite store and initializes the database. If the
 // database does not exist, it is created.
-func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
+func OpenDatabase(fp string, opts ...Option) (*Store, error) {
 	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
 	if err != nil {
 		return nil, err
 	}
 	store := &Store{
 		db:  db,
-		log: log,
+		log: zap.NewNop(),
+	}
+	for _, opt := range opts {
+		opt(store)
 	}
 	if err := store.init(); err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)

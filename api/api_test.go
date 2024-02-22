@@ -66,7 +66,7 @@ func TestWallet(t *testing.T) {
 	}
 	cm := chain.NewManager(dbstore, tipState)
 
-	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), sqlite.WithLogger(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	cm := chain.NewManager(dbstore, tipState)
-	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), sqlite.WithLogger(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,7 +465,7 @@ func TestP2P(t *testing.T) {
 	}
 	log1 := logger.Named("one")
 	cm1 := chain.NewManager(dbstore1, tipState)
-	store1, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log1.Named("sqlite3"))
+	store1, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), sqlite.WithLogger(log1.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +504,7 @@ func TestP2P(t *testing.T) {
 	}
 	log2 := logger.Named("two")
 	cm2 := chain.NewManager(dbstore2, tipState)
-	store2, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log2.Named("sqlite3"))
+	store2, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), sqlite.WithLogger(log2.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}

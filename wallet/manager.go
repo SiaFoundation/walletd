@@ -54,6 +54,10 @@ type (
 	}
 )
 
+// ErrNotFound should be returned by the store when an address or wallet is
+// not found.
+var ErrNotFound = errors.New("not found")
+
 // AddWallet adds the given wallet.
 func (m *Manager) AddWallet(name string, info json.RawMessage) error {
 	return m.store.AddWallet(name, info)

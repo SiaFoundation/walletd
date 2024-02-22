@@ -12,7 +12,7 @@ import (
 
 func TestAddPeer(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), WithLogger(log))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestAddPeer(t *testing.T) {
 
 func TestBanPeer(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), log)
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), WithLogger(log))
 	if err != nil {
 		t.Fatal(err)
 	}

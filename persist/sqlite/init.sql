@@ -33,6 +33,13 @@ CREATE TABLE siafund_elements (
 );
 CREATE INDEX siafund_elements_address_id ON siafund_elements (address_id);
 
+CREATE TABLE state_tree (
+	row INTEGER,
+	column INTEGER,
+	value BLOB NOT NULL,
+	PRIMARY KEY (row, column)
+);
+
 CREATE TABLE wallets (
 	id TEXT PRIMARY KEY NOT NULL,
 	extra_data BLOB NOT NULL

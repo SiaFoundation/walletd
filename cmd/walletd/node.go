@@ -161,7 +161,7 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool, log *zap.Logge
 		syncerAddr = net.JoinHostPort("127.0.0.1", port)
 	}
 
-	store, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	store, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLogger(log.Named("sqlite3")))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open wallet database: %w", err)
 	}

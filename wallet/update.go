@@ -14,6 +14,13 @@ type (
 		Balance
 	}
 
+	// A TreeNodeUpdate is a change to a Merkle tree node.
+	TreeNodeUpdate struct {
+		Row    uint64
+		Column uint64
+		Hash   types.Hash256
+	}
+
 	// An UpdateTx atomically updates the state of a store.
 	UpdateTx interface {
 		SiacoinStateElements() ([]types.StateElement, error)
@@ -33,6 +40,8 @@ type (
 		AddressRelevant(types.Address) (bool, error)
 		AddressBalance(types.Address) (Balance, error)
 		UpdateBalances([]AddressBalance) error
+
+		UpdateStateTree(changes []TreeNodeUpdate) error
 	}
 
 	// An ApplyTx atomically applies a set of updates to a store.
@@ -51,13 +60,15 @@ type (
 )
 
 // ApplyChainUpdates atomically applies a set of chain updates to a store
-func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
+func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate, fullIndex bool) error {
 	var events []Event
 	balances := make(map[types.Address]Balance)
 	newSiacoinElements := make(map[types.SiacoinOutputID]types.SiacoinElement)
 	newSiafundElements := make(map[types.SiafundOutputID]types.SiafundElement)
 	spentSiacoinElements := make(map[types.SiacoinOutputID]bool)
 	spentSiafundElements := make(map[types.SiafundOutputID]bool)
+
+	var treeUpdates []TreeNodeUpdate
 
 	updateBalance := func(addr types.Address, fn func(b *Balance)) error {
 		balance, ok := balances[addr]
@@ -74,14 +85,18 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 		return nil
 	}
 
-	// fetch all siacoin and siafund state elements
-	siacoinStateElements, err := tx.SiacoinStateElements()
-	if err != nil {
-		return fmt.Errorf("failed to get siacoin state elements: %w", err)
-	}
-	siafundStateElements, err := tx.SiafundStateElements()
-	if err != nil {
-		return fmt.Errorf("failed to get siafund state elements: %w", err)
+	var siacoinStateElements, siafundStateElements []types.StateElement
+	var err error
+	if !fullIndex {
+		// fetch all siacoin and siafund state elements
+		siacoinStateElements, err = tx.SiacoinStateElements()
+		if err != nil {
+			return fmt.Errorf("failed to get siacoin state elements: %w", err)
+		}
+		siafundStateElements, err = tx.SiafundStateElements()
+		if err != nil {
+			return fmt.Errorf("failed to get siafund state elements: %w", err)
+		}
 	}
 
 	for _, cau := range updates {
@@ -130,12 +145,14 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 				return
 			}
 
-			relevant, err := tx.AddressRelevant(se.SiacoinOutput.Address)
-			if err != nil {
-				siacoinElementErr = fmt.Errorf("failed to check if address is relevant: %w", err)
-				return
-			} else if !relevant {
-				return
+			if !fullIndex {
+				relevant, err := tx.AddressRelevant(se.SiacoinOutput.Address)
+				if err != nil {
+					siacoinElementErr = fmt.Errorf("failed to check if address is relevant: %w", err)
+					return
+				} else if !relevant {
+					return
+				}
 			}
 
 			if spent {
@@ -172,12 +189,14 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 				return
 			}
 
-			relevant, err := tx.AddressRelevant(se.SiafundOutput.Address)
-			if err != nil {
-				siafundElementErr = fmt.Errorf("failed to check if address is relevant: %w", err)
-				return
-			} else if !relevant {
-				return
+			if !fullIndex {
+				relevant, err := tx.AddressRelevant(se.SiafundOutput.Address)
+				if err != nil {
+					siafundElementErr = fmt.Errorf("failed to check if address is relevant: %w", err)
+					return
+				} else if !relevant {
+					return
+				}
 			}
 
 			if spent {
@@ -205,6 +224,10 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 
 		// add events
 		relevant := func(addr types.Address) bool {
+			if fullIndex {
+				return true
+			}
+
 			relevant, err := tx.AddressRelevant(addr)
 			if err != nil {
 				panic(fmt.Errorf("failed to check if address is relevant: %w", err))
@@ -216,24 +239,34 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 		}
 		events = append(events, AppliedEvents(cau.State, cau.Block, cau, relevant)...)
 
-		// update siacoin element proofs
-		for id := range newSiacoinElements {
-			ele := newSiacoinElements[id]
-			cau.UpdateElementProof(&ele.StateElement)
-			newSiacoinElements[id] = ele
-		}
-		for i := range siacoinStateElements {
-			cau.UpdateElementProof(&siacoinStateElements[i])
-		}
+		if !fullIndex {
+			// update siacoin element proofs
+			for id := range newSiacoinElements {
+				ele := newSiacoinElements[id]
+				cau.UpdateElementProof(&ele.StateElement)
+				newSiacoinElements[id] = ele
+			}
+			for i := range siacoinStateElements {
+				cau.UpdateElementProof(&siacoinStateElements[i])
+			}
 
-		// update siafund element proofs
-		for id := range newSiafundElements {
-			ele := newSiafundElements[id]
-			cau.UpdateElementProof(&ele.StateElement)
-			newSiafundElements[id] = ele
-		}
-		for i := range siafundStateElements {
-			cau.UpdateElementProof(&siafundStateElements[i])
+			// update siafund element proofs
+			for id := range newSiafundElements {
+				ele := newSiafundElements[id]
+				cau.UpdateElementProof(&ele.StateElement)
+				newSiafundElements[id] = ele
+			}
+			for i := range siafundStateElements {
+				cau.UpdateElementProof(&siafundStateElements[i])
+			}
+		} else {
+			cau.ForEachTreeNode(func(row, column uint64, hash types.Hash256) {
+				treeUpdates = append(treeUpdates, TreeNodeUpdate{
+					Row:    row,
+					Column: column,
+					Hash:   hash,
+				})
+			})
 		}
 	}
 
@@ -290,34 +323,40 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 		return fmt.Errorf("failed to add events: %w", err)
 	}
 
-	// update the siacoin state elements
-	filteredStateElements := siacoinStateElements[:0]
-	for _, se := range siacoinStateElements {
-		if _, ok := spentSiacoinElements[types.SiacoinOutputID(se.ID)]; !ok {
-			filteredStateElements = append(filteredStateElements, se)
+	if !fullIndex {
+		// update the siacoin state elements
+		filteredStateElements := siacoinStateElements[:0]
+		for _, se := range siacoinStateElements {
+			if _, ok := spentSiacoinElements[types.SiacoinOutputID(se.ID)]; !ok {
+				filteredStateElements = append(filteredStateElements, se)
+			}
 		}
-	}
-	err = tx.UpdateSiacoinStateElements(filteredStateElements)
-	if err != nil {
-		return fmt.Errorf("failed to update siacoin state elements: %w", err)
-	}
+		err = tx.UpdateSiacoinStateElements(filteredStateElements)
+		if err != nil {
+			return fmt.Errorf("failed to update siacoin state elements: %w", err)
+		}
 
-	// update the siafund state elements
-	filteredStateElements = siafundStateElements[:0]
-	for _, se := range siafundStateElements {
-		if _, ok := spentSiafundElements[types.SiafundOutputID(se.ID)]; !ok {
-			filteredStateElements = append(filteredStateElements, se)
+		// update the siafund state elements
+		filteredStateElements = siafundStateElements[:0]
+		for _, se := range siafundStateElements {
+			if _, ok := spentSiafundElements[types.SiafundOutputID(se.ID)]; !ok {
+				filteredStateElements = append(filteredStateElements, se)
+			}
 		}
-	}
-	if err = tx.UpdateSiafundStateElements(filteredStateElements); err != nil {
-		return fmt.Errorf("failed to update siafund state elements: %w", err)
+		if err = tx.UpdateSiafundStateElements(filteredStateElements); err != nil {
+			return fmt.Errorf("failed to update siafund state elements: %w", err)
+		}
+	} else {
+		if err := tx.UpdateStateTree(treeUpdates); err != nil {
+			return fmt.Errorf("failed to update state tree: %w", err)
+		}
 	}
 
 	return nil
 }
 
 // RevertChainUpdate atomically reverts a chain update from a store
-func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
+func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate, fullIndex bool) error {
 	balances := make(map[types.Address]Balance)
 
 	var deletedSiacoinElements []types.SiacoinOutputID
@@ -387,14 +426,16 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 			return
 		}
 
-		relevant, err := tx.AddressRelevant(se.SiacoinOutput.Address)
-		if err != nil {
-			siacoinElementErr = fmt.Errorf("failed to check if address is relevant: %w", err)
-			return
-		} else if !relevant {
-			return
-		} else if ephemeral[se.ID] {
-			return
+		if !fullIndex {
+			relevant, err := tx.AddressRelevant(se.SiacoinOutput.Address)
+			if err != nil {
+				siacoinElementErr = fmt.Errorf("failed to check if address is relevant: %w", err)
+				return
+			} else if !relevant {
+				return
+			} else if ephemeral[se.ID] {
+				return
+			}
 		}
 
 		if spent {
@@ -426,14 +467,16 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 			return
 		}
 
-		relevant, err := tx.AddressRelevant(se.SiafundOutput.Address)
-		if err != nil {
-			siacoinElementErr = fmt.Errorf("failed to check if address is relevant: %w", err)
-			return
-		} else if !relevant {
-			return
-		} else if ephemeral[se.ID] {
-			return
+		if !fullIndex {
+			relevant, err := tx.AddressRelevant(se.SiafundOutput.Address)
+			if err != nil {
+				siacoinElementErr = fmt.Errorf("failed to check if address is relevant: %w", err)
+				return
+			} else if !relevant {
+				return
+			} else if ephemeral[se.ID] {
+				return
+			}
 		}
 
 		if spent {
@@ -474,15 +517,6 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 		return fmt.Errorf("failed to remove siacoin elements: %w", err)
 	}
 
-	// update siacoin element proofs
-	siacoinElements, err := tx.SiacoinStateElements()
-	if err != nil {
-		return fmt.Errorf("failed to get siacoin state elements: %w", err)
-	}
-	for i := range siacoinElements {
-		cru.UpdateElementProof(&siacoinElements[i])
-	}
-
 	// revert siafund element changes
 	if err := tx.AddSiafundElements(addedSiafundElements); err != nil {
 		return fmt.Errorf("failed to add siafund elements: %w", err)
@@ -490,13 +524,37 @@ func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
 		return fmt.Errorf("failed to remove siafund elements: %w", err)
 	}
 
-	// update siafund element proofs
-	siafundElements, err := tx.SiafundStateElements()
-	if err != nil {
-		return fmt.Errorf("failed to get siafund state elements: %w", err)
-	}
-	for i := range siafundElements {
-		cru.UpdateElementProof(&siafundElements[i])
+	if !fullIndex {
+		// update siacoin element proofs
+		siacoinElements, err := tx.SiacoinStateElements()
+		if err != nil {
+			return fmt.Errorf("failed to get siacoin state elements: %w", err)
+		}
+		for i := range siacoinElements {
+			cru.UpdateElementProof(&siacoinElements[i])
+		}
+
+		// update siafund element proofs
+		siafundElements, err := tx.SiafundStateElements()
+		if err != nil {
+			return fmt.Errorf("failed to get siafund state elements: %w", err)
+		}
+		for i := range siafundElements {
+			cru.UpdateElementProof(&siafundElements[i])
+		}
+	} else {
+		var treeUpdates []TreeNodeUpdate
+		cru.ForEachTreeNode(func(row, column uint64, hash types.Hash256) {
+			treeUpdates = append(treeUpdates, TreeNodeUpdate{
+				Row:    row,
+				Column: column,
+				Hash:   hash,
+			})
+		})
+
+		if err := tx.UpdateStateTree(treeUpdates); err != nil {
+			return fmt.Errorf("failed to update state tree: %w", err)
+		}
 	}
 
 	return tx.RevertEvents(revertedIndex)

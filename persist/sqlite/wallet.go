@@ -19,6 +19,47 @@ RETURNING id`
 	return
 }
 
+func scanEvent(s scanner) (id int64, event wallet.Event, err error) {
+	var eventType string
+	var eventBuf []byte
+
+	err = s.Scan(&id, decode(&event.ID), &event.MaturityHeight, decode(&event.Timestamp), &event.Index.Height, decode(&event.Index.ID), &eventType, &eventBuf)
+	if err != nil {
+		return 0, wallet.Event{}, fmt.Errorf("failed to scan event: %w", err)
+	}
+
+	switch eventType {
+	case wallet.EventTypeTransaction:
+		var tx wallet.EventTransaction
+		if err = json.Unmarshal(eventBuf, &tx); err != nil {
+			return 0, wallet.Event{}, fmt.Errorf("failed to unmarshal transaction event: %w", err)
+		}
+		event.Data = &tx
+	case wallet.EventTypeContractPayout:
+		var m wallet.EventContractPayout
+		if err = json.Unmarshal(eventBuf, &m); err != nil {
+			return 0, wallet.Event{}, fmt.Errorf("failed to unmarshal missed file contract event: %w", err)
+		}
+		event.Data = &m
+	case wallet.EventTypeMinerPayout:
+		var m wallet.EventMinerPayout
+		if err = json.Unmarshal(eventBuf, &m); err != nil {
+			return 0, wallet.Event{}, fmt.Errorf("failed to unmarshal payout event: %w", err)
+		}
+		event.Data = &m
+	case wallet.EventTypeFoundationSubsidy:
+		var m wallet.EventFoundationSubsidy
+		if err = json.Unmarshal(eventBuf, &m); err != nil {
+			return 0, wallet.Event{}, fmt.Errorf("failed to unmarshal foundation subsidy event: %w", err)
+		}
+		event.Data = &m
+	default:
+		return 0, wallet.Event{}, fmt.Errorf("unknown event type: %s", eventType)
+	}
+
+	return
+}
+
 func getWalletEvents(tx *txn, walletID string, offset, limit int) (events []wallet.Event, eventIDs []int64, err error) {
 	const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
 	FROM events ev
@@ -34,47 +75,16 @@ func getWalletEvents(tx *txn, walletID string, offset, limit int) (events []wall
 	defer rows.Close()
 
 	for rows.Next() {
-		var eventID int64
-		var event wallet.Event
-		var eventType string
-		var eventBuf []byte
-
-		err := rows.Scan(&eventID, decode(&event.ID), &event.MaturityHeight, decode(&event.Timestamp), &event.Index.Height, decode(&event.Index.ID), &eventType, &eventBuf)
+		eventID, event, err := scanEvent(rows)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan event: %w", err)
 		}
 
-		switch eventType {
-		case wallet.EventTypeTransaction:
-			var tx wallet.EventTransaction
-			if err = json.Unmarshal(eventBuf, &tx); err != nil {
-				return nil, nil, fmt.Errorf("failed to unmarshal transaction event: %w", err)
-			}
-			event.Data = &tx
-		case wallet.EventTypeContractPayout:
-			var m wallet.EventContractPayout
-			if err = json.Unmarshal(eventBuf, &m); err != nil {
-				return nil, nil, fmt.Errorf("failed to unmarshal missed file contract event: %w", err)
-			}
-			event.Data = &m
-		case wallet.EventTypeMinerPayout:
-			var m wallet.EventMinerPayout
-			if err = json.Unmarshal(eventBuf, &m); err != nil {
-				return nil, nil, fmt.Errorf("failed to unmarshal payout event: %w", err)
-			}
-			event.Data = &m
-		case wallet.EventTypeFoundationSubsidy:
-			var m wallet.EventFoundationSubsidy
-			if err = json.Unmarshal(eventBuf, &m); err != nil {
-				return nil, nil, fmt.Errorf("failed to unmarshal foundation subsidy event: %w", err)
-			}
-			event.Data = &m
-		default:
-			return nil, nil, fmt.Errorf("unknown event type: %s", eventType)
-		}
-
 		events = append(events, event)
 		eventIDs = append(eventIDs, eventID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("failed to scan events: %w", err)
 	}
 	return
 }
@@ -308,15 +318,6 @@ func (s *Store) WalletBalance(walletID string) (balance wallet.Balance, err erro
 			balance.Siafunds += addressSF
 		}
 		return nil
-	})
-	return
-}
-
-// AddressBalance returns the balance of a single address.
-func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, err error) {
-	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses WHERE sia_address=$1`
-		return tx.QueryRow(query, encode(address)).Scan(decode(&balance.Siacoins), decode(&balance.ImmatureSiacoins), &balance.Siafunds)
 	})
 	return
 }
