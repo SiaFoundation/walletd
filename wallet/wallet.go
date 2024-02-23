@@ -28,12 +28,12 @@ type (
 		Siafunds         uint64         `json:"siafunds"`
 	}
 
-	// A WalletID is a unique identifier for a wallet.
-	WalletID int64
+	// An ID is a unique identifier for a wallet.
+	ID int64
 
 	// A Wallet is a collection of addresses and metadata.
 	Wallet struct {
-		ID          WalletID        `json:"id"`
+		ID          ID              `json:"id"`
 		Name        string          `json:"name"`
 		Description string          `json:"description"`
 		DateCreated time.Time       `json:"dateCreated"`
@@ -54,17 +54,17 @@ type (
 var ErrNotFound = errors.New("not found")
 
 // UnmarshalText implements encoding.TextUnmarshaler.
-func (w *WalletID) UnmarshalText(buf []byte) error {
+func (w *ID) UnmarshalText(buf []byte) error {
 	id, err := strconv.ParseInt(string(buf), 10, 64)
 	if err != nil {
 		return err
 	}
-	*w = WalletID(id)
+	*w = ID(id)
 	return nil
 }
 
 // MarshalText implements encoding.TextMarshaler.
-func (w WalletID) MarshalText() ([]byte, error) {
+func (w ID) MarshalText() ([]byte, error) {
 	return []byte(strconv.FormatInt(int64(w), 10)), nil
 }
 

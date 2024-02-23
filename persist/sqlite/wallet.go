@@ -60,7 +60,7 @@ func scanEvent(s scanner) (ev wallet.Event, eventID int64, err error) {
 	return
 }
 
-func getWalletEvents(tx *txn, id wallet.WalletID, offset, limit int) (events []wallet.Event, eventIDs []int64, err error) {
+func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.Event, eventIDs []int64, err error) {
 	const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
 	FROM events ev
 	INNER JOIN chain_indices ci ON (ev.index_id = ci.id)
@@ -89,7 +89,7 @@ func getWalletEvents(tx *txn, id wallet.WalletID, offset, limit int) (events []w
 	return
 }
 
-func (s *Store) getWalletEventRelevantAddresses(tx *txn, id wallet.WalletID, eventIDs []int64) (map[int64][]types.Address, error) {
+func (s *Store) getWalletEventRelevantAddresses(tx *txn, id wallet.ID, eventIDs []int64) (map[int64][]types.Address, error) {
 	query := `SELECT ea.event_id, sa.sia_address
 FROM event_addresses ea
 INNER JOIN sia_addresses sa ON (ea.address_id = sa.id)
@@ -114,7 +114,7 @@ WHERE event_id IN (` + queryPlaceHolders(len(eventIDs)) + `) AND address_id IN (
 }
 
 // WalletEvents returns the events relevant to a wallet, sorted by height descending.
-func (s *Store) WalletEvents(id wallet.WalletID, offset, limit int) (events []wallet.Event, err error) {
+func (s *Store) WalletEvents(id wallet.ID, offset, limit int) (events []wallet.Event, err error) {
 	err = s.transaction(func(tx *txn) error {
 		var dbIDs []int64
 		events, dbIDs, err = getWalletEvents(tx, id, offset, limit)
@@ -164,7 +164,7 @@ func (s *Store) UpdateWallet(w wallet.Wallet) (wallet.Wallet, error) {
 
 // DeleteWallet deletes a wallet from the database. This does not stop tracking
 // addresses that were previously associated with the wallet.
-func (s *Store) DeleteWallet(id wallet.WalletID) error {
+func (s *Store) DeleteWallet(id wallet.ID) error {
 	return s.transaction(func(tx *txn) error {
 		var dummyID int64
 		err := tx.QueryRow(`DELETE FROM wallets WHERE id=$1 RETURNING id`, id).Scan(&dummyID)
@@ -199,7 +199,7 @@ func (s *Store) Wallets() (wallets []wallet.Wallet, err error) {
 }
 
 // AddWalletAddress adds an address to a wallet.
-func (s *Store) AddWalletAddress(id wallet.WalletID, addr wallet.Address) error {
+func (s *Store) AddWalletAddress(id wallet.ID, addr wallet.Address) error {
 	return s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
@@ -222,7 +222,7 @@ func (s *Store) AddWalletAddress(id wallet.WalletID, addr wallet.Address) error 
 
 // RemoveWalletAddress removes an address from a wallet. This does not stop tracking
 // the address.
-func (s *Store) RemoveWalletAddress(id wallet.WalletID, address types.Address) error {
+func (s *Store) RemoveWalletAddress(id wallet.ID, address types.Address) error {
 	return s.transaction(func(tx *txn) error {
 		const query = `DELETE FROM wallet_addresses WHERE wallet_id=$1 AND address_id=(SELECT id FROM sia_addresses WHERE sia_address=$2) RETURNING address_id`
 		var dummyID int64
@@ -235,7 +235,7 @@ func (s *Store) RemoveWalletAddress(id wallet.WalletID, address types.Address) e
 }
 
 // WalletAddresses returns a slice of addresses registered to the wallet.
-func (s *Store) WalletAddresses(id wallet.WalletID) (addresses []wallet.Address, err error) {
+func (s *Store) WalletAddresses(id wallet.ID) (addresses []wallet.Address, err error) {
 	err = s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
@@ -281,7 +281,7 @@ WHERE wa.wallet_id=$1`
 }
 
 // WalletSiacoinOutputs returns the unspent siacoin outputs for a wallet.
-func (s *Store) WalletSiacoinOutputs(id wallet.WalletID, offset, limit int) (siacoins []types.SiacoinElement, err error) {
+func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins []types.SiacoinElement, err error) {
 	err = s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
@@ -314,7 +314,7 @@ func (s *Store) WalletSiacoinOutputs(id wallet.WalletID, offset, limit int) (sia
 }
 
 // WalletSiafundOutputs returns the unspent siafund outputs for a wallet.
-func (s *Store) WalletSiafundOutputs(id wallet.WalletID, offset, limit int) (siafunds []types.SiafundElement, err error) {
+func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds []types.SiafundElement, err error) {
 	err = s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
@@ -346,7 +346,7 @@ func (s *Store) WalletSiafundOutputs(id wallet.WalletID, offset, limit int) (sia
 }
 
 // WalletBalance returns the total balance of a wallet.
-func (s *Store) WalletBalance(id wallet.WalletID) (balance wallet.Balance, err error) {
+func (s *Store) WalletBalance(id wallet.ID) (balance wallet.Balance, err error) {
 	err = s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
@@ -380,7 +380,7 @@ func (s *Store) WalletBalance(id wallet.WalletID) (balance wallet.Balance, err e
 }
 
 // Annotate annotates a list of transactions using the wallet's addresses.
-func (s *Store) Annotate(id wallet.WalletID, txns []types.Transaction) (annotated []wallet.PoolTransaction, err error) {
+func (s *Store) Annotate(id wallet.ID, txns []types.Transaction) (annotated []wallet.PoolTransaction, err error) {
 	err = s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
@@ -421,7 +421,7 @@ WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`
 	return
 }
 
-func walletExists(tx *txn, id wallet.WalletID) error {
+func walletExists(tx *txn, id wallet.ID) error {
 	const query = `SELECT id FROM wallets WHERE id=$1`
 	var dummyID int64
 	err := tx.QueryRow(query, id).Scan(&dummyID)

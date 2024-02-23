@@ -24,20 +24,20 @@ type (
 	Store interface {
 		chain.Subscriber
 
-		WalletEvents(id WalletID, offset, limit int) ([]Event, error)
+		WalletEvents(walletID ID, offset, limit int) ([]Event, error)
 		AddWallet(Wallet) (Wallet, error)
 		UpdateWallet(Wallet) (Wallet, error)
-		DeleteWallet(id WalletID) error
-		WalletBalance(id WalletID) (Balance, error)
-		WalletSiacoinOutputs(id WalletID, offset, limit int) ([]types.SiacoinElement, error)
-		WalletSiafundOutputs(id WalletID, offset, limit int) ([]types.SiafundElement, error)
-		WalletAddresses(id WalletID) ([]Address, error)
+		DeleteWallet(walletID ID) error
+		WalletBalance(walletID ID) (Balance, error)
+		WalletSiacoinOutputs(walletID ID, offset, limit int) ([]types.SiacoinElement, error)
+		WalletSiafundOutputs(walletID ID, offset, limit int) ([]types.SiafundElement, error)
+		WalletAddresses(walletID ID) ([]Address, error)
 		Wallets() ([]Wallet, error)
 
-		AddWalletAddress(id WalletID, address Address) error
-		RemoveWalletAddress(id WalletID, address types.Address) error
+		AddWalletAddress(walletID ID, address Address) error
+		RemoveWalletAddress(walletID ID, address types.Address) error
 
-		Annotate(id WalletID, txns []types.Transaction) ([]PoolTransaction, error)
+		Annotate(walletID ID, txns []types.Transaction) ([]PoolTransaction, error)
 
 		LastCommittedIndex() (types.ChainIndex, error)
 	}
@@ -64,8 +64,8 @@ func (m *Manager) UpdateWallet(w Wallet) (Wallet, error) {
 }
 
 // DeleteWallet deletes the given wallet.
-func (m *Manager) DeleteWallet(id WalletID) error {
-	return m.store.DeleteWallet(id)
+func (m *Manager) DeleteWallet(walletID ID) error {
+	return m.store.DeleteWallet(walletID)
 }
 
 // Wallets returns the wallets of the wallet manager.
@@ -74,44 +74,44 @@ func (m *Manager) Wallets() ([]Wallet, error) {
 }
 
 // AddAddress adds the given address to the given wallet.
-func (m *Manager) AddAddress(id WalletID, addr Address) error {
-	return m.store.AddWalletAddress(id, addr)
+func (m *Manager) AddAddress(walletID ID, addr Address) error {
+	return m.store.AddWalletAddress(walletID, addr)
 }
 
 // RemoveAddress removes the given address from the given wallet.
-func (m *Manager) RemoveAddress(id WalletID, addr types.Address) error {
-	return m.store.RemoveWalletAddress(id, addr)
+func (m *Manager) RemoveAddress(walletID ID, addr types.Address) error {
+	return m.store.RemoveWalletAddress(walletID, addr)
 }
 
 // Addresses returns the addresses of the given wallet.
-func (m *Manager) Addresses(id WalletID) ([]Address, error) {
-	return m.store.WalletAddresses(id)
+func (m *Manager) Addresses(walletID ID) ([]Address, error) {
+	return m.store.WalletAddresses(walletID)
 }
 
 // Events returns the events of the given wallet.
-func (m *Manager) Events(id WalletID, offset, limit int) ([]Event, error) {
-	return m.store.WalletEvents(id, offset, limit)
+func (m *Manager) Events(walletID ID, offset, limit int) ([]Event, error) {
+	return m.store.WalletEvents(walletID, offset, limit)
 }
 
 // UnspentSiacoinOutputs returns a paginated list of unspent siacoin outputs of
 // the given wallet and the total number of unspent siacoin outputs.
-func (m *Manager) UnspentSiacoinOutputs(id WalletID, offset, limit int) ([]types.SiacoinElement, error) {
-	return m.store.WalletSiacoinOutputs(id, offset, limit)
+func (m *Manager) UnspentSiacoinOutputs(walletID ID, offset, limit int) ([]types.SiacoinElement, error) {
+	return m.store.WalletSiacoinOutputs(walletID, offset, limit)
 }
 
 // UnspentSiafundOutputs returns the unspent siafund outputs of the given wallet
-func (m *Manager) UnspentSiafundOutputs(id WalletID, offset, limit int) ([]types.SiafundElement, error) {
-	return m.store.WalletSiafundOutputs(id, offset, limit)
+func (m *Manager) UnspentSiafundOutputs(walletID ID, offset, limit int) ([]types.SiafundElement, error) {
+	return m.store.WalletSiafundOutputs(walletID, offset, limit)
 }
 
 // Annotate annotates the given transactions with the wallet they belong to.
-func (m *Manager) Annotate(id WalletID, pool []types.Transaction) ([]PoolTransaction, error) {
-	return m.store.Annotate(id, pool)
+func (m *Manager) Annotate(walletID ID, pool []types.Transaction) ([]PoolTransaction, error) {
+	return m.store.Annotate(walletID, pool)
 }
 
 // WalletBalance returns the balance of the given wallet.
-func (m *Manager) WalletBalance(id WalletID) (Balance, error) {
-	return m.store.WalletBalance(id)
+func (m *Manager) WalletBalance(walletID ID) (Balance, error) {
+	return m.store.WalletBalance(walletID)
 }
 
 // Reserve reserves the given ids for the given duration.

@@ -48,17 +48,17 @@ type (
 
 		AddWallet(wallet.Wallet) (wallet.Wallet, error)
 		UpdateWallet(wallet.Wallet) (wallet.Wallet, error)
-		DeleteWallet(wallet.WalletID) error
+		DeleteWallet(wallet.ID) error
 		Wallets() ([]wallet.Wallet, error)
 
-		AddAddress(id wallet.WalletID, addr wallet.Address) error
-		RemoveAddress(id wallet.WalletID, addr types.Address) error
-		Addresses(id wallet.WalletID) ([]wallet.Address, error)
-		Events(id wallet.WalletID, offset, limit int) ([]wallet.Event, error)
-		UnspentSiacoinOutputs(id wallet.WalletID, offset, limit int) ([]types.SiacoinElement, error)
-		UnspentSiafundOutputs(id wallet.WalletID, offset, limit int) ([]types.SiafundElement, error)
-		WalletBalance(id wallet.WalletID) (wallet.Balance, error)
-		Annotate(id wallet.WalletID, pool []types.Transaction) ([]wallet.PoolTransaction, error)
+		AddAddress(id wallet.ID, addr wallet.Address) error
+		RemoveAddress(id wallet.ID, addr types.Address) error
+		Addresses(id wallet.ID) ([]wallet.Address, error)
+		Events(id wallet.ID, offset, limit int) ([]wallet.Event, error)
+		UnspentSiacoinOutputs(id wallet.ID, offset, limit int) ([]types.SiacoinElement, error)
+		UnspentSiafundOutputs(id wallet.ID, offset, limit int) ([]types.SiafundElement, error)
+		WalletBalance(id wallet.ID) (wallet.Balance, error)
+		Annotate(id wallet.ID, pool []types.Transaction) ([]wallet.PoolTransaction, error)
 
 		Reserve(ids []types.Hash256, duration time.Duration) error
 	}
@@ -193,7 +193,7 @@ func (s *server) walletsHandlerPOST(jc jape.Context) {
 }
 
 func (s *server) walletsIDHandlerPOST(jc jape.Context) {
-	var id wallet.WalletID
+	var id wallet.ID
 	var req WalletUpdateRequest
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&req) != nil {
 		return
@@ -216,7 +216,7 @@ func (s *server) walletsIDHandlerPOST(jc jape.Context) {
 }
 
 func (s *server) walletsIDHandlerDELETE(jc jape.Context) {
-	var id wallet.WalletID
+	var id wallet.ID
 	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
@@ -238,7 +238,7 @@ func (s *server) resubscribeHandler(jc jape.Context) {
 }
 
 func (s *server) walletsAddressHandlerPUT(jc jape.Context) {
-	var id wallet.WalletID
+	var id wallet.ID
 	var addr wallet.Address
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&addr) != nil {
 		return
@@ -248,7 +248,7 @@ func (s *server) walletsAddressHandlerPUT(jc jape.Context) {
 }
 
 func (s *server) walletsAddressHandlerDELETE(jc jape.Context) {
-	var id wallet.WalletID
+	var id wallet.ID
 	var addr types.Address
 	if jc.DecodeParam("id", &id) != nil || jc.DecodeParam("addr", &addr) != nil {
 		return
@@ -263,7 +263,7 @@ func (s *server) walletsAddressHandlerDELETE(jc jape.Context) {
 }
 
 func (s *server) walletsAddressesHandlerGET(jc jape.Context) {
-	var id wallet.WalletID
+	var id wallet.ID
 	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
@@ -275,7 +275,7 @@ func (s *server) walletsAddressesHandlerGET(jc jape.Context) {
 }
 
 func (s *server) walletsBalanceHandler(jc jape.Context) {
-	var id wallet.WalletID
+	var id wallet.ID
 	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
@@ -291,7 +291,7 @@ func (s *server) walletsBalanceHandler(jc jape.Context) {
 }
 
 func (s *server) walletsEventsHandler(jc jape.Context) {
-	var id wallet.WalletID
+	var id wallet.ID
 	offset, limit := 0, 500
 	if jc.DecodeParam("id", &id) != nil || jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
 		return
@@ -307,7 +307,7 @@ func (s *server) walletsEventsHandler(jc jape.Context) {
 }
 
 func (s *server) walletsTxpoolHandler(jc jape.Context) {
-	var id wallet.WalletID
+	var id wallet.ID
 	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
@@ -322,7 +322,7 @@ func (s *server) walletsTxpoolHandler(jc jape.Context) {
 }
 
 func (s *server) walletsOutputsSiacoinHandler(jc jape.Context) {
-	var id wallet.WalletID
+	var id wallet.ID
 	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
@@ -341,7 +341,7 @@ func (s *server) walletsOutputsSiacoinHandler(jc jape.Context) {
 }
 
 func (s *server) walletsOutputsSiafundHandler(jc jape.Context) {
-	var id wallet.WalletID
+	var id wallet.ID
 	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
@@ -445,7 +445,7 @@ func (s *server) walletsFundHandler(jc jape.Context) {
 		return toSign, nil
 	}
 
-	var id wallet.WalletID
+	var id wallet.ID
 	var wfr WalletFundRequest
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&wfr) != nil {
 		return
@@ -519,7 +519,7 @@ func (s *server) walletsFundSFHandler(jc jape.Context) {
 		return toSign, nil
 	}
 
-	var id wallet.WalletID
+	var id wallet.ID
 	var wfr WalletFundSFRequest
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&wfr) != nil {
 		return

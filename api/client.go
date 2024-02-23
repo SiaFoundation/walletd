@@ -94,20 +94,20 @@ func (c *Client) AddWallet(uw WalletUpdateRequest) (w wallet.Wallet, err error) 
 }
 
 // UpdateWallet updates a wallet.
-func (c *Client) UpdateWallet(id wallet.WalletID, uw WalletUpdateRequest) (w wallet.Wallet, err error) {
+func (c *Client) UpdateWallet(id wallet.ID, uw WalletUpdateRequest) (w wallet.Wallet, err error) {
 	err = c.c.POST(fmt.Sprintf("/wallets/%v", id), uw, &w)
 	return
 }
 
 // RemoveWallet deletes a wallet. If the wallet is currently subscribed, it will
 // be unsubscribed.
-func (c *Client) RemoveWallet(id wallet.WalletID) (err error) {
+func (c *Client) RemoveWallet(id wallet.ID) (err error) {
 	err = c.c.DELETE(fmt.Sprintf("/wallets/%v", id))
 	return
 }
 
 // Wallet returns a client for interacting with the specified wallet.
-func (c *Client) Wallet(id wallet.WalletID) *WalletClient {
+func (c *Client) Wallet(id wallet.ID) *WalletClient {
 	return &WalletClient{c: c.c, id: id}
 }
 
@@ -122,7 +122,7 @@ func (c *Client) Resubscribe(height uint64) (err error) {
 // walletd API server.
 type WalletClient struct {
 	c  jape.Client
-	id wallet.WalletID
+	id wallet.ID
 }
 
 // AddAddress adds the specified address and associated metadata to the
