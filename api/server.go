@@ -48,17 +48,17 @@ type (
 
 		AddWallet(wallet.Wallet) (wallet.Wallet, error)
 		UpdateWallet(wallet.Wallet) (wallet.Wallet, error)
-		DeleteWallet(id int64) error
+		DeleteWallet(wallet.WalletID) error
 		Wallets() ([]wallet.Wallet, error)
 
-		AddAddress(id int64, addr wallet.Address) error
-		RemoveAddress(id int64, addr types.Address) error
-		Addresses(walletID int64) ([]wallet.Address, error)
-		Events(walletID int64, offset, limit int) ([]wallet.Event, error)
-		UnspentSiacoinOutputs(walletID int64, offset, limit int) ([]types.SiacoinElement, error)
-		UnspentSiafundOutputs(walletID int64, offset, limit int) ([]types.SiafundElement, error)
-		WalletBalance(walletID int64) (wallet.Balance, error)
-		Annotate(walletID int64, pool []types.Transaction) ([]wallet.PoolTransaction, error)
+		AddAddress(id wallet.WalletID, addr wallet.Address) error
+		RemoveAddress(id wallet.WalletID, addr types.Address) error
+		Addresses(id wallet.WalletID) ([]wallet.Address, error)
+		Events(id wallet.WalletID, offset, limit int) ([]wallet.Event, error)
+		UnspentSiacoinOutputs(id wallet.WalletID, offset, limit int) ([]types.SiacoinElement, error)
+		UnspentSiafundOutputs(id wallet.WalletID, offset, limit int) ([]types.SiafundElement, error)
+		WalletBalance(id wallet.WalletID) (wallet.Balance, error)
+		Annotate(id wallet.WalletID, pool []types.Transaction) ([]wallet.PoolTransaction, error)
 
 		Reserve(ids []types.Hash256, duration time.Duration) error
 	}
@@ -193,13 +193,13 @@ func (s *server) walletsHandlerPOST(jc jape.Context) {
 }
 
 func (s *server) walletsIDHandlerPOST(jc jape.Context) {
-	var walletID int64
+	var id wallet.WalletID
 	var req WalletUpdateRequest
-	if jc.DecodeParam("id", &walletID) != nil || jc.Decode(&req) != nil {
+	if jc.DecodeParam("id", &id) != nil || jc.Decode(&req) != nil {
 		return
 	}
 	w := wallet.Wallet{
-		ID:          walletID,
+		ID:          id,
 		Name:        req.Name,
 		Description: req.Description,
 		Metadata:    req.Metadata,
@@ -216,11 +216,11 @@ func (s *server) walletsIDHandlerPOST(jc jape.Context) {
 }
 
 func (s *server) walletsIDHandlerDELETE(jc jape.Context) {
-	var walletID int64
-	if jc.DecodeParam("id", &walletID) != nil {
+	var id wallet.WalletID
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
-	err := s.wm.DeleteWallet(walletID)
+	err := s.wm.DeleteWallet(id)
 	if errors.Is(err, wallet.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
 	} else if jc.Check("couldn't remove wallet", err) != nil {
@@ -238,23 +238,23 @@ func (s *server) resubscribeHandler(jc jape.Context) {
 }
 
 func (s *server) walletsAddressHandlerPUT(jc jape.Context) {
-	var walletID int64
+	var id wallet.WalletID
 	var addr wallet.Address
-	if jc.DecodeParam("id", &walletID) != nil || jc.Decode(&addr) != nil {
+	if jc.DecodeParam("id", &id) != nil || jc.Decode(&addr) != nil {
 		return
-	} else if jc.Check("couldn't add address", s.wm.AddAddress(walletID, addr)) != nil {
+	} else if jc.Check("couldn't add address", s.wm.AddAddress(id, addr)) != nil {
 		return
 	}
 }
 
 func (s *server) walletsAddressHandlerDELETE(jc jape.Context) {
-	var walletID int64
+	var id wallet.WalletID
 	var addr types.Address
-	if jc.DecodeParam("id", &walletID) != nil || jc.DecodeParam("addr", &addr) != nil {
+	if jc.DecodeParam("id", &id) != nil || jc.DecodeParam("addr", &addr) != nil {
 		return
 	}
 
-	err := s.wm.RemoveAddress(walletID, addr)
+	err := s.wm.RemoveAddress(id, addr)
 	if errors.Is(err, wallet.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
 	} else if jc.Check("couldn't remove address", err) != nil {
@@ -263,11 +263,11 @@ func (s *server) walletsAddressHandlerDELETE(jc jape.Context) {
 }
 
 func (s *server) walletsAddressesHandlerGET(jc jape.Context) {
-	var walletID int64
-	if jc.DecodeParam("id", &walletID) != nil {
+	var id wallet.WalletID
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
-	addrs, err := s.wm.Addresses(walletID)
+	addrs, err := s.wm.Addresses(id)
 	if jc.Check("couldn't load addresses", err) != nil {
 		return
 	}
@@ -275,12 +275,12 @@ func (s *server) walletsAddressesHandlerGET(jc jape.Context) {
 }
 
 func (s *server) walletsBalanceHandler(jc jape.Context) {
-	var walletID int64
-	if jc.DecodeParam("id", &walletID) != nil {
+	var id wallet.WalletID
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
 
-	b, err := s.wm.WalletBalance(walletID)
+	b, err := s.wm.WalletBalance(id)
 	if errors.Is(err, wallet.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return
@@ -291,12 +291,12 @@ func (s *server) walletsBalanceHandler(jc jape.Context) {
 }
 
 func (s *server) walletsEventsHandler(jc jape.Context) {
-	var walletID int64
+	var id wallet.WalletID
 	offset, limit := 0, 500
-	if jc.DecodeParam("id", &walletID) != nil || jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
+	if jc.DecodeParam("id", &id) != nil || jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
 		return
 	}
-	events, err := s.wm.Events(walletID, offset, limit)
+	events, err := s.wm.Events(id, offset, limit)
 	if errors.Is(err, wallet.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return
@@ -307,11 +307,11 @@ func (s *server) walletsEventsHandler(jc jape.Context) {
 }
 
 func (s *server) walletsTxpoolHandler(jc jape.Context) {
-	var walletID int64
-	if jc.DecodeParam("id", &walletID) != nil {
+	var id wallet.WalletID
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
-	pool, err := s.wm.Annotate(walletID, s.cm.PoolTransactions())
+	pool, err := s.wm.Annotate(id, s.cm.PoolTransactions())
 	if errors.Is(err, wallet.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return
@@ -322,8 +322,8 @@ func (s *server) walletsTxpoolHandler(jc jape.Context) {
 }
 
 func (s *server) walletsOutputsSiacoinHandler(jc jape.Context) {
-	var walletID int64
-	if jc.DecodeParam("id", &walletID) != nil {
+	var id wallet.WalletID
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
 
@@ -332,7 +332,7 @@ func (s *server) walletsOutputsSiacoinHandler(jc jape.Context) {
 		return
 	}
 
-	scos, err := s.wm.UnspentSiacoinOutputs(walletID, offset, limit)
+	scos, err := s.wm.UnspentSiacoinOutputs(id, offset, limit)
 	if jc.Check("couldn't load siacoin outputs", err) != nil {
 		return
 	}
@@ -341,8 +341,8 @@ func (s *server) walletsOutputsSiacoinHandler(jc jape.Context) {
 }
 
 func (s *server) walletsOutputsSiafundHandler(jc jape.Context) {
-	var walletID int64
-	if jc.DecodeParam("id", &walletID) != nil {
+	var id wallet.WalletID
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
 
@@ -351,7 +351,7 @@ func (s *server) walletsOutputsSiafundHandler(jc jape.Context) {
 		return
 	}
 
-	sfos, err := s.wm.UnspentSiafundOutputs(walletID, offset, limit)
+	sfos, err := s.wm.UnspentSiafundOutputs(id, offset, limit)
 	if jc.Check("couldn't load siacoin outputs", err) != nil {
 		return
 	}
@@ -445,12 +445,12 @@ func (s *server) walletsFundHandler(jc jape.Context) {
 		return toSign, nil
 	}
 
-	var walletID int64
+	var id wallet.WalletID
 	var wfr WalletFundRequest
-	if jc.DecodeParam("id", &walletID) != nil || jc.Decode(&wfr) != nil {
+	if jc.DecodeParam("id", &id) != nil || jc.Decode(&wfr) != nil {
 		return
 	}
-	utxos, err := s.wm.UnspentSiacoinOutputs(walletID, 0, 1000)
+	utxos, err := s.wm.UnspentSiacoinOutputs(id, 0, 1000)
 	if jc.Check("couldn't get utxos to fund transaction", err) != nil {
 		return
 	}
@@ -519,12 +519,12 @@ func (s *server) walletsFundSFHandler(jc jape.Context) {
 		return toSign, nil
 	}
 
-	var walletID int64
+	var id wallet.WalletID
 	var wfr WalletFundSFRequest
-	if jc.DecodeParam("id", &walletID) != nil || jc.Decode(&wfr) != nil {
+	if jc.DecodeParam("id", &id) != nil || jc.Decode(&wfr) != nil {
 		return
 	}
-	utxos, err := s.wm.UnspentSiafundOutputs(walletID, 0, 1000)
+	utxos, err := s.wm.UnspentSiafundOutputs(id, 0, 1000)
 	if jc.Check("couldn't get utxos to fund transaction", err) != nil {
 		return
 	}
