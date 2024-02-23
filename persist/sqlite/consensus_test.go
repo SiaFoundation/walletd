@@ -106,9 +106,10 @@ func TestReorg(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	if err := db.AddWallet("test", nil); err != nil {
+	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
+	if err != nil {
 		t.Fatal(err)
-	} else if err := db.AddAddress("test", addr, nil); err != nil {
+	} else if err := db.AddWalletAddress(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -128,7 +129,7 @@ func TestReorg(t *testing.T) {
 	}
 
 	// check that a payout event was recorded
-	events, err := db.WalletEvents("test", 0, 100)
+	events, err := db.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -138,7 +139,7 @@ func TestReorg(t *testing.T) {
 	}
 
 	// check that the utxo was created
-	utxos, err := db.UnspentSiacoinOutputs("test")
+	utxos, err := db.WalletSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -170,7 +171,7 @@ func TestReorg(t *testing.T) {
 	}
 
 	// check that the payout event was reverted
-	events, err = db.WalletEvents("test", 0, 100)
+	events, err = db.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 0 {
@@ -178,7 +179,7 @@ func TestReorg(t *testing.T) {
 	}
 
 	// check that the utxo was removed
-	utxos, err = db.UnspentSiacoinOutputs("test")
+	utxos, err = db.WalletSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 0 {
@@ -201,7 +202,7 @@ func TestReorg(t *testing.T) {
 	}
 
 	// check that a payout event was recorded
-	events, err = db.WalletEvents("test", 0, 100)
+	events, err = db.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -211,7 +212,7 @@ func TestReorg(t *testing.T) {
 	}
 
 	// check that the utxo was created
-	utxos, err = db.UnspentSiacoinOutputs("test")
+	utxos, err = db.WalletSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -266,7 +267,7 @@ func TestReorg(t *testing.T) {
 	}
 
 	// check that only the single utxo still exists
-	utxos, err = db.UnspentSiacoinOutputs("test")
+	utxos, err = db.WalletSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -310,9 +311,10 @@ func TestEphemeralBalance(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	if err := db.AddWallet("test", nil); err != nil {
+	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
+	if err != nil {
 		t.Fatal(err)
-	} else if err := db.AddAddress("test", addr, nil); err != nil {
+	} else if err := db.AddWalletAddress(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -334,7 +336,7 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 
 	// check that a payout event was recorded
-	events, err := db.WalletEvents("test", 0, 100)
+	events, err := db.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -353,7 +355,7 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 
 	// create a transaction that spends the matured payout
-	utxos, err := db.UnspentSiacoinOutputs("test")
+	utxos, err := db.WalletSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -424,7 +426,7 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 
 	// check that both transactions were added
-	events, err = db.WalletEvents("test", 0, 100)
+	events, err = db.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 3 { // 1 payout, 2 transactions
@@ -462,7 +464,7 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 
 	// check that only the payout event remains
-	events, err = db.WalletEvents("test", 0, 100)
+	events, err = db.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -504,9 +506,10 @@ func TestV2(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	if err := db.AddWallet("test", nil); err != nil {
+	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
+	if err != nil {
 		t.Fatal(err)
-	} else if err := db.AddAddress("test", addr, nil); err != nil {
+	} else if err := db.AddWalletAddress(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -525,7 +528,7 @@ func TestV2(t *testing.T) {
 	}
 
 	// check that a payout event was recorded
-	events, err := db.WalletEvents("test", 0, 100)
+	events, err := db.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -543,7 +546,7 @@ func TestV2(t *testing.T) {
 	}
 
 	// create a v2 transaction that spends the matured payout
-	utxos, err := db.UnspentSiacoinOutputs("test")
+	utxos, err := db.WalletSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -577,7 +580,7 @@ func TestV2(t *testing.T) {
 	}
 
 	// check that a transaction event was recorded
-	events, err = db.WalletEvents("test", 0, 100)
+	events, err = db.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 2 {
