@@ -88,21 +88,26 @@ func (c *Client) Wallets() (ws map[string]json.RawMessage, err error) {
 }
 
 // AddWallet adds a wallet to the set of tracked wallets.
-func (c *Client) AddWallet(name string, info json.RawMessage) (err error) {
-	err = c.c.PUT(fmt.Sprintf("/wallets/%v", name), info)
+func (c *Client) AddWallet(uw WalletUpdateRequest) (w wallet.Wallet, err error) {
+	err = c.c.POST("/wallets", uw, &w)
+	return
+}
+
+func (c *Client) UpdateWallet(id int64, uw WalletUpdateRequest) (w wallet.Wallet, err error) {
+	err = c.c.POST(fmt.Sprintf("/wallets/%v", id), uw, &w)
 	return
 }
 
 // RemoveWallet deletes a wallet. If the wallet is currently subscribed, it will
 // be unsubscribed.
-func (c *Client) RemoveWallet(name string) (err error) {
-	err = c.c.DELETE(fmt.Sprintf("/wallets/%v", name))
+func (c *Client) RemoveWallet(id int64) (err error) {
+	err = c.c.DELETE(fmt.Sprintf("/wallets/%v", id))
 	return
 }
 
 // Wallet returns a client for interacting with the specified wallet.
-func (c *Client) Wallet(name string) *WalletClient {
-	return &WalletClient{c: c.c, name: name}
+func (c *Client) Wallet(id int64) *WalletClient {
+	return &WalletClient{c: c.c, id: id}
 }
 
 // Resubscribe subscribes the wallet to consensus updates, starting at the
@@ -115,57 +120,62 @@ func (c *Client) Resubscribe(height uint64) (err error) {
 // A WalletClient provides methods for interacting with a particular wallet on a
 // walletd API server.
 type WalletClient struct {
-	c    jape.Client
-	name string
+	c  jape.Client
+	id int64
 }
 
 // AddAddress adds the specified address and associated metadata to the
 // wallet.
-func (c *WalletClient) AddAddress(addr types.Address, info json.RawMessage) (err error) {
-	err = c.c.PUT(fmt.Sprintf("/wallets/%v/addresses/%v", c.name, addr), info)
+func (c *WalletClient) AddAddress(a wallet.Address) (err error) {
+	err = c.c.PUT(fmt.Sprintf("/wallets/%v/addresses", c.id), a)
 	return
 }
 
 // RemoveAddress removes the specified address from the wallet.
 func (c *WalletClient) RemoveAddress(addr types.Address) (err error) {
-	err = c.c.DELETE(fmt.Sprintf("/wallets/%v/addresses/%v", c.name, addr))
+	err = c.c.DELETE(fmt.Sprintf("/wallets/%v/addresses/%v", c.id, addr))
 	return
 }
 
 // Addresses the addresses controlled by the wallet.
-func (c *WalletClient) Addresses() (resp map[types.Address]json.RawMessage, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/addresses", c.name), &resp)
+func (c *WalletClient) Addresses() (resp []wallet.Address, err error) {
+	err = c.c.GET(fmt.Sprintf("/wallets/%v/addresses", c.id), &resp)
 	return
 }
 
 // Balance returns the current wallet balance.
 func (c *WalletClient) Balance() (resp BalanceResponse, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/balance", c.name), &resp)
+	err = c.c.GET(fmt.Sprintf("/wallets/%v/balance", c.id), &resp)
 	return
 }
 
 // Events returns all events relevant to the wallet.
 func (c *WalletClient) Events(offset, limit int) (resp []wallet.Event, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/events?offset=%d&limit=%d", c.name, offset, limit), &resp)
+	err = c.c.GET(fmt.Sprintf("/wallets/%v/events?offset=%d&limit=%d", c.id, offset, limit), &resp)
 	return
 }
 
 // PoolTransactions returns all txpool transactions relevant to the wallet.
 func (c *WalletClient) PoolTransactions() (resp []wallet.PoolTransaction, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/txpool", c.name), &resp)
+	err = c.c.GET(fmt.Sprintf("/wallets/%v/txpool", c.id), &resp)
 	return
 }
 
-// Outputs returns the set of unspent outputs controlled by the wallet.
-func (c *WalletClient) Outputs() (sc []types.SiacoinElement, sf []types.SiafundElement, err error) {
-	var resp WalletOutputsResponse
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/outputs", c.name), &resp)
-	return resp.SiacoinOutputs, resp.SiafundOutputs, err
+// SiacoinOutputs returns the set of unspent outputs controlled by the wallet.
+func (c *WalletClient) SiacoinOutputs(offset, limit int) (sc []types.SiacoinElement, err error) {
+	err = c.c.GET(fmt.Sprintf("/wallets/%v/outputs/siacoin?offset=%d&limit=%d", c.id, offset, limit), &sc)
+	return
+}
+
+// SiafundOutputs returns the set of unspent outputs controlled by the wallet.
+func (c *WalletClient) SiafundOutputs(offset, limit int) (sf []types.SiafundElement, err error) {
+	err = c.c.GET(fmt.Sprintf("/wallets/%v/outputs/siafund?offset=%d&limit=%d", c.id, offset, limit), &sf)
+	return
 }
 
 // Reserve reserves a set outputs for use in a transaction.
 func (c *WalletClient) Reserve(sc []types.SiacoinOutputID, sf []types.SiafundOutputID, duration time.Duration) (err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v/reserve", c.name), WalletReserveRequest{
+	err = c.c.POST(fmt.Sprintf("/wallets/%v/reserve", c.id), WalletReserveRequest{
 		SiacoinOutputs: sc,
 		SiafundOutputs: sf,
 		Duration:       duration,
@@ -175,7 +185,7 @@ func (c *WalletClient) Reserve(sc []types.SiacoinOutputID, sf []types.SiafundOut
 
 // Release releases a set of previously-reserved outputs.
 func (c *WalletClient) Release(sc []types.SiacoinOutputID, sf []types.SiafundOutputID) (err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v/release", c.name), WalletReleaseRequest{
+	err = c.c.POST(fmt.Sprintf("/wallets/%v/release", c.id), WalletReleaseRequest{
 		SiacoinOutputs: sc,
 		SiafundOutputs: sf,
 	}, nil)
@@ -184,7 +194,7 @@ func (c *WalletClient) Release(sc []types.SiacoinOutputID, sf []types.SiafundOut
 
 // Fund funds a siacoin transaction.
 func (c *WalletClient) Fund(txn types.Transaction, amount types.Currency, changeAddr types.Address) (resp WalletFundResponse, err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v/fund", c.name), WalletFundRequest{
+	err = c.c.POST(fmt.Sprintf("/wallets/%v/fund", c.id), WalletFundRequest{
 		Transaction:   txn,
 		Amount:        amount,
 		ChangeAddress: changeAddr,
@@ -194,7 +204,7 @@ func (c *WalletClient) Fund(txn types.Transaction, amount types.Currency, change
 
 // FundSF funds a siafund transaction.
 func (c *WalletClient) FundSF(txn types.Transaction, amount uint64, changeAddr, claimAddr types.Address) (resp WalletFundResponse, err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v/fundsf", c.name), WalletFundSFRequest{
+	err = c.c.POST(fmt.Sprintf("/wallets/%v/fundsf", c.id), WalletFundSFRequest{
 		Transaction:   txn,
 		Amount:        amount,
 		ChangeAddress: changeAddr,
