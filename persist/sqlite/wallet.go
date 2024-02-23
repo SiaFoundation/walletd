@@ -188,7 +188,7 @@ func (s *Store) Wallets() (wallets []wallet.Wallet, err error) {
 
 		for rows.Next() {
 			var w wallet.Wallet
-			if err := rows.Scan(&w.ID, &w.Name, &w.Description, decode(&w.DateCreated), decode(&w.LastUpdated), &w.Metadata); err != nil {
+			if err := rows.Scan(&w.ID, &w.Name, &w.Description, decode(&w.DateCreated), decode(&w.LastUpdated), (*[]byte)(&w.Metadata)); err != nil {
 				return fmt.Errorf("failed to scan wallet: %w", err)
 			}
 			wallets = append(wallets, w)
@@ -215,7 +215,7 @@ func (s *Store) AddWalletAddress(id wallet.WalletID, addr wallet.Address) error 
 			encodedPolicy = encode(*addr.SpendPolicy)
 		}
 
-		_, err = tx.Exec(`INSERT INTO wallet_addresses (wallet_id, address_id, description, spend_policy, extra_data) VALUES ($1, $2, $3, $4, $5)`, id, addressID, addr.Description, encodedPolicy, addr.Metadata)
+		_, err = tx.Exec(`INSERT INTO wallet_addresses (wallet_id, address_id, description, spend_policy, extra_data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (wallet_id, address_id) DO UPDATE set description=EXCLUDED.description, spend_policy=EXCLUDED.spend_policy, extra_data=EXCLUDED.extra_data`, id, addressID, addr.Description, encodedPolicy, addr.Metadata)
 		return err
 	})
 }
@@ -224,7 +224,7 @@ func (s *Store) AddWalletAddress(id wallet.WalletID, addr wallet.Address) error 
 // the address.
 func (s *Store) RemoveWalletAddress(id wallet.WalletID, address types.Address) error {
 	return s.transaction(func(tx *txn) error {
-		const query = `DELETE FROM wallet_addresses WHERE wallet_id=$1 AND address_id=(SELECT id FROM sia_addresses WHERE sia_address=$2) RETURNING id`
+		const query = `DELETE FROM wallet_addresses WHERE wallet_id=$1 AND address_id=(SELECT id FROM sia_addresses WHERE sia_address=$2) RETURNING address_id`
 		var dummyID int64
 		err := tx.QueryRow(query, id, encode(address)).Scan(&dummyID)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -254,9 +254,8 @@ WHERE wa.wallet_id=$1`
 
 		for rows.Next() {
 			var address wallet.Address
-
 			var decodedPolicy any
-			if err := rows.Scan(decode(&address.Address), &address.Description, &decodedPolicy, &address.Metadata); err != nil {
+			if err := rows.Scan(decode(&address.Address), &address.Description, &decodedPolicy, (*[]byte)(&address.Metadata)); err != nil {
 				return fmt.Errorf("failed to scan address: %w", err)
 			}
 
