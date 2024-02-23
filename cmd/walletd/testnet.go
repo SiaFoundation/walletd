@@ -149,7 +149,7 @@ func mineBlock(cs consensus.State, b *types.Block) (hashes int, found bool) {
 	return hashes, true
 }
 
-func runTestnetMiner(c *api.Client, seed wallet.Seed) {
+func runTestnetMiner(c *api.Client, seed wallet.Seed, blocksToMine int) {
 	minerAddr := types.StandardUnlockHash(seed.PublicKey(0))
 	log.Println("Started mining into", minerAddr)
 	start := time.Now()
@@ -157,6 +157,7 @@ func runTestnetMiner(c *api.Client, seed wallet.Seed) {
 	var hashes float64
 	var blocks uint64
 	var last types.ChainIndex
+	minedCount := 0
 outer:
 	for {
 		elapsed := time.Since(start)
@@ -209,9 +210,14 @@ outer:
 		} else if err := c.SyncerBroadcastBlock(b); err != nil {
 			fmt.Printf("\nMined invalid block: %v\n", err)
 		} else if b.V2 == nil {
+			minedCount += 1
 			fmt.Printf("\nFound v1 block %v\n", index)
 		} else {
+			minedCount += 1
 			fmt.Printf("\nFound v2 block %v\n", index)
+		}
+		if blocksToMine != 0 && minedCount > blocksToMine {
+			break outer
 		}
 	}
 }
