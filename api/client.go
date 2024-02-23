@@ -93,6 +93,7 @@ func (c *Client) AddWallet(uw WalletUpdateRequest) (w wallet.Wallet, err error) 
 	return
 }
 
+// UpdateWallet updates a wallet.
 func (c *Client) UpdateWallet(id int64, uw WalletUpdateRequest) (w wallet.Wallet, err error) {
 	err = c.c.POST(fmt.Sprintf("/wallets/%v", id), uw, &w)
 	return

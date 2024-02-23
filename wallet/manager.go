@@ -58,6 +58,7 @@ func (m *Manager) AddWallet(w Wallet) (Wallet, error) {
 	return m.store.AddWallet(w)
 }
 
+// UpdateWallet updates the given wallet.
 func (m *Manager) UpdateWallet(w Wallet) (Wallet, error) {
 	return m.store.UpdateWallet(w)
 }
