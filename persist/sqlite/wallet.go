@@ -110,7 +110,7 @@ WHERE event_id IN (` + queryPlaceHolders(len(eventIDs)) + `) AND address_id IN (
 		}
 		relevantAddresses[eventID] = append(relevantAddresses[eventID], address)
 	}
-	return relevantAddresses, nil
+	return relevantAddresses, rows.Err()
 }
 
 // WalletEvents returns the events relevant to a wallet, sorted by height descending.
@@ -147,6 +147,7 @@ func (s *Store) AddWallet(w wallet.Wallet) (wallet.Wallet, error) {
 	return w, err
 }
 
+// UpdateWallet updates a wallet in the database.
 func (s *Store) UpdateWallet(w wallet.Wallet) (wallet.Wallet, error) {
 	w.LastUpdated = time.Now()
 	err := s.transaction(func(tx *txn) error {
@@ -275,7 +276,7 @@ WHERE wa.wallet_id=$1`
 
 			addresses = append(addresses, address)
 		}
-		return nil
+		return rows.Err()
 	})
 	return
 }
@@ -308,7 +309,7 @@ func (s *Store) WalletSiacoinOutputs(walletID int64, offset, limit int) (siacoin
 
 			siacoins = append(siacoins, siacoin)
 		}
-		return nil
+		return rows.Err()
 	})
 	return
 }
@@ -340,7 +341,7 @@ func (s *Store) WalletSiafundOutputs(walletID int64, offset, limit int) (siafund
 			}
 			siafunds = append(siafunds, siafund)
 		}
-		return nil
+		return rows.Err()
 	})
 	return
 }
@@ -360,6 +361,7 @@ func (s *Store) WalletBalance(walletID int64) (balance wallet.Balance, err error
 		if err != nil {
 			return err
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			var addressSC types.Currency
@@ -373,7 +375,7 @@ func (s *Store) WalletBalance(walletID int64) (balance wallet.Balance, err error
 			balance.ImmatureSiacoins = balance.ImmatureSiacoins.Add(addressISC)
 			balance.Siafunds += addressSF
 		}
-		return nil
+		return rows.Err()
 	})
 	return
 }

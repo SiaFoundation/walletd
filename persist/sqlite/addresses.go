@@ -42,10 +42,7 @@ func (s *Store) AddressEvents(address types.Address, limit, offset int) (events 
 
 			events = append(events, event)
 		}
-		if err = rows.Err(); err != nil {
-			return err
-		}
-		return nil
+		return rows.Err()
 	})
 	return
 }
