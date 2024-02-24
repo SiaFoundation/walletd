@@ -80,10 +80,11 @@ func TestWallet(t *testing.T) {
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
 	c, shutdown := runServer(cm, nil, wm)
 	defer shutdown()
-	if err := c.AddWallet("primary", nil); err != nil {
+	w, err := c.AddWallet(api.WalletUpdateRequest{Name: "primary"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	wc := c.Wallet("primary")
+	wc := c.Wallet(w.ID)
 	if err := c.Resubscribe(0); err != nil {
 		t.Fatal(err)
 	}
@@ -112,8 +113,8 @@ func TestWallet(t *testing.T) {
 	}
 
 	// create and add an address
-	addr, info := sav.NewAddress("primary")
-	if err := wc.AddAddress(addr, info); err != nil {
+	addr := sav.NewAddress("primary")
+	if err := wc.AddAddress(addr); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,8 +122,10 @@ func TestWallet(t *testing.T) {
 	addresses, err = wc.Addresses()
 	if err != nil {
 		t.Fatal(err)
-	} else if _, ok := addresses[addr]; !ok || len(addresses) != 1 {
-		t.Fatal("bad address list", addresses)
+	} else if len(addresses) != 1 {
+		t.Fatal("address list should have one address")
+	} else if addresses[0].Address != addr.Address {
+		t.Fatalf("address should be %v, got %v", addr, addresses[0])
 	}
 
 	// send gift to wallet
@@ -133,8 +136,8 @@ func TestWallet(t *testing.T) {
 			UnlockConditions: types.StandardUnlockConditions(giftPrivateKey.PublicKey()),
 		}},
 		SiacoinOutputs: []types.SiacoinOutput{
-			{Address: addr, Value: types.Siacoins(1).Div64(2)},
-			{Address: addr, Value: types.Siacoins(1).Div64(2)},
+			{Address: addr.Address, Value: types.Siacoins(1).Div64(2)},
+			{Address: addr.Address, Value: types.Siacoins(1).Div64(2)},
 		},
 		Signatures: []types.TransactionSignature{{
 			ParentID:      types.Hash256(giftSCOID),
@@ -176,7 +179,7 @@ func TestWallet(t *testing.T) {
 		t.Error("transaction should appear in history")
 	}
 
-	outputs, _, err := wc.Outputs()
+	outputs, err := wc.SiacoinOutputs(0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(outputs) != 2 {
@@ -188,7 +191,7 @@ func TestWallet(t *testing.T) {
 	b = types.Block{
 		ParentID:     cs.Index.ID,
 		Timestamp:    types.CurrentTimestamp(),
-		MinerPayouts: []types.SiacoinOutput{{Address: addr, Value: cs.BlockReward()}},
+		MinerPayouts: []types.SiacoinOutput{{Address: addr.Address, Value: cs.BlockReward()}},
 	}
 	for b.ID().CmpWork(cs.ChildTarget) < 0 {
 		b.Nonce += cs.NonceFactor()
@@ -265,18 +268,20 @@ func TestV2(t *testing.T) {
 	}
 	c, shutdown := runServer(cm, nil, wm)
 	defer shutdown()
-	if err := c.AddWallet("primary", nil); err != nil {
+	primaryWallet, err := c.AddWallet(api.WalletUpdateRequest{Name: "primary"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	primary := c.Wallet("primary")
-	if err := primary.AddAddress(primaryAddress, nil); err != nil {
+	primary := c.Wallet(primaryWallet.ID)
+	if err := primary.AddAddress(wallet.Address{Address: primaryAddress}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.AddWallet("secondary", nil); err != nil {
+	secondaryWallet, err := c.AddWallet(api.WalletUpdateRequest{Name: "secondary"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	secondary := c.Wallet("secondary")
-	if err := secondary.AddAddress(secondaryAddress, nil); err != nil {
+	secondary := c.Wallet(secondaryWallet.ID)
+	if err := secondary.AddAddress(wallet.Address{Address: secondaryAddress}); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Resubscribe(0); err != nil {
@@ -324,12 +329,12 @@ func TestV2(t *testing.T) {
 		key := primaryPrivateKey
 		dest := secondaryAddress
 		pbal, sbal := types.ZeroCurrency, types.ZeroCurrency
-		sces, _, err := primary.Outputs()
+		sces, err := primary.SiacoinOutputs(0, 100)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(sces) == 0 {
-			sces, _, err = secondary.Outputs()
+			sces, err = secondary.SiacoinOutputs(0, 100)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -370,12 +375,12 @@ func TestV2(t *testing.T) {
 		key := primaryPrivateKey
 		dest := secondaryAddress
 		pbal, sbal := types.ZeroCurrency, types.ZeroCurrency
-		sces, _, err := primary.Outputs()
+		sces, err := primary.SiacoinOutputs(0, 100)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(sces) == 0 {
-			sces, _, err = secondary.Outputs()
+			sces, err = secondary.SiacoinOutputs(0, 100)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -487,11 +492,12 @@ func TestP2P(t *testing.T) {
 	go s1.Run()
 	c1, shutdown := runServer(cm1, s1, wm1)
 	defer shutdown()
-	if err := c1.AddWallet("primary", nil); err != nil {
+	w1, err := c1.AddWallet(api.WalletUpdateRequest{Name: "primary"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	primary := c1.Wallet("primary")
-	if err := primary.AddAddress(primaryAddress, nil); err != nil {
+	primary := c1.Wallet(w1.ID)
+	if err := primary.AddAddress(wallet.Address{Address: primaryAddress}); err != nil {
 		t.Fatal(err)
 	}
 	if err := c1.Resubscribe(0); err != nil {
@@ -526,11 +532,13 @@ func TestP2P(t *testing.T) {
 	go s2.Run()
 	c2, shutdown2 := runServer(cm2, s2, wm2)
 	defer shutdown2()
-	if err := c2.AddWallet("secondary", nil); err != nil {
+
+	w2, err := c2.AddWallet(api.WalletUpdateRequest{Name: "secondary"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	secondary := c2.Wallet("secondary")
-	if err := secondary.AddAddress(secondaryAddress, nil); err != nil {
+	secondary := c2.Wallet(w2.ID)
+	if err := secondary.AddAddress(wallet.Address{Address: secondaryAddress}); err != nil {
 		t.Fatal(err)
 	}
 	if err := c2.Resubscribe(0); err != nil {
@@ -606,7 +614,7 @@ func TestP2P(t *testing.T) {
 		key := primaryPrivateKey
 		dest := secondaryAddress
 		pbal, sbal := types.ZeroCurrency, types.ZeroCurrency
-		sces, _, err := primary.Outputs()
+		sces, err := primary.SiacoinOutputs(0, 100)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -614,7 +622,7 @@ func TestP2P(t *testing.T) {
 			c = c2
 			key = secondaryPrivateKey
 			dest = primaryAddress
-			sces, _, err = secondary.Outputs()
+			sces, err = secondary.SiacoinOutputs(0, 100)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -660,7 +668,7 @@ func TestP2P(t *testing.T) {
 		key := primaryPrivateKey
 		dest := secondaryAddress
 		pbal, sbal := types.ZeroCurrency, types.ZeroCurrency
-		sces, _, err := primary.Outputs()
+		sces, err := primary.SiacoinOutputs(0, 100)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -668,7 +676,7 @@ func TestP2P(t *testing.T) {
 			c = c2
 			key = secondaryPrivateKey
 			dest = primaryAddress
-			sces, _, err = secondary.Outputs()
+			sces, err = secondary.SiacoinOutputs(0, 100)
 			if err != nil {
 				t.Fatal(err)
 			}

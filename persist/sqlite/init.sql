@@ -34,16 +34,23 @@ CREATE TABLE siafund_elements (
 CREATE INDEX siafund_elements_address_id ON siafund_elements (address_id);
 
 CREATE TABLE wallets (
-	id TEXT PRIMARY KEY NOT NULL,
-	extra_data BLOB NOT NULL
+	id INTEGER PRIMARY KEY,
+	friendly_name TEXT NOT NULL,
+	description TEXT NOT NULL,
+	date_created INTEGER NOT NULL,
+	last_updated INTEGER NOT NULL,
+	extra_data BLOB
 );
 
 CREATE TABLE wallet_addresses (
-	wallet_id TEXT NOT NULL REFERENCES wallets (id),
+	wallet_id INTEGER NOT NULL REFERENCES wallets (id),
 	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
-	extra_data BLOB NOT NULL,
+	description TEXT NOT NULL,
+	spend_policy BLOB,
+	extra_data BLOB,
 	UNIQUE (wallet_id, address_id)
 );
+CREATE INDEX wallet_addresses_wallet_id ON wallet_addresses (wallet_id);
 CREATE INDEX wallet_addresses_address_id ON wallet_addresses (address_id);
 
 CREATE TABLE events (
@@ -53,8 +60,9 @@ CREATE TABLE events (
 	maturity_height INTEGER NOT NULL,
 	date_created INTEGER NOT NULL,
 	event_type TEXT NOT NULL,
-	event_data TEXT NOT NULL
+	event_data BLOB NOT NULL
 );
+
 
 CREATE TABLE event_addresses (
 	event_id INTEGER NOT NULL REFERENCES events (id) ON DELETE CASCADE,

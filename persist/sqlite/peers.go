@@ -54,7 +54,7 @@ func (s *Store) Peers() (peers []string) {
 			}
 			peers = append(peers, peer)
 		}
-		return nil
+		return rows.Err()
 	})
 	if err != nil {
 		panic(err) // 😔

@@ -2,7 +2,9 @@ package wallet
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"go.sia.tech/core/consensus"
@@ -25,7 +27,46 @@ type (
 		ImmatureSiacoins types.Currency `json:"immatureSiacoins"`
 		Siafunds         uint64         `json:"siafunds"`
 	}
+
+	// An ID is a unique identifier for a wallet.
+	ID int64
+
+	// A Wallet is a collection of addresses and metadata.
+	Wallet struct {
+		ID          ID              `json:"id"`
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		DateCreated time.Time       `json:"dateCreated"`
+		LastUpdated time.Time       `json:"lastUpdated"`
+		Metadata    json.RawMessage `json:"metadata"`
+	}
+
+	// A Address is an address associated with a wallet.
+	Address struct {
+		Address     types.Address      `json:"address"`
+		Description string             `json:"description"`
+		SpendPolicy *types.SpendPolicy `json:"spendPolicy,omitempty"`
+		Metadata    json.RawMessage    `json:"metadata"`
+	}
 )
+
+// ErrNotFound is returned when a requested wallet or address is not found.
+var ErrNotFound = errors.New("not found")
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (w *ID) UnmarshalText(buf []byte) error {
+	id, err := strconv.ParseInt(string(buf), 10, 64)
+	if err != nil {
+		return err
+	}
+	*w = ID(id)
+	return nil
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (w ID) MarshalText() ([]byte, error) {
+	return []byte(strconv.FormatInt(int64(w), 10)), nil
+}
 
 // StandardTransactionSignature is the most common form of TransactionSignature.
 // It covers the entire transaction, references a sole public key, and has no
