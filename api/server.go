@@ -3,18 +3,21 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"sync"
 	"time"
 
 	"go.sia.tech/jape"
+	"go.uber.org/zap"
 	"lukechampine.com/frand"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/syncer"
+	"go.sia.tech/walletd/internal/prometheus"
 	"go.sia.tech/walletd/wallet"
 )
 
@@ -66,21 +69,50 @@ type (
 )
 
 type server struct {
-	cm ChainManager
-	s  Syncer
-	wm WalletManager
+	cm  ChainManager
+	s   Syncer
+	wm  WalletManager
+	log *zap.Logger
 
 	// for walletsReserveHandler
 	mu   sync.Mutex
 	used map[types.Hash256]bool
 }
 
+func (s *server) writeResponse(c jape.Context, code int, resp any) {
+	var responseFormat string
+	if err := c.DecodeForm("response", &responseFormat); err != nil {
+		return
+	}
+
+	if resp != nil {
+		switch responseFormat {
+		case "prometheus":
+			v, ok := resp.(prometheus.Marshaller)
+			if !ok {
+				err := fmt.Errorf("response does not implement prometheus.Marshaller %T", resp)
+				c.Error(err, http.StatusInternalServerError)
+				s.log.Error("response does not implement prometheus.Marshaller", zap.Stack("stack"), zap.Error(err))
+				return
+			}
+
+			enc := prometheus.NewEncoder(c.ResponseWriter)
+			if err := enc.Append(v); err != nil {
+				s.log.Error("failed to marshal prometheus response", zap.Error(err))
+				return
+			}
+		default:
+			c.Encode(resp)
+		}
+	}
+}
+
 func (s *server) consensusNetworkHandler(jc jape.Context) {
-	jc.Encode(*s.cm.TipState().Network)
+	s.writeResponse(jc, http.StatusOK, NetworkResp{Network: s.cm.TipState().Network})
 }
 
 func (s *server) consensusTipHandler(jc jape.Context) {
-	jc.Encode(s.cm.TipState().Index)
+	s.writeResponse(jc, http.StatusOK, ConsensusTipResp{Index: s.cm.TipState().Index})
 }
 
 func (s *server) consensusTipStateHandler(jc jape.Context) {
@@ -106,7 +138,7 @@ func (s *server) syncerPeersHandler(jc jape.Context) {
 			SyncDuration:   info.SyncDuration,
 		})
 	}
-	jc.Encode(peers)
+	s.writeResponse(jc, http.StatusOK, SyncerPeersResp(peers))
 }
 
 func (s *server) syncerConnectHandler(jc jape.Context) {
@@ -138,14 +170,14 @@ func (s *server) syncerBroadcastBlockHandler(jc jape.Context) {
 }
 
 func (s *server) txpoolTransactionsHandler(jc jape.Context) {
-	jc.Encode(TxpoolTransactionsResponse{
+	s.writeResponse(jc, http.StatusOK, TxpoolTransactionsResponse{
 		Transactions:   s.cm.PoolTransactions(),
 		V2Transactions: s.cm.V2PoolTransactions(),
 	})
 }
 
 func (s *server) txpoolFeeHandler(jc jape.Context) {
-	jc.Encode(s.cm.RecommendedFee())
+	s.writeResponse(jc, http.StatusOK, TPoolResp(s.cm.RecommendedFee()))
 }
 
 func (s *server) txpoolBroadcastHandler(jc jape.Context) {
@@ -249,7 +281,10 @@ func (s *server) walletsBalanceHandler(jc jape.Context) {
 	if jc.Check("couldn't load balance", err) != nil {
 		return
 	}
-	jc.Encode(BalanceResponse(b))
+	s.writeResponse(jc, http.StatusOK, BalanceResponse{
+		Balance: b,
+		Name:    name,
+	})
 }
 
 func (s *server) walletsEventsHandler(jc jape.Context) {
@@ -262,7 +297,7 @@ func (s *server) walletsEventsHandler(jc jape.Context) {
 	if jc.Check("couldn't load events", err) != nil {
 		return
 	}
-	jc.Encode(events)
+	s.writeResponse(jc, http.StatusOK, WalletEventResp{Name: name, Events: events})
 }
 
 func (s *server) walletsTxpoolHandler(jc jape.Context) {

@@ -32,7 +32,10 @@ type TxpoolTransactionsResponse struct {
 }
 
 // BalanceResponse is the response type for /wallets/:name/balance.
-type BalanceResponse wallet.Balance
+type BalanceResponse struct {
+	Balance wallet.Balance
+	Name    string
+}
 
 // WalletOutputsResponse is the response type for /wallets/:name/outputs.
 type WalletOutputsResponse struct {
