@@ -86,14 +86,14 @@ func (t BalanceResponse) PrometheusMetric() (metrics []prometheus.Metric) {
 		{
 			Name: "walletd_wallet_balance_siacoins",
 			Labels: map[string]any{
-				"name": t.ID,
+				"id": t.ID,
 			},
 			Value: t.Balance.Siacoins.Siacoins(),
 		},
 		{
 			Name: "walletd_wallet_balance_siafunds",
 			Labels: map[string]any{
-				"name": t.ID,
+				"id": t.ID,
 			},
 			Value: float64(t.Balance.Siafunds),
 		},
