@@ -45,7 +45,7 @@ func (ut *updateTx) SiacoinStateElements() ([]types.StateElement, error) {
 		}
 		elements = append(elements, se)
 	}
-	return elements, nil
+	return elements, rows.Err()
 }
 
 func (ut *updateTx) UpdateSiacoinStateElements(elements []types.StateElement) error {
@@ -82,7 +82,7 @@ func (ut *updateTx) SiafundStateElements() ([]types.StateElement, error) {
 		}
 		elements = append(elements, se)
 	}
-	return elements, nil
+	return elements, rows.Err()
 }
 
 func (ut *updateTx) UpdateSiafundStateElements(elements []types.StateElement) error {
@@ -159,6 +159,9 @@ WHERE maturity_height=$1`
 			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
 		}
 		elements = append(elements, element)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan siacoin elements: %w", err)
 	}
 	return
 }

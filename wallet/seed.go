@@ -70,13 +70,19 @@ func (sav *SeedAddressVault) OwnsAddress(addr types.Address) bool {
 
 // NewAddress returns a new address derived from the seed, along with
 // descriptive metadata.
-func (sav *SeedAddressVault) NewAddress(desc string) (types.Address, json.RawMessage) {
+func (sav *SeedAddressVault) NewAddress(desc string) Address {
 	sav.mu.Lock()
 	defer sav.mu.Unlock()
 	index := uint64(len(sav.addrs)) - sav.lookahead + 1
 	sav.gen(index + sav.lookahead)
-	addr := types.StandardAddress(sav.seed.PublicKey(index))
-	return addr, json.RawMessage(fmt.Sprintf(`{"desc":"%s","keyIndex":%d}`, desc, index))
+	policy := types.PolicyPublicKey(sav.seed.PublicKey(index))
+	addr := policy.Address()
+	return Address{
+		Address:     addr,
+		Description: desc,
+		SpendPolicy: &policy,
+		Metadata:    json.RawMessage(fmt.Sprintf(`{"keyIndex":%d}`, index)),
+	}
 }
 
 // SignTransaction signs the specified transaction using keys derived from the

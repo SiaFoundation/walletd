@@ -86,14 +86,14 @@ func (t BalanceResponse) PrometheusMetric() (metrics []prometheus.Metric) {
 		{
 			Name: "walletd_wallet_balance_siacoins",
 			Labels: map[string]any{
-				"name": t.Name,
+				"name": t.ID,
 			},
 			Value: t.Balance.Siacoins.Siacoins(),
 		},
 		{
 			Name: "walletd_wallet_balance_siafunds",
 			Labels: map[string]any{
-				"name": t.Name,
+				"name": t.ID,
 			},
 			Value: float64(t.Balance.Siafunds),
 		},
@@ -101,7 +101,7 @@ func (t BalanceResponse) PrometheusMetric() (metrics []prometheus.Metric) {
 }
 
 type WalletEventResp struct {
-	Name   string
+	ID     wallet.ID
 	Events []wallet.Event
 }
 
@@ -109,7 +109,7 @@ type WalletEventResp struct {
 func (t WalletEventResp) PrometheusMetric() (metrics []prometheus.Metric) {
 	for _, event := range t.Events {
 		labels := make(map[string]interface{}, 4)
-		labels["name"] = t.Name
+		labels["id"] = t.ID
 		labels["height"] = event.Index.Height
 		labels["timestamp"] = strconv.FormatInt(event.Timestamp.UnixMilli(), 10)
 		if e, ok := event.Data.(*wallet.EventTransaction); ok {

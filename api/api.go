@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"time"
 
 	"go.sia.tech/core/types"
@@ -34,36 +35,37 @@ type TxpoolTransactionsResponse struct {
 // BalanceResponse is the response type for /wallets/:name/balance.
 type BalanceResponse struct {
 	Balance wallet.Balance
-	Name    string
+	ID      wallet.ID
 }
 
-// WalletOutputsResponse is the response type for /wallets/:name/outputs.
-type WalletOutputsResponse struct {
-	SiacoinOutputs []types.SiacoinElement `json:"siacoinOutputs"`
-	SiafundOutputs []types.SiafundElement `json:"siafundOutputs"`
-}
-
-// WalletReserveRequest is the request type for /wallets/:name/reserve.
+// WalletReserveRequest is the request type for /wallets/:id/reserve.
 type WalletReserveRequest struct {
 	SiacoinOutputs []types.SiacoinOutputID `json:"siacoinOutputs"`
 	SiafundOutputs []types.SiafundOutputID `json:"siafundOutputs"`
 	Duration       time.Duration           `json:"duration"`
 }
 
-// WalletReleaseRequest is the request type for /wallets/:name/release.
+// A WalletUpdateRequest is a request to update a wallet
+type WalletUpdateRequest struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Metadata    json.RawMessage `json:"metadata"`
+}
+
+// WalletReleaseRequest is the request type for /wallets/:id/release.
 type WalletReleaseRequest struct {
 	SiacoinOutputs []types.SiacoinOutputID `json:"siacoinOutputs"`
 	SiafundOutputs []types.SiafundOutputID `json:"siafundOutputs"`
 }
 
-// WalletFundRequest is the request type for /wallets/:name/fund.
+// WalletFundRequest is the request type for /wallets/:id/fund.
 type WalletFundRequest struct {
 	Transaction   types.Transaction `json:"transaction"`
 	Amount        types.Currency    `json:"amount"`
 	ChangeAddress types.Address     `json:"changeAddress"`
 }
 
-// WalletFundSFRequest is the request type for /wallets/:name/fundsf.
+// WalletFundSFRequest is the request type for /wallets/:id/fundsf.
 type WalletFundSFRequest struct {
 	Transaction   types.Transaction `json:"transaction"`
 	Amount        uint64            `json:"amount"`
@@ -71,7 +73,7 @@ type WalletFundSFRequest struct {
 	ClaimAddress  types.Address     `json:"claimAddress"`
 }
 
-// WalletFundResponse is the response type for /wallets/:name/fund.
+// WalletFundResponse is the response type for /wallets/:id/fund.
 type WalletFundResponse struct {
 	Transaction types.Transaction   `json:"transaction"`
 	ToSign      []types.Hash256     `json:"toSign"`

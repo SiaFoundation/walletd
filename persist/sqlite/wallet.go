@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/wallet"
@@ -19,7 +20,47 @@ RETURNING id`
 	return
 }
 
-func getWalletEvents(tx *txn, walletID string, offset, limit int) (events []wallet.Event, eventIDs []int64, err error) {
+func scanEvent(s scanner) (ev wallet.Event, eventID int64, err error) {
+	var eventType string
+	var eventBuf []byte
+
+	err = s.Scan(&eventID, decode(&ev.ID), &ev.MaturityHeight, decode(&ev.Timestamp), &ev.Index.Height, decode(&ev.Index.ID), &eventType, &eventBuf)
+	if err != nil {
+		return
+	}
+
+	switch eventType {
+	case wallet.EventTypeTransaction:
+		var tx wallet.EventTransaction
+		if err = json.Unmarshal(eventBuf, &tx); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal transaction event: %w", err)
+		}
+		ev.Data = &tx
+	case wallet.EventTypeContractPayout:
+		var m wallet.EventContractPayout
+		if err = json.Unmarshal(eventBuf, &m); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal missed file contract event: %w", err)
+		}
+		ev.Data = &m
+	case wallet.EventTypeMinerPayout:
+		var m wallet.EventMinerPayout
+		if err = json.Unmarshal(eventBuf, &m); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal payout event: %w", err)
+		}
+		ev.Data = &m
+	case wallet.EventTypeFoundationSubsidy:
+		var m wallet.EventFoundationSubsidy
+		if err = json.Unmarshal(eventBuf, &m); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal foundation subsidy event: %w", err)
+		}
+		ev.Data = &m
+	default:
+		return wallet.Event{}, 0, fmt.Errorf("unknown event type: %s", eventType)
+	}
+	return
+}
+
+func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.Event, eventIDs []int64, err error) {
 	const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
 	FROM events ev
 	INNER JOIN chain_indices ci ON (ev.index_id = ci.id)
@@ -27,65 +68,34 @@ func getWalletEvents(tx *txn, walletID string, offset, limit int) (events []wall
 	ORDER BY ev.maturity_height DESC, ev.id DESC
 	LIMIT $2 OFFSET $3`
 
-	rows, err := tx.Query(query, walletID, limit, offset)
+	rows, err := tx.Query(query, id, limit, offset)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var eventID int64
-		var event wallet.Event
-		var eventType string
-		var eventBuf []byte
-
-		err := rows.Scan(&eventID, decode(&event.ID), &event.MaturityHeight, decode(&event.Timestamp), &event.Index.Height, decode(&event.Index.ID), &eventType, &eventBuf)
+		event, eventID, err := scanEvent(rows)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan event: %w", err)
-		}
-
-		switch eventType {
-		case wallet.EventTypeTransaction:
-			var tx wallet.EventTransaction
-			if err = json.Unmarshal(eventBuf, &tx); err != nil {
-				return nil, nil, fmt.Errorf("failed to unmarshal transaction event: %w", err)
-			}
-			event.Data = &tx
-		case wallet.EventTypeContractPayout:
-			var m wallet.EventContractPayout
-			if err = json.Unmarshal(eventBuf, &m); err != nil {
-				return nil, nil, fmt.Errorf("failed to unmarshal missed file contract event: %w", err)
-			}
-			event.Data = &m
-		case wallet.EventTypeMinerPayout:
-			var m wallet.EventMinerPayout
-			if err = json.Unmarshal(eventBuf, &m); err != nil {
-				return nil, nil, fmt.Errorf("failed to unmarshal payout event: %w", err)
-			}
-			event.Data = &m
-		case wallet.EventTypeFoundationSubsidy:
-			var m wallet.EventFoundationSubsidy
-			if err = json.Unmarshal(eventBuf, &m); err != nil {
-				return nil, nil, fmt.Errorf("failed to unmarshal foundation subsidy event: %w", err)
-			}
-			event.Data = &m
-		default:
-			return nil, nil, fmt.Errorf("unknown event type: %s", eventType)
 		}
 
 		events = append(events, event)
 		eventIDs = append(eventIDs, eventID)
 	}
+	if err = rows.Err(); err != nil {
+		return nil, nil, err
+	}
 	return
 }
 
-func (s *Store) getWalletEventRelevantAddresses(tx *txn, walletID string, eventIDs []int64) (map[int64][]types.Address, error) {
+func (s *Store) getWalletEventRelevantAddresses(tx *txn, id wallet.ID, eventIDs []int64) (map[int64][]types.Address, error) {
 	query := `SELECT ea.event_id, sa.sia_address
 FROM event_addresses ea
 INNER JOIN sia_addresses sa ON (ea.address_id = sa.id)
 WHERE event_id IN (` + queryPlaceHolders(len(eventIDs)) + `) AND address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=?)`
 
-	rows, err := tx.Query(query, append(queryArgs(eventIDs), walletID)...)
+	rows, err := tx.Query(query, append(queryArgs(eventIDs), id)...)
 	if err != nil {
 		return nil, err
 	}
@@ -100,19 +110,19 @@ WHERE event_id IN (` + queryPlaceHolders(len(eventIDs)) + `) AND address_id IN (
 		}
 		relevantAddresses[eventID] = append(relevantAddresses[eventID], address)
 	}
-	return relevantAddresses, nil
+	return relevantAddresses, rows.Err()
 }
 
 // WalletEvents returns the events relevant to a wallet, sorted by height descending.
-func (s *Store) WalletEvents(walletID string, offset, limit int) (events []wallet.Event, err error) {
+func (s *Store) WalletEvents(id wallet.ID, offset, limit int) (events []wallet.Event, err error) {
 	err = s.transaction(func(tx *txn) error {
 		var dbIDs []int64
-		events, dbIDs, err = getWalletEvents(tx, walletID, offset, limit)
+		events, dbIDs, err = getWalletEvents(tx, id, offset, limit)
 		if err != nil {
 			return fmt.Errorf("failed to get wallet events: %w", err)
 		}
 
-		eventRelevantAddresses, err := s.getWalletEventRelevantAddresses(tx, walletID, dbIDs)
+		eventRelevantAddresses, err := s.getWalletEventRelevantAddresses(tx, id, dbIDs)
 		if err != nil {
 			return fmt.Errorf("failed to get relevant addresses: %w", err)
 		}
@@ -126,35 +136,49 @@ func (s *Store) WalletEvents(walletID string, offset, limit int) (events []walle
 }
 
 // AddWallet adds a wallet to the database.
-func (s *Store) AddWallet(name string, info json.RawMessage) error {
-	if info == nil {
-		info = json.RawMessage("{}")
-	}
-	return s.transaction(func(tx *txn) error {
-		const query = `INSERT INTO wallets (id, extra_data) VALUES ($1, $2)`
+func (s *Store) AddWallet(w wallet.Wallet) (wallet.Wallet, error) {
+	w.DateCreated = time.Now()
+	w.LastUpdated = time.Now()
 
-		_, err := tx.Exec(query, name, info)
-		if err != nil {
-			return fmt.Errorf("failed to insert wallet: %w", err)
-		}
-		return nil
+	err := s.transaction(func(tx *txn) error {
+		const query = `INSERT INTO wallets (friendly_name, description, date_created, last_updated, extra_data) VALUES ($1, $2, $3, $4, $5) RETURNING id`
+		return tx.QueryRow(query, w.Name, w.Description, encode(w.DateCreated), encode(w.LastUpdated), w.Metadata).Scan(&w.ID)
 	})
+	return w, err
+}
+
+// UpdateWallet updates a wallet in the database.
+func (s *Store) UpdateWallet(w wallet.Wallet) (wallet.Wallet, error) {
+	w.LastUpdated = time.Now()
+	err := s.transaction(func(tx *txn) error {
+		var dummyID int64
+		const query = `UPDATE wallets SET friendly_name=$1, description=$2, last_updated=$3, extra_data=$4 WHERE id=$5 RETURNING id, date_created, last_updated`
+		err := tx.QueryRow(query, w.Name, w.Description, encode(w.LastUpdated), w.Metadata, w.ID).Scan(&dummyID, decode(&w.DateCreated), decode(&w.LastUpdated))
+		if errors.Is(err, sql.ErrNoRows) {
+			return wallet.ErrNotFound
+		}
+		return err
+	})
+	return w, err
 }
 
 // DeleteWallet deletes a wallet from the database. This does not stop tracking
 // addresses that were previously associated with the wallet.
-func (s *Store) DeleteWallet(name string) error {
+func (s *Store) DeleteWallet(id wallet.ID) error {
 	return s.transaction(func(tx *txn) error {
-		_, err := tx.Exec(`DELETE FROM wallets WHERE id=$1`, name)
+		var dummyID int64
+		err := tx.QueryRow(`DELETE FROM wallets WHERE id=$1 RETURNING id`, id).Scan(&dummyID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return wallet.ErrNotFound
+		}
 		return err
 	})
 }
 
 // Wallets returns a map of wallet names to wallet extra data.
-func (s *Store) Wallets() (map[string]json.RawMessage, error) {
-	wallets := make(map[string]json.RawMessage)
-	err := s.transaction(func(tx *txn) error {
-		const query = `SELECT id, extra_data FROM wallets`
+func (s *Store) Wallets() (wallets []wallet.Wallet, err error) {
+	err = s.transaction(func(tx *txn) error {
+		const query = `SELECT id, friendly_name, description, date_created, last_updated, extra_data FROM wallets`
 
 		rows, err := tx.Query(query)
 		if err != nil {
@@ -163,80 +187,113 @@ func (s *Store) Wallets() (map[string]json.RawMessage, error) {
 		defer rows.Close()
 
 		for rows.Next() {
-			var friendlyName string
-			var extraData json.RawMessage
-			if err := rows.Scan(&friendlyName, &extraData); err != nil {
+			var w wallet.Wallet
+			if err := rows.Scan(&w.ID, &w.Name, &w.Description, decode(&w.DateCreated), decode(&w.LastUpdated), (*[]byte)(&w.Metadata)); err != nil {
 				return fmt.Errorf("failed to scan wallet: %w", err)
 			}
-			wallets[friendlyName] = extraData
+			wallets = append(wallets, w)
 		}
-		return nil
+		return rows.Err()
 	})
-	return wallets, err
+	return
 }
 
-// AddAddress adds an address to a wallet.
-func (s *Store) AddAddress(walletID string, address types.Address, info json.RawMessage) error {
-	if info == nil {
-		info = json.RawMessage("{}")
-	}
+// AddWalletAddress adds an address to a wallet.
+func (s *Store) AddWalletAddress(id wallet.ID, addr wallet.Address) error {
 	return s.transaction(func(tx *txn) error {
-		addressID, err := insertAddress(tx, address)
+		if err := walletExists(tx, id); err != nil {
+			return err
+		}
+
+		addressID, err := insertAddress(tx, addr.Address)
 		if err != nil {
 			return fmt.Errorf("failed to insert address: %w", err)
 		}
-		_, err = tx.Exec(`INSERT INTO wallet_addresses (wallet_id, extra_data, address_id) VALUES ($1, $2, $3)`, walletID, info, addressID)
+
+		var encodedPolicy any
+		if addr.SpendPolicy != nil {
+			encodedPolicy = encode(*addr.SpendPolicy)
+		}
+
+		_, err = tx.Exec(`INSERT INTO wallet_addresses (wallet_id, address_id, description, spend_policy, extra_data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (wallet_id, address_id) DO UPDATE set description=EXCLUDED.description, spend_policy=EXCLUDED.spend_policy, extra_data=EXCLUDED.extra_data`, id, addressID, addr.Description, encodedPolicy, addr.Metadata)
 		return err
 	})
 }
 
-// RemoveAddress removes an address from a wallet. This does not stop tracking
+// RemoveWalletAddress removes an address from a wallet. This does not stop tracking
 // the address.
-func (s *Store) RemoveAddress(walletID string, address types.Address) error {
+func (s *Store) RemoveWalletAddress(id wallet.ID, address types.Address) error {
 	return s.transaction(func(tx *txn) error {
-		const query = `DELETE FROM wallet_addresses WHERE wallet_id=$1 AND address_id=(SELECT id FROM sia_addresses WHERE sia_address=$2)`
-		_, err := tx.Exec(query, walletID, encode(address))
+		const query = `DELETE FROM wallet_addresses WHERE wallet_id=$1 AND address_id=(SELECT id FROM sia_addresses WHERE sia_address=$2) RETURNING address_id`
+		var dummyID int64
+		err := tx.QueryRow(query, id, encode(address)).Scan(&dummyID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return wallet.ErrNotFound
+		}
 		return err
 	})
 }
 
-// Addresses returns a map of addresses to their extra data for a wallet.
-func (s *Store) Addresses(walletID string) (map[types.Address]json.RawMessage, error) {
-	addresses := make(map[types.Address]json.RawMessage)
-	err := s.transaction(func(tx *txn) error {
-		const query = `SELECT sa.sia_address, wa.extra_data 
+// WalletAddresses returns a slice of addresses registered to the wallet.
+func (s *Store) WalletAddresses(id wallet.ID) (addresses []wallet.Address, err error) {
+	err = s.transaction(func(tx *txn) error {
+		if err := walletExists(tx, id); err != nil {
+			return err
+		}
+
+		const query = `SELECT sa.sia_address, wa.description, wa.spend_policy, wa.extra_data
 FROM wallet_addresses wa
 INNER JOIN sia_addresses sa ON (sa.id = wa.address_id)
 WHERE wa.wallet_id=$1`
 
-		rows, err := tx.Query(query, walletID)
+		rows, err := tx.Query(query, id)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 
 		for rows.Next() {
-			var address types.Address
-			var extraData json.RawMessage
-			if err := rows.Scan(decode(&address), &extraData); err != nil {
+			var address wallet.Address
+			var decodedPolicy any
+			if err := rows.Scan(decode(&address.Address), &address.Description, &decodedPolicy, (*[]byte)(&address.Metadata)); err != nil {
 				return fmt.Errorf("failed to scan address: %w", err)
 			}
-			addresses[address] = extraData
+
+			if decodedPolicy != nil {
+				switch v := decodedPolicy.(type) {
+				case []byte:
+					dec := types.NewBufDecoder(v)
+					address.SpendPolicy = new(types.SpendPolicy)
+					address.SpendPolicy.DecodeFrom(dec)
+					if err := dec.Err(); err != nil {
+						return fmt.Errorf("failed to decode spend policy: %w", err)
+					}
+				default:
+					return fmt.Errorf("unexpected spend policy type: %T", decodedPolicy)
+				}
+			}
+
+			addresses = append(addresses, address)
 		}
-		return nil
+		return rows.Err()
 	})
-	return addresses, err
+	return
 }
 
-// UnspentSiacoinOutputs returns the unspent siacoin outputs for a wallet.
-func (s *Store) UnspentSiacoinOutputs(walletID string) (siacoins []types.SiacoinElement, err error) {
+// WalletSiacoinOutputs returns the unspent siacoin outputs for a wallet.
+func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins []types.SiacoinElement, err error) {
 	err = s.transaction(func(tx *txn) error {
+		if err := walletExists(tx, id); err != nil {
+			return err
+		}
+
 		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siacoin_value, sa.sia_address, se.maturity_height 
 		FROM siacoin_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
-		WHERE se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)`
+		WHERE se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)
+		LIMIT $2 OFFSET $3`
 
-		rows, err := tx.Query(query, walletID)
+		rows, err := tx.Query(query, id, limit, offset)
 		if err != nil {
 			return err
 		}
@@ -251,20 +308,25 @@ func (s *Store) UnspentSiacoinOutputs(walletID string) (siacoins []types.Siacoin
 
 			siacoins = append(siacoins, siacoin)
 		}
-		return nil
+		return rows.Err()
 	})
 	return
 }
 
-// UnspentSiafundOutputs returns the unspent siafund outputs for a wallet.
-func (s *Store) UnspentSiafundOutputs(walletID string) (siafunds []types.SiafundElement, err error) {
+// WalletSiafundOutputs returns the unspent siafund outputs for a wallet.
+func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds []types.SiafundElement, err error) {
 	err = s.transaction(func(tx *txn) error {
+		if err := walletExists(tx, id); err != nil {
+			return err
+		}
+
 		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
 		FROM siafund_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
-		WHERE se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)`
+		WHERE se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)
+		LIMIT $2 OFFSET $3`
 
-		rows, err := tx.Query(query, walletID)
+		rows, err := tx.Query(query, id, limit, offset)
 		if err != nil {
 			return err
 		}
@@ -278,22 +340,27 @@ func (s *Store) UnspentSiafundOutputs(walletID string) (siafunds []types.Siafund
 			}
 			siafunds = append(siafunds, siafund)
 		}
-		return nil
+		return rows.Err()
 	})
 	return
 }
 
 // WalletBalance returns the total balance of a wallet.
-func (s *Store) WalletBalance(walletID string) (balance wallet.Balance, err error) {
+func (s *Store) WalletBalance(id wallet.ID) (balance wallet.Balance, err error) {
 	err = s.transaction(func(tx *txn) error {
+		if err := walletExists(tx, id); err != nil {
+			return err
+		}
+
 		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses sa
 		INNER JOIN wallet_addresses wa ON (sa.id = wa.address_id)
 		WHERE wa.wallet_id=$1`
 
-		rows, err := tx.Query(query, walletID)
+		rows, err := tx.Query(query, id)
 		if err != nil {
 			return err
 		}
+		defer rows.Close()
 
 		for rows.Next() {
 			var addressSC types.Currency
@@ -307,23 +374,18 @@ func (s *Store) WalletBalance(walletID string) (balance wallet.Balance, err erro
 			balance.ImmatureSiacoins = balance.ImmatureSiacoins.Add(addressISC)
 			balance.Siafunds += addressSF
 		}
-		return nil
-	})
-	return
-}
-
-// AddressBalance returns the balance of a single address.
-func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, err error) {
-	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses WHERE sia_address=$1`
-		return tx.QueryRow(query, encode(address)).Scan(decode(&balance.Siacoins), decode(&balance.ImmatureSiacoins), &balance.Siafunds)
+		return rows.Err()
 	})
 	return
 }
 
 // Annotate annotates a list of transactions using the wallet's addresses.
-func (s *Store) Annotate(walletID string, txns []types.Transaction) (annotated []wallet.PoolTransaction, err error) {
+func (s *Store) Annotate(id wallet.ID, txns []types.Transaction) (annotated []wallet.PoolTransaction, err error) {
 	err = s.transaction(func(tx *txn) error {
+		if err := walletExists(tx, id); err != nil {
+			return err
+		}
+
 		const query = `SELECT sa.id FROM sia_addresses sa
 INNER JOIN wallet_addresses wa ON (sa.id = wa.address_id)
 WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`
@@ -341,7 +403,7 @@ WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`
 		// addresses into memory.
 		ownsAddress := func(address types.Address) bool {
 			var dbID int64
-			err := stmt.QueryRow(walletID, encode(address)).Scan(dbID)
+			err := stmt.QueryRow(id, encode(address)).Scan(dbID)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				panic(err) // database error
 			}
@@ -357,4 +419,14 @@ WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`
 		return nil
 	})
 	return
+}
+
+func walletExists(tx *txn, id wallet.ID) error {
+	const query = `SELECT id FROM wallets WHERE id=$1`
+	var dummyID int64
+	err := tx.QueryRow(query, id).Scan(&dummyID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return wallet.ErrNotFound
+	}
+	return err
 }
