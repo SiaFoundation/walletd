@@ -1,5 +1,10 @@
 name: Test
 description: Lints and tests walletd
+inputs:
+  go-test-tags:
+    description: 'The tags to use when running go test'
+    required: false
+    default: 'netgo'
 
 runs:
   using: composite
@@ -19,4 +24,4 @@ runs:
     - name: Test
       uses: n8maninger/action-golang-test@v1
       with:
-        args: "-race;-tags=testing netgo"
+        args: "-race;-tags=${{ inputs.go-test-tags }}"
