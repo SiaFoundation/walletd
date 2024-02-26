@@ -10,14 +10,13 @@ env:
   CGO_ENABLED: 1
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
+  test-linux:
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     strategy:
       matrix:
-        os: [ ubuntu-latest , macos-latest, windows-latest ]
-        go-version: [ '1.20', '1.21' ]
+        go-version: [ '1.21', '1.22' ]
     services:
       postgres:
         image: postgres
@@ -40,6 +39,27 @@ jobs:
       - name: Test
         uses: ./.github/actions/test
         with:
-          go-test-tags: 'netgo test_pg'
+          go-test-tags: 'test_pg'
+      - name: Build
+        run: go build -o bin/ ./cmd/walletd
+  test-other:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        os: [ macos-latest, windows-latest ]
+        go-version: [ '1.21', '1.22' ]
+    steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false # required on Windows
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Test
+        uses: ./.github/actions/test
+        with:
+          go-test-tags: 'netgo'
       - name: Build
         run: go build -o bin/ ./cmd/walletd
