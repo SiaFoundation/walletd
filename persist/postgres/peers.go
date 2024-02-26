@@ -147,38 +147,6 @@ func (s *Store) Ban(peer string, duration time.Duration, reason string) {
 	}
 }
 
-type ban struct {
-	Subnet     string
-	Expiration time.Time
-	Reason     string
-}
-
-func (s *Store) Bans() (bans []ban, err error) {
-	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT net_cidr, expiration, reason FROM syncer_bans`
-		rows, err := tx.Query(query)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var b ban
-			if err := rows.Scan(&b.Subnet, &b.Expiration, &b.Reason); err != nil {
-				return err
-			}
-			bans = append(bans, ban{
-				Subnet:     b.Subnet,
-				Expiration: b.Expiration,
-				Reason:     b.Reason,
-			})
-
-		}
-		return rows.Err()
-	})
-	return
-}
-
 // Banned returns true if the peer is banned.
 func (s *Store) Banned(peer string) (banned bool) {
 	// normalize the peer into a CIDR subnet

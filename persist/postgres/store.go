@@ -13,10 +13,12 @@ import (
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 
-	_ "github.com/lib/pq"
+	_ "github.com/lib/pq" // import postgres driver
 )
 
 type (
+	// ConnectionInfo contains the information needed to connect to a PostgreSQL
+	// database.
 	ConnectionInfo struct {
 		Host     string `json:"host"`
 		Port     int    `json:"port"`
