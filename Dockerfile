@@ -1,10 +1,13 @@
-FROM docker.io/library/golang:1.20 AS builder
+FROM docker.io/library/golang:1.21 AS builder
 
 WORKDIR /walletd
 
 COPY . .
-# build
-RUN go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-s -w'  ./cmd/walletd
+
+# Enable CGO for sqlite3 support
+ENV CGO_ENABLED=1 
+
+RUN go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'  ./cmd/walletd
 
 FROM docker.io/library/alpine:3
 LABEL maintainer="The Sia Foundation <info@sia.tech>" \
