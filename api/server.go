@@ -179,6 +179,9 @@ func (s *server) walletsHandler(jc jape.Context) {
 
 func (s *server) walletsHandlerPOST(jc jape.Context) {
 	var req WalletUpdateRequest
+	if jc.Decode(&req) != nil {
+		return
+	}
 	w := wallet.Wallet{
 		Name:        req.Name,
 		Description: req.Description,

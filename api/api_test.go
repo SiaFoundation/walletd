@@ -1,9 +1,13 @@
 package api_test
 
 import (
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -48,6 +52,172 @@ func runServer(cm api.ChainManager, s api.Syncer, wm api.WalletManager) (*api.Cl
 	return c, func() { l.Close() }
 }
 
+func TestWalletAdd(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	n, genesisBlock := testNetwork()
+	giftPrivateKey := types.GeneratePrivateKey()
+	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(1),
+		Address: giftAddress,
+	}
+
+	// create wallets
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	wm, err := wallet.NewManager(cm, ws, log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c, shutdown := runServer(cm, nil, wm)
+	defer shutdown()
+
+	checkWalletResponse := func(wr api.WalletUpdateRequest, w wallet.Wallet, isUpdate bool) error {
+		// check wallet
+		if w.Name != wr.Name {
+			return fmt.Errorf("expected wallet name to be %v, got %v", wr.Name, w.Name)
+		} else if w.Description != wr.Description {
+			return fmt.Errorf("expected wallet description to be %v, got %v", wr.Description, w.Description)
+		} else if w.DateCreated.After(time.Now()) {
+			return fmt.Errorf("expected wallet creation date to be in the past, got %v", w.DateCreated)
+		} else if isUpdate && w.DateCreated == w.LastUpdated {
+			return fmt.Errorf("expected wallet last updated date to be after creation %v, got %v", w.DateCreated, w.LastUpdated)
+		}
+
+		if wr.Metadata == nil && string(w.Metadata) == "null" { // zero value encodes as "null"
+			return nil
+		}
+
+		// check metadata
+		var am, bm map[string]any
+		if err := json.Unmarshal(wr.Metadata, &am); err != nil {
+			return fmt.Errorf("failed to unmarshal metadata a %q: %v", wr.Metadata, err)
+		} else if err := json.Unmarshal(w.Metadata, &bm); err != nil {
+			return fmt.Errorf("failed to unmarshal metadata b: %v", err)
+		}
+
+		if !reflect.DeepEqual(am, bm) { // not perfect, but probably enough for this test
+			return fmt.Errorf("expected metadata to be equal %v, got %v", wr.Metadata, w.Metadata)
+		}
+		return nil
+	}
+
+	checkWallet := func(wa, wb wallet.Wallet) error {
+		// check wallet
+		if wa.Name != wb.Name {
+			return fmt.Errorf("expected wallet name to be %v, got %v", wa.Name, wb.Name)
+		} else if wa.Description != wb.Description {
+			return fmt.Errorf("expected wallet description to be %v, got %v", wa.Description, wb.Description)
+		} else if wa.DateCreated.Unix() != wb.DateCreated.Unix() {
+			return fmt.Errorf("expected wallet creation date to be %v, got %v", wa.DateCreated, wb.DateCreated)
+		} else if wa.LastUpdated.Unix() != wb.LastUpdated.Unix() {
+			return fmt.Errorf("expected wallet last updated date to be %v, got %v", wa.LastUpdated, wb.LastUpdated)
+		}
+
+		if wa.Metadata == nil && string(wb.Metadata) == "null" { // zero value encodes as "null"
+			return nil
+		}
+
+		// check metadata
+		var am, bm map[string]any
+		if err := json.Unmarshal(wa.Metadata, &am); err != nil {
+			return fmt.Errorf("failed to unmarshal metadata a %q: %v", wa.Metadata, err)
+		} else if err := json.Unmarshal(wb.Metadata, &bm); err != nil {
+			return fmt.Errorf("failed to unmarshal metadata b %q: %v", wb.Metadata, err)
+		}
+
+		if !reflect.DeepEqual(am, bm) { // not perfect, but probably enough for this test
+			return fmt.Errorf("expected metadata to be equal %v, got %v", wa.Metadata, wb.Metadata)
+		}
+		return nil
+	}
+
+	tests := []struct {
+		Initial api.WalletUpdateRequest
+		Update  api.WalletUpdateRequest
+	}{
+		{
+			Initial: api.WalletUpdateRequest{Name: hex.EncodeToString(frand.Bytes(12))},
+			Update:  api.WalletUpdateRequest{Name: hex.EncodeToString(frand.Bytes(12))},
+		},
+		{
+			Initial: api.WalletUpdateRequest{Name: hex.EncodeToString(frand.Bytes(12)), Description: "hello, world!"},
+			Update:  api.WalletUpdateRequest{Name: hex.EncodeToString(frand.Bytes(12)), Description: "goodbye, world!"},
+		},
+		{
+			Initial: api.WalletUpdateRequest{Name: hex.EncodeToString(frand.Bytes(12)), Metadata: []byte(`{"foo": { "foo": "bar"}}`)},
+			Update:  api.WalletUpdateRequest{Name: hex.EncodeToString(frand.Bytes(12)), Metadata: []byte(`{"foo": { "foo": "baz"}}`)},
+		},
+		{
+			Initial: api.WalletUpdateRequest{Name: hex.EncodeToString(frand.Bytes(12)), Description: "hello, world!", Metadata: []byte(`{"foo": { "foo": "bar"}}`)},
+			Update:  api.WalletUpdateRequest{Name: hex.EncodeToString(frand.Bytes(12)), Description: "goodbye, world!", Metadata: []byte(`{"foo": { "foo": "baz"}}`)},
+		},
+		{
+			Initial: api.WalletUpdateRequest{Name: "constant name", Description: "constant description", Metadata: []byte(`{"foo": { "foo": "bar"}}`)},
+			Update:  api.WalletUpdateRequest{Name: "constant name", Description: "constant description", Metadata: []byte(`{"foo": { "foo": "baz"}}`)},
+		},
+	}
+
+	var expectedWallets []wallet.Wallet
+	for i, test := range tests {
+		w, err := c.AddWallet(test.Initial)
+		if err != nil {
+			t.Fatal(err)
+		} else if err := checkWalletResponse(test.Initial, w, false); err != nil {
+			t.Fatalf("test %v: %v", i, err)
+		}
+
+		expectedWallets = append(expectedWallets, w)
+		// check that the wallet was added
+		wallets, err := c.Wallets()
+		if err != nil {
+			t.Fatal(err)
+		} else if len(wallets) != len(expectedWallets) {
+			t.Fatalf("test %v: expected %v wallets, got %v", i, len(expectedWallets), len(wallets))
+		}
+		for j, w := range wallets {
+			if err := checkWallet(expectedWallets[j], w); err != nil {
+				t.Fatalf("test %v: wallet %v: %v", i, j, err)
+			}
+		}
+
+		time.Sleep(time.Second) // ensure LastUpdated is different
+
+		w, err = c.UpdateWallet(w.ID, test.Update)
+		if err != nil {
+			t.Fatal(err)
+		} else if err := checkWalletResponse(test.Update, w, true); err != nil {
+			t.Fatalf("test %v: %v", i, err)
+		}
+
+		// check that the wallet was updated
+		expectedWallets[len(expectedWallets)-1] = w
+		wallets, err = c.Wallets()
+		if err != nil {
+			t.Fatal(err)
+		} else if len(wallets) != len(expectedWallets) {
+			t.Fatalf("test %v: expected %v wallets, got %v", i, len(expectedWallets), len(wallets))
+		}
+		for j, w := range wallets {
+			if err := checkWallet(expectedWallets[j], w); err != nil {
+				t.Fatalf("test %v: wallet %v: %v", i, j, err)
+			}
+		}
+	}
+}
+
 func TestWallet(t *testing.T) {
 	log := zaptest.NewLogger(t)
 
@@ -83,6 +253,8 @@ func TestWallet(t *testing.T) {
 	w, err := c.AddWallet(api.WalletUpdateRequest{Name: "primary"})
 	if err != nil {
 		t.Fatal(err)
+	} else if w.Name != "primary" {
+		t.Fatalf("expected wallet name to be 'primary', got %v", w.Name)
 	}
 	wc := c.Wallet(w.ID)
 	if err := c.Resubscribe(0); err != nil {
