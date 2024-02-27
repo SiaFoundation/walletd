@@ -1,4 +1,4 @@
-package sqlite
+package sqlite_test
 
 import (
 	"encoding/json"
@@ -6,13 +6,16 @@ import (
 	"testing"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils"
+	"go.sia.tech/coreutils/chain"
+	"go.sia.tech/walletd/persist/sqlite"
 	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap/zaptest"
 )
 
 func TestWalletAddresses(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "walletd.sqlite3"), log.Named("sqlite3"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,5 +105,118 @@ func TestWalletAddresses(t *testing.T) {
 		t.Fatal(err)
 	} else if len(addresses) != 0 {
 		t.Fatal("expected 0 addresses, got", len(addresses))
+	}
+}
+
+func TestResubscribe(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	network, genesisBlock := testV1Network()
+
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	cm := chain.NewManager(store, genesisState)
+
+	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
+		t.Fatal(err)
+	}
+
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
+	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
+	if err != nil {
+		t.Fatal(err)
+	} else if err := db.AddWalletAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+		t.Fatal(err)
+	}
+
+	expectedPayout := cm.TipState().BlockReward()
+	maturityHeight := cm.TipState().MaturityHeight()
+	// mine a block sending the payout to the wallet
+	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the payout was received
+	balance, err := db.WalletBalance(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.ImmatureSiacoins.Equals(expectedPayout) {
+		t.Fatalf("expected %v, got %v", expectedPayout, balance.ImmatureSiacoins)
+	}
+
+	// check that a payout event was recorded
+	events, err := db.WalletEvents(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	}
+
+	// check that the utxo was created
+	utxos, err := db.WalletSiacoinOutputs(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 1 {
+		t.Fatalf("expected 1 output, got %v", len(utxos))
+	} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
+		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
+	} else if utxos[0].MaturityHeight != maturityHeight {
+		t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
+	}
+
+	cm.RemoveSubscriber(db)
+	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that the balance, events, and utxos did not change
+	// check that the payout was received
+	balance, err = db.WalletBalance(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.ImmatureSiacoins.Equals(expectedPayout) {
+		t.Fatalf("expected %v, got %v", expectedPayout, balance.ImmatureSiacoins)
+	}
+
+	// check that a payout event was recorded
+	events, err = db.WalletEvents(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	}
+
+	// check that the utxo was created
+	utxos, err = db.WalletSiacoinOutputs(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 1 {
+		t.Fatalf("expected 1 output, got %v", len(utxos))
+	} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
+		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
+	} else if utxos[0].MaturityHeight != maturityHeight {
+		t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
 	}
 }
