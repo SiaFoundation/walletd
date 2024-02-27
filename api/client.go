@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -82,7 +81,7 @@ func (c *Client) SyncerBroadcastBlock(b types.Block) (err error) {
 }
 
 // Wallets returns the set of tracked wallets.
-func (c *Client) Wallets() (ws map[string]json.RawMessage, err error) {
+func (c *Client) Wallets() (ws []wallet.Wallet, err error) {
 	err = c.c.GET("/wallets", &ws)
 	return
 }
