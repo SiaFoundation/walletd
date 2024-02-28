@@ -55,7 +55,7 @@ CREATE INDEX wallet_addresses_address_id ON wallet_addresses (address_id);
 
 CREATE TABLE events (
 	id INTEGER PRIMARY KEY,
-	event_id BLOB NOT NULL,
+	event_id BLOB UNIQUE NOT NULL,
 	index_id BLOB NOT NULL REFERENCES chain_indices (id) ON DELETE CASCADE,
 	maturity_height INTEGER NOT NULL,
 	date_created INTEGER NOT NULL,
