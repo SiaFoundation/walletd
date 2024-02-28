@@ -394,13 +394,13 @@ func (ut *updateTx) AddSiafundElements(elements []types.SiafundElement, index ty
 	}
 	defer insertStmt.Close()
 
-	balanceChanges := make(map[types.Address]uint64)
+	balanceChanges := make(map[int64]uint64)
 	for _, se := range elements {
 		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiafundOutput.Address), encode(types.ZeroCurrency), 0))
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
-		} else if _, ok := balanceChanges[se.SiafundOutput.Address]; !ok {
-			balanceChanges[se.SiafundOutput.Address] = addrRef.Balance.Siafunds
+		} else if _, ok := balanceChanges[addrRef.ID]; !ok {
+			balanceChanges[addrRef.ID] = addrRef.Balance.Siafunds
 		}
 
 		var dummy types.Hash256
@@ -410,21 +410,21 @@ func (ut *updateTx) AddSiafundElements(elements []types.SiafundElement, index ty
 		} else if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
-		balanceChanges[se.SiafundOutput.Address] += se.SiafundOutput.Value
+		balanceChanges[addrRef.ID] += se.SiafundOutput.Value
 	}
 
 	if len(balanceChanges) == 0 {
 		return nil
 	}
 
-	updateAddressBalanceStmt, err := ut.tx.Prepare(`UPDATE sia_addresses SET siafund_balance=$1 WHERE sia_address=$2`)
+	updateAddressBalanceStmt, err := ut.tx.Prepare(`UPDATE sia_addresses SET siafund_balance=$1 WHERE id=$2`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update balance statement: %w", err)
 	}
 	defer updateAddressBalanceStmt.Close()
 
-	for addr, balance := range balanceChanges {
-		res, err := updateAddressBalanceStmt.Exec(balance, encode(addr))
+	for addrID, balance := range balanceChanges {
+		res, err := updateAddressBalanceStmt.Exec(balance, addrID)
 		if err != nil {
 			return fmt.Errorf("failed to update balance: %w", err)
 		} else if n, err := res.RowsAffected(); err != nil {
@@ -449,13 +449,13 @@ func (ut *updateTx) RemoveSiafundElements(elements []types.SiafundElement, index
 	}
 	defer stmt.Close()
 
-	balanceChanges := make(map[types.Address]uint64)
+	balanceChanges := make(map[int64]uint64)
 	for _, se := range elements {
 		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiafundOutput.Address), encode(types.ZeroCurrency), 0))
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
-		} else if _, ok := balanceChanges[se.SiafundOutput.Address]; !ok {
-			balanceChanges[se.SiafundOutput.Address] = addrRef.Balance.Siafunds
+		} else if _, ok := balanceChanges[addrRef.ID]; !ok {
+			balanceChanges[addrRef.ID] = addrRef.Balance.Siafunds
 		}
 
 		var dummy types.Hash256
@@ -464,20 +464,24 @@ func (ut *updateTx) RemoveSiafundElements(elements []types.SiafundElement, index
 			return fmt.Errorf("failed to delete element %q: %w", se.ID, err)
 		}
 
-		if balanceChanges[se.SiafundOutput.Address] < se.SiafundOutput.Value {
+		if balanceChanges[addrRef.ID] < se.SiafundOutput.Value {
 			panic("siafund balance cannot be negative")
 		}
-		balanceChanges[se.SiafundOutput.Address] -= se.SiafundOutput.Value
+		balanceChanges[addrRef.ID] -= se.SiafundOutput.Value
 	}
 
-	updateAddressBalanceStmt, err := ut.tx.Prepare(`UPDATE sia_addresses SET siafund_balance=$1 WHERE sia_address=$2`)
+	if len(balanceChanges) == 0 {
+		return nil
+	}
+
+	updateAddressBalanceStmt, err := ut.tx.Prepare(`UPDATE sia_addresses SET siafund_balance=$1 WHERE id=$2`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update balance statement: %w", err)
 	}
 	defer updateAddressBalanceStmt.Close()
 
-	for addr, balance := range balanceChanges {
-		res, err := updateAddressBalanceStmt.Exec(balance, encode(addr))
+	for addrID, balance := range balanceChanges {
+		res, err := updateAddressBalanceStmt.Exec(balance, addrID)
 		if err != nil {
 			return fmt.Errorf("failed to update balance: %w", err)
 		} else if n, err := res.RowsAffected(); err != nil {

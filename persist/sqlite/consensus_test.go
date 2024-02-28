@@ -13,9 +13,10 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func testV1Network() (*consensus.Network, types.Block) {
+func testV1Network(siafundAddr types.Address) (*consensus.Network, types.Block) {
 	// use a modified version of Zen
 	n, genesisBlock := chain.TestnetZen()
+	genesisBlock.Transactions[0].SiafundOutputs[0].Address = siafundAddr
 	n.InitialTarget = types.BlockID{0xFF}
 	n.HardforkDevAddr.Height = 1
 	n.HardforkTax.Height = 1
@@ -28,9 +29,10 @@ func testV1Network() (*consensus.Network, types.Block) {
 	return n, genesisBlock
 }
 
-func testV2Network() (*consensus.Network, types.Block) {
+func testV2Network(siafundAddr types.Address) (*consensus.Network, types.Block) {
 	// use a modified version of Zen
 	n, genesisBlock := chain.TestnetZen()
+	genesisBlock.Transactions[0].SiafundOutputs[0].Address = siafundAddr
 	n.InitialTarget = types.BlockID{0xFF}
 	n.HardforkDevAddr.Height = 1
 	n.HardforkTax.Height = 1
@@ -75,6 +77,9 @@ func mineV2Block(state consensus.State, txns []types.V2Transaction, minerAddr ty
 }
 
 func TestReorg(t *testing.T) {
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
@@ -89,7 +94,7 @@ func TestReorg(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	network, genesisBlock := testV1Network()
+	network, genesisBlock := testV1Network(addr)
 
 	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
@@ -102,9 +107,6 @@ func TestReorg(t *testing.T) {
 	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
 		t.Fatal(err)
 	}
-
-	pk := types.GeneratePrivateKey()
-	addr := types.StandardUnlockHash(pk.PublicKey())
 
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -280,6 +282,9 @@ func TestReorg(t *testing.T) {
 }
 
 func TestEphemeralBalance(t *testing.T) {
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
@@ -294,7 +299,7 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	network, genesisBlock := testV1Network()
+	network, genesisBlock := testV1Network(addr)
 
 	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
@@ -307,9 +312,6 @@ func TestEphemeralBalance(t *testing.T) {
 	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
 		t.Fatal(err)
 	}
-
-	pk := types.GeneratePrivateKey()
-	addr := types.StandardUnlockHash(pk.PublicKey())
 
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -475,6 +477,9 @@ func TestEphemeralBalance(t *testing.T) {
 }
 
 func TestV2(t *testing.T) {
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
@@ -489,7 +494,7 @@ func TestV2(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	network, genesisBlock := testV2Network()
+	network, genesisBlock := testV2Network(addr)
 
 	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
@@ -502,9 +507,6 @@ func TestV2(t *testing.T) {
 	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
 		t.Fatal(err)
 	}
-
-	pk := types.GeneratePrivateKey()
-	addr := types.StandardUnlockHash(pk.PublicKey())
 
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {

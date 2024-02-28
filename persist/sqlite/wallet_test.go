@@ -109,6 +109,9 @@ func TestWalletAddresses(t *testing.T) {
 }
 
 func TestResubscribe(t *testing.T) {
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
 	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
@@ -123,7 +126,7 @@ func TestResubscribe(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	network, genesisBlock := testV1Network()
+	network, genesisBlock := testV1Network(types.VoidAddress)
 
 	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
@@ -136,9 +139,6 @@ func TestResubscribe(t *testing.T) {
 	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
 		t.Fatal(err)
 	}
-
-	pk := types.GeneratePrivateKey()
-	addr := types.StandardUnlockHash(pk.PublicKey())
 
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
