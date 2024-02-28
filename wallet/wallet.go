@@ -366,38 +366,6 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		})
 	}
 
-	// do a first pass to see if there's anything relevant in the block
-	relevantContract := func(fc types.FileContract) (addrs []types.Address) {
-		for _, sco := range fc.ValidProofOutputs {
-			if relevant(sco.Address) {
-				addrs = append(addrs, sco.Address)
-			}
-		}
-		for _, sco := range fc.MissedProofOutputs {
-			if relevant(sco.Address) {
-				addrs = append(addrs, sco.Address)
-			}
-		}
-		return
-	}
-	relevantV2Contract := func(fc types.V2FileContract) (addrs []types.Address) {
-		if relevant(fc.RenterOutput.Address) {
-			addrs = append(addrs, fc.RenterOutput.Address)
-		}
-		if relevant(fc.HostOutput.Address) {
-			addrs = append(addrs, fc.HostOutput.Address)
-		}
-		return
-	}
-	relevantV2ContractResolution := func(res types.V2FileContractResolutionType) (addrs []types.Address) {
-		switch r := res.(type) {
-		case *types.V2FileContractFinalization:
-			return relevantV2Contract(types.V2FileContract(*r))
-		case *types.V2FileContractRenewal:
-			return append(relevantV2Contract(r.InitialRevision), relevantV2Contract(r.FinalRevision)...)
-		}
-		return
-	}
 	anythingRelevant := func() (ok bool) {
 		cu.ForEachSiacoinElement(func(sce types.SiacoinElement, spent bool) {
 			if ok || relevant(sce.SiacoinOutput.Address) {
@@ -406,19 +374,6 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		})
 		cu.ForEachSiafundElement(func(sfe types.SiafundElement, spent bool) {
 			if ok || relevant(sfe.SiafundOutput.Address) {
-				ok = true
-			}
-		})
-		cu.ForEachFileContractElement(func(fce types.FileContractElement, rev *types.FileContractElement, resolved, valid bool) {
-			if ok || len(relevantContract(fce.FileContract)) > 0 || (rev != nil && len(relevantContract(rev.FileContract)) > 0) {
-				ok = true
-			}
-		})
-		cu.ForEachV2FileContractElement(func(fce types.V2FileContractElement, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
-			if ok ||
-				len(relevantV2Contract(fce.V2FileContract)) > 0 ||
-				(rev != nil && len(relevantV2Contract(rev.V2FileContract)) > 0) ||
-				(res != nil && len(relevantV2ContractResolution(res)) > 0) {
 				ok = true
 			}
 		})
@@ -471,15 +426,6 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 				addrs = append(addrs, sfo.Address)
 			}
 		}
-		for _, fc := range txn.FileContracts {
-			addrs = append(addrs, relevantContract(fc)...)
-		}
-		for _, fcr := range txn.FileContractRevisions {
-			addrs = append(addrs, relevantContract(fcr.FileContract)...)
-		}
-		for _, sp := range txn.StorageProofs {
-			addrs = append(addrs, relevantContract(fces[sp.ParentID].FileContract)...)
-		}
 		return
 	}
 
@@ -502,23 +448,6 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		for _, sfo := range txn.SiafundOutputs {
 			if relevant(sfo.Address) {
 				addrs = append(addrs, sfo.Address)
-			}
-		}
-		for _, fc := range txn.FileContracts {
-			addrs = append(addrs, relevantV2Contract(fc)...)
-		}
-		for _, fcr := range txn.FileContractRevisions {
-			addrs = append(addrs, relevantV2Contract(fcr.Parent.V2FileContract)...)
-			addrs = append(addrs, relevantV2Contract(fcr.Revision)...)
-		}
-		for _, fcr := range txn.FileContractResolutions {
-			addrs = append(addrs, relevantV2Contract(fcr.Parent.V2FileContract)...)
-			switch r := fcr.Resolution.(type) {
-			case *types.V2FileContractFinalization:
-				addrs = append(addrs, relevantV2Contract(types.V2FileContract(*r))...)
-			case *types.V2FileContractRenewal:
-				addrs = append(addrs, relevantV2Contract(r.InitialRevision)...)
-				addrs = append(addrs, relevantV2Contract(r.FinalRevision)...)
 			}
 		}
 		return
@@ -675,28 +604,31 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			return
 		}
 
-		relevant := relevantContract(fce.FileContract)
-		if len(relevant) == 0 {
-			return
-		}
-
 		if valid {
 			for i := range fce.FileContract.ValidProofOutputs {
+				if !relevant(fce.FileContract.ValidProofOutputs[i].Address) {
+					continue
+				}
+
 				outputID := types.FileContractID(fce.ID).ValidOutputID(i)
 				addEvent(types.Hash256(outputID), cs.MaturityHeight(), &EventContractPayout{
 					FileContract:  fce,
 					SiacoinOutput: sces[outputID],
 					Missed:        false,
-				}, relevant)
+				}, []types.Address{fce.FileContract.ValidProofOutputs[i].Address})
 			}
 		} else {
 			for i := range fce.FileContract.MissedProofOutputs {
+				if !relevant(fce.FileContract.ValidProofOutputs[i].Address) {
+					continue
+				}
+
 				outputID := types.FileContractID(fce.ID).MissedOutputID(i)
 				addEvent(types.Hash256(outputID), cs.MaturityHeight(), &EventContractPayout{
 					FileContract:  fce,
 					SiacoinOutput: sces[outputID],
 					Missed:        true,
-				}, relevant)
+				}, []types.Address{fce.FileContract.ValidProofOutputs[i].Address})
 			}
 		}
 	})
