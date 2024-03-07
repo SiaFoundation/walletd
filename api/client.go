@@ -117,6 +117,30 @@ func (c *Client) Resubscribe(height uint64) (err error) {
 	return
 }
 
+// AddressBalance returns the balance of a single address.
+func (c *Client) AddressBalance(addr types.Address) (resp BalanceResponse, err error) {
+	err = c.c.GET(fmt.Sprintf("/addresses/%v/balance", addr), &resp)
+	return
+}
+
+// AddressEvents returns the events of a single address.
+func (c *Client) AddressEvents(addr types.Address, offset, limit int) (resp []wallet.Event, err error) {
+	err = c.c.GET(fmt.Sprintf("/addresses/%v/events?offset=%d&limit=%d", addr, offset, limit), &resp)
+	return
+}
+
+// AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
+func (c *Client) AddressSiacoinOutputs(addr types.Address, offset, limit int) (resp []types.SiacoinElement, err error) {
+	err = c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siacoin?offset=%d&limit=%d", addr, offset, limit), &resp)
+	return
+}
+
+// AddressSiafundOutputs returns the unspent siafund outputs for an address.
+func (c *Client) AddressSiafundOutputs(addr types.Address, offset, limit int) (resp []types.SiafundElement, err error) {
+	err = c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siafund?offset=%d&limit=%d", addr, offset, limit), &resp)
+	return
+}
+
 // A WalletClient provides methods for interacting with a particular wallet on a
 // walletd API server.
 type WalletClient struct {

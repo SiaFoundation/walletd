@@ -411,6 +411,199 @@ func TestWallet(t *testing.T) {
 	}
 }
 
+func TestAddresses(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	n, genesisBlock := testNetwork()
+	giftPrivateKey := types.GeneratePrivateKey()
+	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(1),
+		Address: giftAddress,
+	}
+
+	// create wallets
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	wm, err := wallet.NewManager(cm, ws, log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
+	c, shutdown := runServer(cm, nil, wm)
+	defer shutdown()
+	w, err := c.AddWallet(api.WalletUpdateRequest{Name: "primary"})
+	if err != nil {
+		t.Fatal(err)
+	} else if w.Name != "primary" {
+		t.Fatalf("expected wallet name to be 'primary', got %v", w.Name)
+	}
+	wc := c.Wallet(w.ID)
+	if err := c.Resubscribe(0); err != nil {
+		t.Fatal(err)
+	}
+
+	balance, err := wc.Balance()
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Siacoins.IsZero() || !balance.ImmatureSiacoins.IsZero() || balance.Siafunds != 0 {
+		t.Fatal("balance should be 0")
+	}
+
+	// shouldn't have any events yet
+	events, err := wc.Events(0, -1)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 0 {
+		t.Fatal("event history should be empty")
+	}
+
+	// shouldn't have any addresses yet
+	addresses, err := wc.Addresses()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(addresses) != 0 {
+		t.Fatal("address list should be empty")
+	}
+
+	// create and add an address
+	addr := sav.NewAddress("primary")
+	if err := wc.AddAddress(addr); err != nil {
+		t.Fatal(err)
+	}
+
+	// should have an address now
+	addresses, err = wc.Addresses()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(addresses) != 1 {
+		t.Fatal("address list should have one address")
+	} else if addresses[0].Address != addr.Address {
+		t.Fatalf("address should be %v, got %v", addr, addresses[0])
+	}
+
+	// send gift to wallet
+	giftSCOID := genesisBlock.Transactions[0].SiacoinOutputID(0)
+	txn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{{
+			ParentID:         giftSCOID,
+			UnlockConditions: types.StandardUnlockConditions(giftPrivateKey.PublicKey()),
+		}},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: addr.Address, Value: types.Siacoins(1).Div64(2)},
+			{Address: addr.Address, Value: types.Siacoins(1).Div64(2)},
+		},
+		Signatures: []types.TransactionSignature{{
+			ParentID:      types.Hash256(giftSCOID),
+			CoveredFields: types.CoveredFields{WholeTransaction: true},
+		}},
+	}
+	sig := giftPrivateKey.SignHash(cm.TipState().WholeSigHash(txn, types.Hash256(giftSCOID), 0, 0, nil))
+	txn.Signatures[0].Signature = sig[:]
+
+	cs := cm.TipState()
+	b := types.Block{
+		ParentID:     cs.Index.ID,
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
+		Transactions: []types.Transaction{txn},
+	}
+	for b.ID().CmpWork(cs.ChildTarget) < 0 {
+		b.Nonce += cs.NonceFactor()
+	}
+	if err := cm.AddBlocks([]types.Block{b}); err != nil {
+		t.Fatal(err)
+	}
+
+	// get new balance
+	balance, err = c.AddressBalance(addr.Address)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Siacoins.Equals(types.Siacoins(1)) {
+		t.Error("balance should be 1 SC, got", balance.Siacoins)
+	} else if !balance.ImmatureSiacoins.IsZero() {
+		t.Error("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
+	}
+
+	// transaction should appear in history
+	events, err = c.AddressEvents(addr.Address, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) == 0 {
+		t.Error("transaction should appear in history")
+	}
+
+	outputs, err := c.AddressSiacoinOutputs(addr.Address, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(outputs) != 2 {
+		t.Error("should have two UTXOs, got", len(outputs))
+	}
+
+	// mine a block to add an immature balance
+	cs = cm.TipState()
+	b = types.Block{
+		ParentID:     cs.Index.ID,
+		Timestamp:    types.CurrentTimestamp(),
+		MinerPayouts: []types.SiacoinOutput{{Address: addr.Address, Value: cs.BlockReward()}},
+	}
+	for b.ID().CmpWork(cs.ChildTarget) < 0 {
+		b.Nonce += cs.NonceFactor()
+	}
+	if err := cm.AddBlocks([]types.Block{b}); err != nil {
+		t.Fatal(err)
+	}
+
+	// get new balance
+	balance, err = c.AddressBalance(addr.Address)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Siacoins.Equals(types.Siacoins(1)) {
+		t.Error("balance should be 1 SC, got", balance.Siacoins)
+	} else if !balance.ImmatureSiacoins.Equals(b.MinerPayouts[0].Value) {
+		t.Errorf("immature balance should be %d SC, got %d SC", b.MinerPayouts[0].Value, balance.ImmatureSiacoins)
+	}
+
+	// mine enough blocks for the miner payout to mature
+	expectedBalance := types.Siacoins(1).Add(b.MinerPayouts[0].Value)
+	target := cs.MaturityHeight()
+	for cs.Index.Height < target {
+		cs = cm.TipState()
+		b := types.Block{
+			ParentID:     cs.Index.ID,
+			Timestamp:    types.CurrentTimestamp(),
+			MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
+		}
+		for b.ID().CmpWork(cs.ChildTarget) < 0 {
+			b.Nonce += cs.NonceFactor()
+		}
+		if err := cm.AddBlocks([]types.Block{b}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// get new balance
+	balance, err = c.AddressBalance(addr.Address)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Siacoins.Equals(expectedBalance) {
+		t.Errorf("balance should be %d, got %d", expectedBalance, balance.Siacoins)
+	} else if !balance.ImmatureSiacoins.IsZero() {
+		t.Error("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
+	}
+}
+
 func TestV2(t *testing.T) {
 	log := zaptest.NewLogger(t)
 

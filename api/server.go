@@ -60,6 +60,11 @@ type (
 		WalletBalance(id wallet.ID) (wallet.Balance, error)
 		Annotate(id wallet.ID, pool []types.Transaction) ([]wallet.PoolTransaction, error)
 
+		AddressBalance(address types.Address) (balance wallet.Balance, err error)
+		AddressEvents(address types.Address, offset, limit int) (events []wallet.Event, err error)
+		AddressSiacoinOutputs(address types.Address, offset, limit int) (siacoins []types.SiacoinElement, err error)
+		AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, err error)
+
 		Reserve(ids []types.Hash256, duration time.Duration) error
 	}
 )
@@ -544,6 +549,72 @@ func (s *server) walletsFundSFHandler(jc jape.Context) {
 	})
 }
 
+func (s *server) addressesAddrBalanceHandler(jc jape.Context) {
+	var addr types.Address
+	if jc.DecodeParam("addr", &addr) != nil {
+		return
+	}
+	b, err := s.wm.AddressBalance(addr)
+	if jc.Check("couldn't load balance", err) != nil {
+		return
+	}
+	jc.Encode(BalanceResponse(b))
+}
+
+func (s *server) addressesAddrEventsHandler(jc jape.Context) {
+	var addr types.Address
+	if jc.DecodeParam("addr", &addr) != nil {
+		return
+	}
+
+	offset, limit := 0, 1000
+	if jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
+		return
+	}
+
+	events, err := s.wm.AddressEvents(addr, offset, limit)
+	if jc.Check("couldn't load events", err) != nil {
+		return
+	}
+	jc.Encode(events)
+}
+
+func (s *server) addressesAddrOutputsSCHandler(jc jape.Context) {
+	var addr types.Address
+	if jc.DecodeParam("addr", &addr) != nil {
+		return
+	}
+
+	offset, limit := 0, 1000
+	if jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
+		return
+	}
+
+	utxos, err := s.wm.AddressSiacoinOutputs(addr, offset, limit)
+	if jc.Check("couldn't load utxos", err) != nil {
+		return
+	}
+	jc.Encode(utxos)
+}
+
+func (s *server) addressesAddrOutputsSFHandler(jc jape.Context) {
+	var addr types.Address
+	if jc.DecodeParam("addr", &addr) != nil {
+		return
+	}
+
+	offset, limit := 0, 1000
+	if jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
+		return
+	}
+
+	utxos, err := s.wm.AddressSiafundOutputs(addr, offset, limit)
+	if jc.Check("couldn't load utxos", err) != nil {
+		return
+	}
+	jc.Encode(utxos)
+}
+
 // NewServer returns an HTTP handler that serves the walletd API.
 func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 	srv := server{
@@ -583,5 +654,10 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"POST   /wallets/:id/release":         srv.walletsReleaseHandler,
 		"POST   /wallets/:id/fund":            srv.walletsFundHandler,
 		"POST   /wallets/:id/fundsf":          srv.walletsFundSFHandler,
+
+		"GET /addresses/:addr/balance":         srv.addressesAddrBalanceHandler,
+		"GET /addresses/:addr/events":          srv.addressesAddrEventsHandler,
+		"GET /addresses/:addr/outputs/siacoin": srv.addressesAddrOutputsSCHandler,
+		"GET /addresses/:addr/outputs/siafund": srv.addressesAddrOutputsSFHandler,
 	})
 }
