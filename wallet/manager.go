@@ -39,6 +39,11 @@ type (
 
 		Annotate(walletID ID, txns []types.Transaction) ([]PoolTransaction, error)
 
+		AddressBalance(address types.Address) (balance Balance, err error)
+		AddressEvents(address types.Address, offset, limit int) (events []Event, err error)
+		AddressSiacoinOutputs(address types.Address, offset, limit int) (siacoins []types.SiacoinElement, err error)
+		AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, err error)
+
 		LastCommittedIndex() (types.ChainIndex, error)
 	}
 

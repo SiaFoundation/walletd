@@ -17,7 +17,7 @@ func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, e
 }
 
 // AddressEvents returns the events of a single address.
-func (s *Store) AddressEvents(address types.Address, limit, offset int) (events []wallet.Event, err error) {
+func (s *Store) AddressEvents(address types.Address, offset, limit int) (events []wallet.Event, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
 	FROM events ev
@@ -41,6 +41,63 @@ func (s *Store) AddressEvents(address types.Address, limit, offset int) (events 
 			}
 
 			events = append(events, event)
+		}
+		return rows.Err()
+	})
+	return
+}
+
+// AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
+func (s *Store) AddressSiacoinOutputs(address types.Address, offset, limit int) (siacoins []types.SiacoinElement, err error) {
+	err = s.transaction(func(tx *txn) error {
+		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siacoin_value, sa.sia_address, se.maturity_height 
+		FROM siacoin_elements se
+		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
+		WHERE sa.sia_address=$1
+		LIMIT $2 OFFSET $3`
+
+		rows, err := tx.Query(query, encode(address), limit, offset)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var siacoin types.SiacoinElement
+			err := rows.Scan(decode(&siacoin.ID), &siacoin.LeafIndex, decodeSlice[types.Hash256](&siacoin.MerkleProof), decode(&siacoin.SiacoinOutput.Value), decode(&siacoin.SiacoinOutput.Address), &siacoin.MaturityHeight)
+			if err != nil {
+				return fmt.Errorf("failed to scan siacoin element: %w", err)
+			}
+
+			siacoins = append(siacoins, siacoin)
+		}
+		return rows.Err()
+	})
+	return
+}
+
+// AddressSiafundOutputs returns the unspent siafund outputs for an address.
+func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, err error) {
+	err = s.transaction(func(tx *txn) error {
+		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
+		FROM siafund_elements se
+		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
+		WHERE sa.sia_address = $1
+		LIMIT $2 OFFSET $3`
+
+		rows, err := tx.Query(query, encode(address), limit, offset)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var siafund types.SiafundElement
+			err := rows.Scan(decode(&siafund.ID), &siafund.LeafIndex, decodeSlice(&siafund.MerkleProof), &siafund.SiafundOutput.Value, decode(&siafund.ClaimStart), decode(&siafund.SiafundOutput.Address))
+			if err != nil {
+				return fmt.Errorf("failed to scan siacoin element: %w", err)
+			}
+			siafunds = append(siafunds, siafund)
 		}
 		return rows.Err()
 	})
