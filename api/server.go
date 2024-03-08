@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"reflect"
@@ -34,8 +35,8 @@ type (
 	Syncer interface {
 		Addr() string
 		Peers() []*syncer.Peer
-		PeerInfo(peer string) (syncer.PeerInfo, bool)
-		Connect(addr string) (*syncer.Peer, error)
+		PeerInfo(addr string) (syncer.PeerInfo, error)
+		Connect(ctx context.Context, addr string) (*syncer.Peer, error)
 		BroadcastHeader(bh gateway.BlockHeader)
 		BroadcastTransactionSet(txns []types.Transaction)
 		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction)
@@ -94,9 +95,12 @@ func (s *server) consensusTipStateHandler(jc jape.Context) {
 func (s *server) syncerPeersHandler(jc jape.Context) {
 	var peers []GatewayPeer
 	for _, p := range s.s.Peers() {
-		info, ok := s.s.PeerInfo(p.Addr())
-		if !ok {
-			jc.Error(errors.New("peer not found"), http.StatusNotFound)
+		info, err := s.s.PeerInfo(p.Addr())
+		if errors.Is(err, syncer.ErrPeerNotFound) {
+			jc.Error(err, http.StatusNotFound)
+			return
+		} else if err != nil {
+			jc.Error(err, http.StatusInternalServerError)
 			return
 		}
 		peers = append(peers, GatewayPeer{
@@ -118,7 +122,7 @@ func (s *server) syncerConnectHandler(jc jape.Context) {
 	if jc.Decode(&addr) != nil {
 		return
 	}
-	_, err := s.s.Connect(addr)
+	_, err := s.s.Connect(jc.Request.Context(), addr)
 	jc.Check("couldn't connect to peer", err)
 }
 
