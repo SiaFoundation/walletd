@@ -92,28 +92,7 @@ Generates a secure testnet seed.
 	mineUsage = `Usage:
     walletd mine
 
-Runs a testnet CPU miner.
-`
-	balanceUsage = `Usage:
-    walletd balance
-
-Displays testnet balance.
-`
-	sendUsage = `Usage:
-    walletd send [flags] [amount] [address]
-
-Sends a simple testnet transaction.
-`
-	txnsUsage = `Usage:
-    walletd txns
-
-Lists testnet transactions and miner rewards.
-`
-	txpoolUsage = `Usage:
-    walletd txpool
-
-Lists unconfirmed testnet transactions in the txpool.
-Note that only transactions relevant to the wallet are shown.
+Runs a CPU miner. Not intended for production use.
 `
 )
 
@@ -121,7 +100,7 @@ func main() {
 	log.SetFlags(0)
 
 	var gatewayAddr, apiAddr, dir, network, seed string
-	var upnp, v2 bool
+	var upnp, bootstrap bool
 
 	var minerAddrStr string
 	var minerBlocks int
@@ -133,17 +112,13 @@ func main() {
 	rootCmd.StringVar(&dir, "dir", ".", "directory to store node state in")
 	rootCmd.StringVar(&network, "network", "mainnet", "network to connect to")
 	rootCmd.BoolVar(&upnp, "upnp", true, "attempt to forward ports and discover IP with UPnP")
+	rootCmd.BoolVar(&bootstrap, "bootstrap", true, "attempt to bootstrap the network")
 	rootCmd.StringVar(&seed, "seed", "", "testnet seed")
 	versionCmd := flagg.New("version", versionUsage)
 	seedCmd := flagg.New("seed", seedUsage)
 	mineCmd := flagg.New("mine", mineUsage)
 	mineCmd.IntVar(&minerBlocks, "n", -1, "mine this many blocks. If negative, mine indefinitely")
 	mineCmd.StringVar(&minerAddrStr, "addr", "", "address to send block rewards to (required)")
-	balanceCmd := flagg.New("balance", balanceUsage)
-	sendCmd := flagg.New("send", sendUsage)
-	sendCmd.BoolVar(&v2, "v2", false, "send a v2 transaction")
-	txnsCmd := flagg.New("txns", txnsUsage)
-	txpoolCmd := flagg.New("txpool", txpoolUsage)
 
 	cmd := flagg.Parse(flagg.Tree{
 		Cmd: rootCmd,
@@ -151,10 +126,6 @@ func main() {
 			{Cmd: versionCmd},
 			{Cmd: seedCmd},
 			{Cmd: mineCmd},
-			{Cmd: balanceCmd},
-			{Cmd: sendCmd},
-			{Cmd: txnsCmd},
-			{Cmd: txpoolCmd},
 		},
 	})
 
@@ -195,7 +166,7 @@ func main() {
 		// redirect stdlib log to zap
 		zap.RedirectStdLog(logger.Named("stdlib"))
 
-		n, err := newNode(gatewayAddr, dir, network, upnp, logger)
+		n, err := newNode(gatewayAddr, dir, network, upnp, bootstrap, logger)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -241,6 +212,6 @@ func main() {
 		}
 
 		c := api.NewClient("http://"+apiAddr+"/api", getAPIPassword())
-		runTestnetMiner(c, minerAddr, minerBlocks)
+		runCPUMiner(c, minerAddr, minerBlocks)
 	}
 }
