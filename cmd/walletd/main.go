@@ -7,16 +7,14 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
-	"strings"
 
 	"go.sia.tech/core/types"
+	cwallet "go.sia.tech/coreutils/wallet"
 	"go.sia.tech/walletd/api"
-	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/term"
 	"lukechampine.com/flagg"
-	"lukechampine.com/frand"
 )
 
 var commit = "?"
@@ -71,14 +69,9 @@ Run 'walletd' with no arguments to start the blockchain node and API server.
 
 Actions:
     version     print walletd version
+    seed        generate a recovery phrase
+    mine        run CPU miner`
 
-Testnet Actions:
-    seed        generate a seed
-    mine        run CPU miner
-    balance     view wallet balance
-    send        send a simple transaction
-    txns        view transaction history
-`
 	versionUsage = `Usage:
     walletd version
 
@@ -87,7 +80,7 @@ Prints the version of the walletd binary.
 	seedUsage = `Usage:
     walletd seed
 
-Generates a secure testnet seed.
+Generates a secure BIP-39 recovery phrase.
 `
 	mineUsage = `Usage:
     walletd mine
@@ -193,13 +186,15 @@ func main() {
 			cmd.Usage()
 			return
 		}
-		seed := frand.Bytes(8)
-		var entropy [32]byte
-		copy(entropy[:], seed)
-		addr := types.StandardUnlockHash(wallet.NewSeedFromEntropy(&entropy).PublicKey(0))
-		fmt.Printf("Seed:    %x\n", seed)
-		fmt.Printf("Address: %v\n", strings.TrimPrefix(addr.String(), "addr:"))
+		recoveryPhrase := cwallet.NewSeedPhrase()
+		var seed [32]byte
+		if err := cwallet.SeedFromPhrase(&seed, recoveryPhrase); err != nil {
+			log.Fatal(err)
+		}
+		addr := types.StandardUnlockHash(cwallet.KeyFromSeed(&seed, 0).PublicKey())
 
+		fmt.Println("Recovery Phrase:", recoveryPhrase)
+		fmt.Println("Address", addr)
 	case mineCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
