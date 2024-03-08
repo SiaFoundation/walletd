@@ -99,7 +99,7 @@ func (n *node) Close() error {
 	return n.store.Close()
 }
 
-func newNode(addr, dir string, chainNetwork string, useUPNP bool, log *zap.Logger) (*node, error) {
+func newNode(addr, dir string, chainNetwork string, useUPNP, useBootstrap bool, log *zap.Logger) (*node, error) {
 	var network *consensus.Network
 	var genesisBlock types.Block
 	var bootstrapPeers []string
@@ -166,9 +166,12 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool, log *zap.Logge
 		return nil, fmt.Errorf("failed to open wallet database: %w", err)
 	}
 
-	for _, peer := range bootstrapPeers {
-		store.AddPeer(peer)
+	if useBootstrap {
+		for _, peer := range bootstrapPeers {
+			store.AddPeer(peer)
+		}
 	}
+
 	header := gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
