@@ -14,10 +14,10 @@ type GatewayPeer struct {
 	Inbound bool   `json:"inbound"`
 	Version string `json:"version"`
 
-	FirstSeen      time.Time     `json:"firstSeen"`
-	ConnectedSince time.Time     `json:"connectedSince"`
-	SyncedBlocks   uint64        `json:"syncedBlocks"`
-	SyncDuration   time.Duration `json:"syncDuration"`
+	FirstSeen      time.Time     `json:"firstSeen,omitempty"`
+	ConnectedSince time.Time     `json:"connectedSince,omitempty"`
+	SyncedBlocks   uint64        `json:"syncedBlocks,omitempty"`
+	SyncDuration   time.Duration `json:"syncDuration,omitempty"`
 }
 
 // TxpoolBroadcastRequest is the request type for /txpool/broadcast.

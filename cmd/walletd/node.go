@@ -167,7 +167,9 @@ func newNode(addr, dir string, chainNetwork string, useUPNP bool, log *zap.Logge
 	}
 
 	for _, peer := range bootstrapPeers {
-		store.AddPeer(peer)
+		if err := store.AddPeer(peer); err != nil {
+			return nil, fmt.Errorf("failed to add bootstrap peer '%s': %w", peer, err)
+		}
 	}
 	header := gateway.Header{
 		GenesisID:  genesisBlock.ID(),

@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -1078,7 +1079,7 @@ func TestP2P(t *testing.T) {
 	}
 
 	// connect the syncers
-	if _, err := s1.Connect(s2.Addr()); err != nil {
+	if _, err := s1.Connect(context.Background(), s2.Addr()); err != nil {
 		t.Fatal(err)
 	}
 
