@@ -95,24 +95,24 @@ func (s *server) consensusTipStateHandler(jc jape.Context) {
 func (s *server) syncerPeersHandler(jc jape.Context) {
 	var peers []GatewayPeer
 	for _, p := range s.s.Peers() {
-		info, err := s.s.PeerInfo(p.Addr())
-		if errors.Is(err, syncer.ErrPeerNotFound) {
-			jc.Error(err, http.StatusNotFound)
-			return
-		} else if err != nil {
-			jc.Error(err, http.StatusInternalServerError)
-			return
-		}
-		peers = append(peers, GatewayPeer{
+		// create peer response with known fields
+		peer := GatewayPeer{
 			Addr:    p.Addr(),
 			Inbound: p.Inbound,
 			Version: p.Version(),
-
-			FirstSeen:      info.FirstSeen,
-			ConnectedSince: info.LastConnect,
-			SyncedBlocks:   info.SyncedBlocks,
-			SyncDuration:   info.SyncDuration,
-		})
+		}
+		//  add more info if available
+		info, err := s.s.PeerInfo(p.Addr())
+		if err != nil && !errors.Is(err, syncer.ErrPeerNotFound) {
+			jc.Error(err, http.StatusInternalServerError)
+			return
+		} else if err == nil {
+			peer.FirstSeen = info.FirstSeen
+			peer.ConnectedSince = info.LastConnect
+			peer.SyncedBlocks = info.SyncedBlocks
+			peer.SyncDuration = info.SyncDuration
+		}
+		peers = append(peers, peer)
 	}
 	jc.Encode(peers)
 }
