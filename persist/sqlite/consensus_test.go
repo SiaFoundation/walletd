@@ -76,6 +76,31 @@ func mineV2Block(state consensus.State, txns []types.V2Transaction, minerAddr ty
 	return b
 }
 
+func syncDB(t *testing.T, db *sqlite.Store, cm *chain.Manager) {
+	index, err := db.LastCommittedIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index != cm.Tip() {
+		crus, caus, err := cm.UpdatesSince(index, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, cru := range crus {
+			if err := db.ProcessChainRevertUpdate(cru); err != nil {
+				t.Fatal("failed to process revert update:", err)
+			}
+			index = cru.State.Index
+		}
+		for _, cau := range caus {
+			if err := db.ProcessChainApplyUpdate(cau); err != nil {
+				t.Fatal("failed to process apply update:", err)
+			}
+			index = cau.State.Index
+		}
+	}
+}
+
 func TestReorg(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
@@ -94,19 +119,13 @@ func TestReorg(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	network, genesisBlock := testV1Network(addr)
+	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
 
 	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
-
 	cm := chain.NewManager(store, genesisState)
-
-	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
-		t.Fatal(err)
-	}
 
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -121,6 +140,7 @@ func TestReorg(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
 		t.Fatal(err)
 	}
+	syncDB(t, db, cm)
 
 	// check that the payout was received
 	balance, err := db.AddressBalance(addr)
@@ -163,6 +183,7 @@ func TestReorg(t *testing.T) {
 	if err := cm.AddBlocks(blocks); err != nil {
 		t.Fatal(err)
 	}
+	syncDB(t, db, cm)
 
 	// check that the payout was reverted
 	balance, err = db.AddressBalance(addr)
@@ -194,6 +215,7 @@ func TestReorg(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
 		t.Fatal(err)
 	}
+	syncDB(t, db, cm)
 
 	// check that the payout was received
 	balance, err = db.AddressBalance(addr)
@@ -235,6 +257,7 @@ func TestReorg(t *testing.T) {
 			prevState = cm.TipState()
 		}
 	}
+	syncDB(t, db, cm)
 
 	// check that the balance was updated
 	balance, err = db.AddressBalance(addr)
@@ -257,6 +280,7 @@ func TestReorg(t *testing.T) {
 	if err := cm.AddBlocks(blocks); err != nil {
 		t.Fatal(err)
 	}
+	syncDB(t, db, cm)
 
 	// check that the balance is correct
 	balance, err = db.AddressBalance(addr)
@@ -299,19 +323,14 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	network, genesisBlock := testV1Network(addr)
+	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
 
 	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
 
 	cm := chain.NewManager(store, genesisState)
-
-	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
-		t.Fatal(err)
-	}
 
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -328,6 +347,7 @@ func TestEphemeralBalance(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{block}); err != nil {
 		t.Fatal(err)
 	}
+	syncDB(t, db, cm)
 
 	// check that the payout was received
 	balance, err := db.AddressBalance(addr)
@@ -355,6 +375,7 @@ func TestEphemeralBalance(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	syncDB(t, db, cm)
 
 	// create a transaction that spends the matured payout
 	utxos, err := db.WalletSiacoinOutputs(w.ID, 0, 100)
@@ -418,6 +439,7 @@ func TestEphemeralBalance(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{mineBlock(revertState, txnset, types.VoidAddress)}); err != nil {
 		t.Fatal(err)
 	}
+	syncDB(t, db, cm)
 
 	// check that the payout was spent
 	balance, err = db.AddressBalance(addr)
@@ -456,6 +478,7 @@ func TestEphemeralBalance(t *testing.T) {
 	if err := cm.AddBlocks(blocks); err != nil {
 		t.Fatal(err)
 	}
+	syncDB(t, db, cm)
 
 	// check that the transaction was reverted
 	balance, err = db.AddressBalance(addr)
@@ -494,19 +517,14 @@ func TestV2(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	network, genesisBlock := testV2Network(addr)
+	network, genesisBlock := testV2Network(types.VoidAddress) // don't care about siafunds
 
 	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
 
 	cm := chain.NewManager(store, genesisState)
-
-	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
-		t.Fatal(err)
-	}
 
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -520,6 +538,7 @@ func TestV2(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
 		t.Fatal(err)
 	}
+	syncDB(t, db, cm)
 
 	// check that the payout was received
 	balance, err := db.AddressBalance(addr)
@@ -546,6 +565,7 @@ func TestV2(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	syncDB(t, db, cm)
 
 	// create a v2 transaction that spends the matured payout
 	utxos, err := db.WalletSiacoinOutputs(w.ID, 0, 100)
@@ -572,6 +592,7 @@ func TestV2(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{mineV2Block(cm.TipState(), []types.V2Transaction{txn}, types.VoidAddress)}); err != nil {
 		t.Fatal(err)
 	}
+	syncDB(t, db, cm)
 
 	// check that the change was received
 	balance, err = db.AddressBalance(addr)

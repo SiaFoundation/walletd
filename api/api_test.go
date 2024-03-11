@@ -248,6 +248,17 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	waitForBlock := func() {
+		for i := 0; i < 1000; i++ {
+			time.Sleep(10 * time.Millisecond)
+			tip, _ := ws.LastCommittedIndex()
+			if tip == cm.Tip() {
+				return
+			}
+		}
+		t.Fatal("timed out waiting for block")
+	}
+
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
 	c, shutdown := runServer(cm, nil, wm)
 	defer shutdown()
@@ -333,6 +344,7 @@ func TestWallet(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
+	waitForBlock()
 
 	// get new balance
 	balance, err = wc.Balance()
@@ -372,6 +384,7 @@ func TestWallet(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
+	waitForBlock()
 
 	// get new balance
 	balance, err = wc.Balance()
@@ -400,6 +413,7 @@ func TestWallet(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	waitForBlock()
 
 	// get new balance
 	balance, err = wc.Balance()
@@ -675,8 +689,19 @@ func TestV2(t *testing.T) {
 		}
 		return cm.AddBlocks([]types.Block{b})
 	}
+	waitForBlock := func() {
+		for i := 0; i < 1000; i++ {
+			time.Sleep(10 * time.Millisecond)
+			tip, _ := ws.LastCommittedIndex()
+			if tip == cm.Tip() {
+				return
+			}
+		}
+		t.Fatal("timed out waiting for block")
+	}
 	checkBalances := func(p, s types.Currency) {
 		t.Helper()
+		waitForBlock()
 		if primaryBalance, err := primary.Balance(); err != nil {
 			t.Fatal(err)
 		} else if !primaryBalance.Siacoins.Equals(p) {
@@ -690,6 +715,7 @@ func TestV2(t *testing.T) {
 	}
 	sendV1 := func() error {
 		t.Helper()
+		waitForBlock()
 
 		// which wallet is sending?
 		key := primaryPrivateKey
@@ -736,6 +762,7 @@ func TestV2(t *testing.T) {
 	}
 	sendV2 := func() error {
 		t.Helper()
+		waitForBlock()
 
 		// which wallet is sending?
 		key := primaryPrivateKey

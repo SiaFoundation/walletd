@@ -14,15 +14,17 @@ import (
 type (
 	// A ChainManager manages the consensus state
 	ChainManager interface {
-		AddSubscriber(chain.Subscriber, types.ChainIndex) error
-		RemoveSubscriber(chain.Subscriber)
-
+		Tip() types.ChainIndex
 		BestIndex(height uint64) (types.ChainIndex, bool)
+
+		OnReorg(fn func(types.ChainIndex)) (cancel func())
+		UpdatesSince(index types.ChainIndex, max int) (rus []chain.RevertUpdate, aus []chain.ApplyUpdate, err error)
 	}
 
 	// A Store is a persistent store of wallet data.
 	Store interface {
-		chain.Subscriber
+		ProcessChainApplyUpdate(cau chain.ApplyUpdate) error
+		ProcessChainRevertUpdate(cru chain.RevertUpdate) error
 
 		WalletEvents(walletID ID, offset, limit int) ([]Event, error)
 		AddWallet(Wallet) (Wallet, error)
@@ -53,8 +55,9 @@ type (
 		store Store
 		log   *zap.Logger
 
-		mu   sync.Mutex
-		used map[types.Hash256]bool
+		mu          sync.Mutex
+		used        map[types.Hash256]bool
+		unsubscribe func()
 	}
 )
 
@@ -158,8 +161,32 @@ func (m *Manager) Subscribe(startHeight uint64) error {
 			return errors.New("invalid height")
 		}
 	}
-	m.chain.RemoveSubscriber(m.store)
-	return m.chain.AddSubscriber(m.store, index)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// TODO: is this right? won't it result in duplicate state?
+	return syncStore(m.store, m.chain, index)
+}
+
+func syncStore(store Store, cm ChainManager, index types.ChainIndex) error {
+	for index != cm.Tip() {
+		crus, caus, err := cm.UpdatesSince(index, 1000)
+		if err != nil {
+			return fmt.Errorf("failed to subscribe to chain manager: %w", err)
+		}
+		for _, cru := range crus {
+			if err := store.ProcessChainRevertUpdate(cru); err != nil {
+				return fmt.Errorf("failed to process revert update: %w", err)
+			}
+			index = cru.State.Index
+		}
+		for _, cau := range caus {
+			if err := store.ProcessChainApplyUpdate(cau); err != nil {
+				return fmt.Errorf("failed to process apply update: %w", err)
+			}
+			index = cau.State.Index
+		}
+	}
+	return nil
 }
 
 // NewManager creates a new wallet manager.
@@ -173,8 +200,29 @@ func NewManager(cm ChainManager, store Store, log *zap.Logger) (*Manager, error)
 	lastTip, err := store.LastCommittedIndex()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get last committed index: %w", err)
-	} else if err := cm.AddSubscriber(store, lastTip); err != nil {
+	}
+	if err := syncStore(store, cm, lastTip); err != nil {
 		return nil, fmt.Errorf("failed to subscribe to chain manager: %w", err)
 	}
+
+	reorgChan := make(chan types.ChainIndex, 1)
+	go func() {
+		for range reorgChan {
+			m.mu.Lock()
+			lastTip, err := store.LastCommittedIndex()
+			if err != nil {
+				log.Error("failed to get last committed index", zap.Error(err))
+			} else if err := syncStore(store, cm, lastTip); err != nil {
+				log.Error("failed to sync store", zap.Error(err))
+			}
+			m.mu.Unlock()
+		}
+	}()
+	m.unsubscribe = cm.OnReorg(func(index types.ChainIndex) {
+		select {
+		case reorgChan <- index:
+		default:
+		}
+	})
 	return m, nil
 }

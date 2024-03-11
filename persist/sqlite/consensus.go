@@ -573,33 +573,29 @@ func (ut *updateTx) RevertEvents(index types.ChainIndex) error {
 }
 
 // ProcessChainApplyUpdate implements chain.Subscriber
-func (s *Store) ProcessChainApplyUpdate(cau *chain.ApplyUpdate, mayCommit bool) error {
+func (s *Store) ProcessChainApplyUpdate(cau chain.ApplyUpdate) error {
 	s.updates = append(s.updates, cau)
 	log := s.log.Named("ProcessChainApplyUpdate").With(zap.Stringer("index", cau.State.Index))
 	log.Debug("received update")
-	if mayCommit {
-		log.Debug("committing updates", zap.Int("n", len(s.updates)))
-		return s.transaction(func(tx *txn) error {
-			utx := &updateTx{
-				tx:                tx,
-				relevantAddresses: make(map[types.Address]bool),
-			}
+	log.Debug("committing updates", zap.Int("n", len(s.updates)))
+	return s.transaction(func(tx *txn) error {
+		utx := &updateTx{
+			tx:                tx,
+			relevantAddresses: make(map[types.Address]bool),
+		}
 
-			if err := wallet.ApplyChainUpdates(utx, s.updates); err != nil {
-				return fmt.Errorf("failed to apply updates: %w", err)
-			} else if err := setLastCommittedIndex(tx, cau.State.Index); err != nil {
-				return fmt.Errorf("failed to set last committed index: %w", err)
-			}
-			s.updates = nil
-			return nil
-		})
-	}
-
-	return nil
+		if err := wallet.ApplyChainUpdates(utx, s.updates); err != nil {
+			return fmt.Errorf("failed to apply updates: %w", err)
+		} else if err := setLastCommittedIndex(tx, cau.State.Index); err != nil {
+			return fmt.Errorf("failed to set last committed index: %w", err)
+		}
+		s.updates = nil
+		return nil
+	})
 }
 
 // ProcessChainRevertUpdate implements chain.Subscriber
-func (s *Store) ProcessChainRevertUpdate(cru *chain.RevertUpdate) error {
+func (s *Store) ProcessChainRevertUpdate(cru chain.RevertUpdate) error {
 	log := s.log.Named("ProcessChainRevertUpdate").With(zap.Stringer("index", cru.State.Index))
 
 	// update hasn't been committed yet

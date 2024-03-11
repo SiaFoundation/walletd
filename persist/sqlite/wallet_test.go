@@ -132,13 +132,8 @@ func TestResubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
 
 	cm := chain.NewManager(store, genesisState)
-
-	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
-		t.Fatal(err)
-	}
 
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -153,6 +148,7 @@ func TestResubscribe(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
 		t.Fatal(err)
 	}
+	syncDB(t, db, cm)
 
 	// check that the payout was received
 	balance, err := db.WalletBalance(w.ID)
@@ -182,11 +178,6 @@ func TestResubscribe(t *testing.T) {
 		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
 	} else if utxos[0].MaturityHeight != maturityHeight {
 		t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
-	}
-
-	cm.RemoveSubscriber(db)
-	if err := cm.AddSubscriber(db, types.ChainIndex{}); err != nil {
-		t.Fatal(err)
 	}
 
 	// check that the balance, events, and utxos did not change
