@@ -24,7 +24,7 @@ func TestAddPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lastConnect := time.Now().Truncate(time.Second) // stored as unix milliseconds
+	lastConnect := time.Now().UTC().Truncate(time.Second) // stored as unix milliseconds
 	syncedBlocks := uint64(15)
 	syncDuration := 5 * time.Second
 
@@ -50,6 +50,23 @@ func TestAddPeer(t *testing.T) {
 	}
 	if info.SyncDuration != 5*time.Second {
 		t.Errorf("expected SyncDuration = %s; got %s", syncDuration, info.SyncDuration)
+	}
+
+	peers, err := db.Peers()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(peers) != 1 {
+		t.Fatalf("expected 1 peer; got %d", len(peers))
+	} else if peerInfo := peers[0]; peerInfo.Address != peer {
+		t.Errorf("expected peer address = %q; got %q", peer, peerInfo.Address)
+	} else if peerInfo.LastConnect != lastConnect {
+		t.Errorf("expected LastConnect = %v; got %v", lastConnect, peerInfo.LastConnect)
+	} else if peerInfo.SyncedBlocks != syncedBlocks {
+		t.Errorf("expected SyncedBlocks = %d; got %d", syncedBlocks, peerInfo.SyncedBlocks)
+	} else if peerInfo.SyncDuration != syncDuration {
+		t.Errorf("expected SyncDuration = %s; got %s", syncDuration, peerInfo.SyncDuration)
+	} else if peerInfo.FirstSeen.IsZero() {
+		t.Errorf("expected FirstSeen to be non-zero; got %v", peerInfo.FirstSeen)
 	}
 }
 
