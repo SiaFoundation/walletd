@@ -41,7 +41,7 @@ func (s *Store) AddPeer(peer string) error {
 // Peers returns the addresses of all known peers.
 func (s *Store) Peers() (peers []syncer.PeerInfo, _ error) {
 	err := s.transaction(func(tx *txn) error {
-		const query = `SELECT peer_address FROM syncer_peers`
+		const query = `SELECT peer_address, first_seen, last_connect, synced_blocks, sync_duration FROM syncer_peers`
 		rows, err := tx.Query(query)
 		if err != nil {
 			return err
