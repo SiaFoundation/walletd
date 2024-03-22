@@ -11,6 +11,11 @@ import (
 	"go.sia.tech/walletd/wallet"
 )
 
+func scanSiacoinElement(s scanner) (se types.SiacoinElement, err error) {
+	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decodeSlice(&se.MerkleProof), &se.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address))
+	return
+}
+
 func insertAddress(tx *txn, addr types.Address) (id int64, err error) {
 	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) 
 VALUES ($1, $2, $2, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
@@ -83,7 +88,7 @@ func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.
 		events = append(events, event)
 		eventIDs = append(eventIDs, eventID)
 	}
-	if err = rows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
 	return
@@ -300,8 +305,7 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 		defer rows.Close()
 
 		for rows.Next() {
-			var siacoin types.SiacoinElement
-			err := rows.Scan(decode(&siacoin.ID), &siacoin.LeafIndex, decodeSlice[types.Hash256](&siacoin.MerkleProof), decode(&siacoin.SiacoinOutput.Value), decode(&siacoin.SiacoinOutput.Address), &siacoin.MaturityHeight)
+			siacoin, err := scanSiacoinElement(rows)
 			if err != nil {
 				return fmt.Errorf("failed to scan siacoin element: %w", err)
 			}

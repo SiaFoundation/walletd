@@ -63,8 +63,7 @@ func (s *Store) AddressSiacoinOutputs(address types.Address, offset, limit int) 
 		defer rows.Close()
 
 		for rows.Next() {
-			var siacoin types.SiacoinElement
-			err := rows.Scan(decode(&siacoin.ID), &siacoin.LeafIndex, decodeSlice[types.Hash256](&siacoin.MerkleProof), decode(&siacoin.SiacoinOutput.Value), decode(&siacoin.SiacoinOutput.Address), &siacoin.MaturityHeight)
+			siacoin, err := scanSiacoinElement(rows)
 			if err != nil {
 				return fmt.Errorf("failed to scan siacoin element: %w", err)
 			}

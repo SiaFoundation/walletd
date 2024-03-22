@@ -29,11 +29,6 @@ func scanStateElement(s scanner) (se types.StateElement, err error) {
 	return
 }
 
-func scanSiacoinElement(s scanner) (se types.SiacoinElement, err error) {
-	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decodeSlice(&se.MerkleProof), &se.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address))
-	return
-}
-
 func scanAddress(s scanner) (ab addressRef, err error) {
 	err = s.Scan(&ab.ID, decode(&ab.Balance.Siacoins), decode(&ab.Balance.ImmatureSiacoins), &ab.Balance.Siafunds)
 	return
