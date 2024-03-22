@@ -619,7 +619,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			}
 		} else {
 			for i := range fce.FileContract.MissedProofOutputs {
-				if !relevant(fce.FileContract.ValidProofOutputs[i].Address) {
+				if !relevant(fce.FileContract.MissedProofOutputs[i].Address) {
 					continue
 				}
 
@@ -628,7 +628,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 					FileContract:  fce,
 					SiacoinOutput: sces[outputID],
 					Missed:        true,
-				}, []types.Address{fce.FileContract.ValidProofOutputs[i].Address})
+				}, []types.Address{fce.FileContract.MissedProofOutputs[i].Address})
 			}
 		}
 	})
