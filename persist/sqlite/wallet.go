@@ -292,7 +292,7 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 			return err
 		}
 
-		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siacoin_value, sa.sia_address, se.maturity_height 
+		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address
 		FROM siacoin_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)
@@ -340,7 +340,7 @@ func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds 
 			var siafund types.SiafundElement
 			err := rows.Scan(decode(&siafund.ID), &siafund.LeafIndex, decodeSlice(&siafund.MerkleProof), &siafund.SiafundOutput.Value, decode(&siafund.ClaimStart), decode(&siafund.SiafundOutput.Address))
 			if err != nil {
-				return fmt.Errorf("failed to scan siacoin element: %w", err)
+				return fmt.Errorf("failed to scan siafund element: %w", err)
 			}
 			siafunds = append(siafunds, siafund)
 		}

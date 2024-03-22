@@ -146,7 +146,7 @@ WHERE maturity_height=$1`
 		var value types.Currency
 
 		if err := rows.Scan(&addressID, decode(&value)); err != nil {
-			return fmt.Errorf("failed to scan siacoin elements: %w", err)
+			return fmt.Errorf("failed to scan siacoin balance: %w", err)
 		}
 		balanceDelta[addressID] = balanceDelta[addressID].Add(value)
 	}
@@ -201,7 +201,7 @@ func (ut *updateTx) RevertMatureSiacoinBalance(index types.ChainIndex) error {
 		var value types.Currency
 
 		if err := rows.Scan(&addressID, decode(&value)); err != nil {
-			return fmt.Errorf("failed to scan siacoin elements: %w", err)
+			return fmt.Errorf("failed to scan siacoin balance: %w", err)
 		}
 		balanceDelta[addressID] = balanceDelta[addressID].Add(value)
 	}

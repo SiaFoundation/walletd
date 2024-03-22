@@ -50,7 +50,7 @@ func (s *Store) AddressEvents(address types.Address, offset, limit int) (events 
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
 func (s *Store) AddressSiacoinOutputs(address types.Address, offset, limit int) (siacoins []types.SiacoinElement, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siacoin_value, sa.sia_address, se.maturity_height 
+		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address 
 		FROM siacoin_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE sa.sia_address=$1
@@ -94,7 +94,7 @@ func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) 
 			var siafund types.SiafundElement
 			err := rows.Scan(decode(&siafund.ID), &siafund.LeafIndex, decodeSlice(&siafund.MerkleProof), &siafund.SiafundOutput.Value, decode(&siafund.ClaimStart), decode(&siafund.SiafundOutput.Address))
 			if err != nil {
-				return fmt.Errorf("failed to scan siacoin element: %w", err)
+				return fmt.Errorf("failed to scan siafund element: %w", err)
 			}
 			siafunds = append(siafunds, siafund)
 		}
