@@ -49,7 +49,7 @@ type (
 )
 
 // ApplyChainUpdates atomically applies a set of chain updates to a store
-func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
+func ApplyChainUpdates(tx ApplyTx, updates []chain.ApplyUpdate) error {
 	for _, cau := range updates {
 		// update the immature balance of each relevant address
 		if err := tx.ApplyMatureSiacoinBalance(cau.State.Index); err != nil {
@@ -175,7 +175,7 @@ func ApplyChainUpdates(tx ApplyTx, updates []*chain.ApplyUpdate) error {
 }
 
 // RevertChainUpdate atomically reverts a chain update from a store
-func RevertChainUpdate(tx RevertTx, cru *chain.RevertUpdate) error {
+func RevertChainUpdate(tx RevertTx, cru chain.RevertUpdate) error {
 	// determine which siacoin and siafund elements are ephemeral
 	//
 	// note: I thought we could use LeafIndex == EphemeralLeafIndex, but

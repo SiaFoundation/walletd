@@ -20,7 +20,7 @@ type (
 		db  *sql.DB
 		log *zap.Logger
 
-		updates []*chain.ApplyUpdate
+		updates []chain.ApplyUpdate
 	}
 )
 
