@@ -169,8 +169,9 @@ func (c *WalletClient) Addresses() (resp []wallet.Address, err error) {
 
 // Balance returns the current wallet balance.
 func (c *WalletClient) Balance() (resp BalanceResponse, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/balance", c.id), &resp)
-	return
+	var ret wallet.Balance
+	err = c.c.GET(fmt.Sprintf("/wallets/%v/balance", c.id), &ret)
+	return BalanceResponse{ID: c.id, Balance: ret}, err
 }
 
 // Events returns all events relevant to the wallet.

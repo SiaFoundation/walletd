@@ -32,8 +32,11 @@ type TxpoolTransactionsResponse struct {
 	V2Transactions []types.V2Transaction `json:"v2transactions"`
 }
 
-// BalanceResponse is the response type for /wallets/:id/balance.
-type BalanceResponse wallet.Balance
+// BalanceResponse is the response type for /wallets/:name/balance.
+type BalanceResponse struct {
+	Balance wallet.Balance
+	ID      wallet.ID
+}
 
 // WalletReserveRequest is the request type for /wallets/:id/reserve.
 type WalletReserveRequest struct {
