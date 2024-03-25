@@ -53,6 +53,17 @@ func runServer(cm api.ChainManager, s api.Syncer, wm api.WalletManager) (*api.Cl
 	return c, func() { l.Close() }
 }
 
+func waitForBlock(tb testing.TB, cm *chain.Manager, ws wallet.Store) {
+	for i := 0; i < 1000; i++ {
+		time.Sleep(10 * time.Millisecond)
+		tip, _ := ws.LastCommittedIndex()
+		if tip == cm.Tip() {
+			return
+		}
+	}
+	tb.Fatal("timed out waiting for block")
+}
+
 func TestWalletAdd(t *testing.T) {
 	log := zaptest.NewLogger(t)
 
@@ -248,17 +259,6 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	waitForBlock := func() {
-		for i := 0; i < 1000; i++ {
-			time.Sleep(10 * time.Millisecond)
-			tip, _ := ws.LastCommittedIndex()
-			if tip == cm.Tip() {
-				return
-			}
-		}
-		t.Fatal("timed out waiting for block")
-	}
-
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
 	c, shutdown := runServer(cm, nil, wm)
 	defer shutdown()
@@ -344,16 +344,16 @@ func TestWallet(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
-	waitForBlock()
+	waitForBlock(t, cm, ws)
 
 	// get new balance
 	balance, err = wc.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Siacoins.Equals(types.Siacoins(1)) {
-		t.Error("balance should be 1 SC, got", balance.Siacoins)
+		t.Fatal("balance should be 1 SC, got", balance.Siacoins)
 	} else if !balance.ImmatureSiacoins.IsZero() {
-		t.Error("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
+		t.Fatal("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
 	}
 
 	// transaction should appear in history
@@ -361,14 +361,14 @@ func TestWallet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) == 0 {
-		t.Error("transaction should appear in history")
+		t.Fatal("transaction should appear in history")
 	}
 
 	outputs, err := wc.SiacoinOutputs(0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(outputs) != 2 {
-		t.Error("should have two UTXOs, got", len(outputs))
+		t.Fatal("should have two UTXOs, got", len(outputs))
 	}
 
 	// mine a block to add an immature balance
@@ -384,16 +384,16 @@ func TestWallet(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
-	waitForBlock()
+	waitForBlock(t, cm, ws)
 
 	// get new balance
 	balance, err = wc.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Siacoins.Equals(types.Siacoins(1)) {
-		t.Error("balance should be 1 SC, got", balance.Siacoins)
+		t.Fatal("balance should be 1 SC, got", balance.Siacoins)
 	} else if !balance.ImmatureSiacoins.Equals(b.MinerPayouts[0].Value) {
-		t.Errorf("immature balance should be %d SC, got %d SC", b.MinerPayouts[0].Value, balance.ImmatureSiacoins)
+		t.Fatalf("immature balance should be %d SC, got %d SC", b.MinerPayouts[0].Value, balance.ImmatureSiacoins)
 	}
 
 	// mine enough blocks for the miner payout to mature
@@ -413,16 +413,16 @@ func TestWallet(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	waitForBlock()
+	waitForBlock(t, cm, ws)
 
 	// get new balance
 	balance, err = wc.Balance()
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Siacoins.Equals(expectedBalance) {
-		t.Errorf("balance should be %d, got %d", expectedBalance, balance.Siacoins)
+		t.Fatalf("balance should be %d, got %d", expectedBalance, balance.Siacoins)
 	} else if !balance.ImmatureSiacoins.IsZero() {
-		t.Error("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
+		t.Fatal("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
 	}
 }
 
@@ -540,15 +540,16 @@ func TestAddresses(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
+	waitForBlock(t, cm, ws)
 
 	// get new balance
 	balance, err = c.AddressBalance(addr.Address)
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Siacoins.Equals(types.Siacoins(1)) {
-		t.Error("balance should be 1 SC, got", balance.Siacoins)
+		t.Fatal("balance should be 1 SC, got", balance.Siacoins)
 	} else if !balance.ImmatureSiacoins.IsZero() {
-		t.Error("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
+		t.Fatal("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
 	}
 
 	// transaction should appear in history
@@ -556,14 +557,14 @@ func TestAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) == 0 {
-		t.Error("transaction should appear in history")
+		t.Fatal("transaction should appear in history")
 	}
 
 	outputs, err := c.AddressSiacoinOutputs(addr.Address, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(outputs) != 2 {
-		t.Error("should have two UTXOs, got", len(outputs))
+		t.Fatal("should have two UTXOs, got", len(outputs))
 	}
 
 	// mine a block to add an immature balance
@@ -579,15 +580,16 @@ func TestAddresses(t *testing.T) {
 	if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
+	waitForBlock(t, cm, ws)
 
 	// get new balance
 	balance, err = c.AddressBalance(addr.Address)
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Siacoins.Equals(types.Siacoins(1)) {
-		t.Error("balance should be 1 SC, got", balance.Siacoins)
+		t.Fatal("balance should be 1 SC, got", balance.Siacoins)
 	} else if !balance.ImmatureSiacoins.Equals(b.MinerPayouts[0].Value) {
-		t.Errorf("immature balance should be %d SC, got %d SC", b.MinerPayouts[0].Value, balance.ImmatureSiacoins)
+		t.Fatalf("immature balance should be %d SC, got %d SC", b.MinerPayouts[0].Value, balance.ImmatureSiacoins)
 	}
 
 	// mine enough blocks for the miner payout to mature
@@ -607,15 +609,16 @@ func TestAddresses(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	waitForBlock(t, cm, ws)
 
 	// get new balance
 	balance, err = c.AddressBalance(addr.Address)
 	if err != nil {
 		t.Fatal(err)
 	} else if !balance.Siacoins.Equals(expectedBalance) {
-		t.Errorf("balance should be %d, got %d", expectedBalance, balance.Siacoins)
+		t.Fatalf("balance should be %d, got %d", expectedBalance, balance.Siacoins)
 	} else if !balance.ImmatureSiacoins.IsZero() {
-		t.Error("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
+		t.Fatal("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
 	}
 }
 
@@ -689,19 +692,9 @@ func TestV2(t *testing.T) {
 		}
 		return cm.AddBlocks([]types.Block{b})
 	}
-	waitForBlock := func() {
-		for i := 0; i < 1000; i++ {
-			time.Sleep(10 * time.Millisecond)
-			tip, _ := ws.LastCommittedIndex()
-			if tip == cm.Tip() {
-				return
-			}
-		}
-		t.Fatal("timed out waiting for block")
-	}
 	checkBalances := func(p, s types.Currency) {
 		t.Helper()
-		waitForBlock()
+		waitForBlock(t, cm, ws)
 		if primaryBalance, err := primary.Balance(); err != nil {
 			t.Fatal(err)
 		} else if !primaryBalance.Siacoins.Equals(p) {
@@ -715,7 +708,7 @@ func TestV2(t *testing.T) {
 	}
 	sendV1 := func() error {
 		t.Helper()
-		waitForBlock()
+		waitForBlock(t, cm, ws)
 
 		// which wallet is sending?
 		key := primaryPrivateKey
@@ -762,7 +755,7 @@ func TestV2(t *testing.T) {
 	}
 	sendV2 := func() error {
 		t.Helper()
-		waitForBlock()
+		waitForBlock(t, cm, ws)
 
 		// which wallet is sending?
 		key := primaryPrivateKey
