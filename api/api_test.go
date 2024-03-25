@@ -1118,6 +1118,7 @@ func TestP2P(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	waitForBlock(t, cm1, store1)
 	// now send coins back with a v2 transaction
 	if err := sendV2(); err != nil {
 		t.Fatal(err)
@@ -1133,6 +1134,7 @@ func TestP2P(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	waitForBlock(t, cm1, store1)
 	// v1 transactions should no longer work
 	if err := sendV1(); err == nil {
 		t.Fatal("expected v1 txn to be rejected")
