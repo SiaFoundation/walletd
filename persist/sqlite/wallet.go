@@ -11,6 +11,11 @@ import (
 	"go.sia.tech/walletd/wallet"
 )
 
+func scanSiacoinElement(s scanner) (se types.SiacoinElement, err error) {
+	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decodeSlice(&se.MerkleProof), &se.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address))
+	return
+}
+
 func insertAddress(tx *txn, addr types.Address) (id int64, err error) {
 	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) 
 VALUES ($1, $2, $2, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
@@ -83,7 +88,7 @@ func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.
 		events = append(events, event)
 		eventIDs = append(eventIDs, eventID)
 	}
-	if err = rows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
 	return
@@ -287,7 +292,7 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 			return err
 		}
 
-		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siacoin_value, sa.sia_address, se.maturity_height 
+		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address
 		FROM siacoin_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)
@@ -300,8 +305,7 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 		defer rows.Close()
 
 		for rows.Next() {
-			var siacoin types.SiacoinElement
-			err := rows.Scan(decode(&siacoin.ID), &siacoin.LeafIndex, decodeSlice[types.Hash256](&siacoin.MerkleProof), decode(&siacoin.SiacoinOutput.Value), decode(&siacoin.SiacoinOutput.Address), &siacoin.MaturityHeight)
+			siacoin, err := scanSiacoinElement(rows)
 			if err != nil {
 				return fmt.Errorf("failed to scan siacoin element: %w", err)
 			}
@@ -336,7 +340,7 @@ func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds 
 			var siafund types.SiafundElement
 			err := rows.Scan(decode(&siafund.ID), &siafund.LeafIndex, decodeSlice(&siafund.MerkleProof), &siafund.SiafundOutput.Value, decode(&siafund.ClaimStart), decode(&siafund.SiafundOutput.Address))
 			if err != nil {
-				return fmt.Errorf("failed to scan siacoin element: %w", err)
+				return fmt.Errorf("failed to scan siafund element: %w", err)
 			}
 			siafunds = append(siafunds, siafund)
 		}

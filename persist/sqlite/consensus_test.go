@@ -158,7 +158,7 @@ func TestReorg(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		blocks = append(blocks, mineBlock(state, nil, types.VoidAddress))
 		state.Index.ID = blocks[len(blocks)-1].ID()
-		state.Index.Height = state.Index.Height + 1
+		state.Index.Height++
 	}
 	if err := cm.AddBlocks(blocks); err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func TestReorg(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		blocks = append(blocks, mineBlock(state, nil, types.VoidAddress))
 		state.Index.ID = blocks[len(blocks)-1].ID()
-		state.Index.Height = state.Index.Height + 1
+		state.Index.Height++
 	}
 	if err := cm.AddBlocks(blocks); err != nil {
 		t.Fatal(err)
@@ -451,7 +451,7 @@ func TestEphemeralBalance(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		blocks = append(blocks, mineBlock(state, nil, types.VoidAddress))
 		state.Index.ID = blocks[len(blocks)-1].ID()
-		state.Index.Height = state.Index.Height + 1
+		state.Index.Height++
 	}
 	if err := cm.AddBlocks(blocks); err != nil {
 		t.Fatal(err)

@@ -29,11 +29,6 @@ func scanStateElement(s scanner) (se types.StateElement, err error) {
 	return
 }
 
-func scanSiacoinElement(s scanner) (se types.SiacoinElement, err error) {
-	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decodeSlice(&se.MerkleProof), &se.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address))
-	return
-}
-
 func scanAddress(s scanner) (ab addressRef, err error) {
 	err = s.Scan(&ab.ID, decode(&ab.Balance.Siacoins), decode(&ab.Balance.ImmatureSiacoins), &ab.Balance.Siafunds)
 	return
@@ -151,7 +146,7 @@ WHERE maturity_height=$1`
 		var value types.Currency
 
 		if err := rows.Scan(&addressID, decode(&value)); err != nil {
-			return fmt.Errorf("failed to scan siacoin elements: %w", err)
+			return fmt.Errorf("failed to scan siacoin balance: %w", err)
 		}
 		balanceDelta[addressID] = balanceDelta[addressID].Add(value)
 	}
@@ -206,7 +201,7 @@ func (ut *updateTx) RevertMatureSiacoinBalance(index types.ChainIndex) error {
 		var value types.Currency
 
 		if err := rows.Scan(&addressID, decode(&value)); err != nil {
-			return fmt.Errorf("failed to scan siacoin elements: %w", err)
+			return fmt.Errorf("failed to scan siacoin balance: %w", err)
 		}
 		balanceDelta[addressID] = balanceDelta[addressID].Add(value)
 	}
