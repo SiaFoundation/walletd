@@ -233,6 +233,14 @@ func TestWalletAdd(t *testing.T) {
 func TestWallet(t *testing.T) {
 	log := zaptest.NewLogger(t)
 
+	// create syncer
+	syncerListener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syncerListener.Close()
+
+	// create chain manager
 	n, genesisBlock := testNetwork()
 	giftPrivateKey := types.GeneratePrivateKey()
 	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
@@ -241,26 +249,37 @@ func TestWallet(t *testing.T) {
 		Address: giftAddress,
 	}
 
-	// create wallets
 	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cm := chain.NewManager(dbstore, tipState)
 
+	// create the sqlite store
 	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ws.Close()
 
+	// create the syncer
+	s := syncer.New(syncerListener, cm, ws, gateway.Header{
+		GenesisID:  genesisBlock.ID(),
+		UniqueID:   gateway.GenerateUniqueID(),
+		NetAddress: syncerListener.Addr().String(),
+	})
+
+	// create the wallet manager
 	wm, err := wallet.NewManager(cm, ws, log.Named("wallet"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	// create seed address vault
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
-	c, shutdown := runServer(cm, nil, wm)
+
+	// run server
+	c, shutdown := runServer(cm, s, wm)
 	defer shutdown()
 	w, err := c.AddWallet(api.WalletUpdateRequest{Name: "primary"})
 	if err != nil {
@@ -331,6 +350,26 @@ func TestWallet(t *testing.T) {
 	sig := giftPrivateKey.SignHash(cm.TipState().WholeSigHash(txn, types.Hash256(giftSCOID), 0, 0, nil))
 	txn.Signatures[0].Signature = sig[:]
 
+	// broadcast the transaction to the transaction pool
+	if err := c.TxpoolBroadcast([]types.Transaction{txn}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// shouldn't have any events yet
+	events, err = wc.Events(0, -1)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 0 {
+		t.Fatal("event history should be empty")
+	}
+
+	tpool, err := wc.PoolTransactions()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(tpool) != 1 {
+		t.Fatal("txpool should have one transaction")
+	}
+
 	cs := cm.TipState()
 	b := types.Block{
 		ParentID:     cs.Index.ID,
@@ -338,6 +377,7 @@ func TestWallet(t *testing.T) {
 		MinerPayouts: []types.SiacoinOutput{{Address: types.VoidAddress, Value: cs.BlockReward()}},
 		Transactions: []types.Transaction{txn},
 	}
+
 	for b.ID().CmpWork(cs.ChildTarget) < 0 {
 		b.Nonce += cs.NonceFactor()
 	}

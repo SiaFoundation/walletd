@@ -407,7 +407,7 @@ WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`
 		// addresses into memory.
 		ownsAddress := func(address types.Address) bool {
 			var dbID int64
-			err := stmt.QueryRow(id, encode(address)).Scan(dbID)
+			err := stmt.QueryRow(id, encode(address)).Scan(&dbID)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				panic(err) // database error
 			}
