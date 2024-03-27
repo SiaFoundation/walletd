@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"go.sia.tech/coreutils/chain"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -19,8 +18,6 @@ type (
 	Store struct {
 		db  *sql.DB
 		log *zap.Logger
-
-		updates []chain.ApplyUpdate
 	}
 )
 

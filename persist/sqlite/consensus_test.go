@@ -85,19 +85,10 @@ func syncDB(t *testing.T, db *sqlite.Store, cm *chain.Manager) {
 		crus, caus, err := cm.UpdatesSince(index, 1000)
 		if err != nil {
 			t.Fatal(err)
+		} else if err := db.UpdateChainState(crus, caus); err != nil {
+			t.Fatal(err)
 		}
-		for _, cru := range crus {
-			if err := db.ProcessChainRevertUpdate(cru); err != nil {
-				t.Fatal("failed to process revert update:", err)
-			}
-			index = cru.State.Index
-		}
-		for _, cau := range caus {
-			if err := db.ProcessChainApplyUpdate(cau); err != nil {
-				t.Fatal("failed to process apply update:", err)
-			}
-			index = cau.State.Index
-		}
+		index = caus[len(caus)-1].State.Index
 	}
 }
 

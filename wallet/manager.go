@@ -23,8 +23,7 @@ type (
 
 	// A Store is a persistent store of wallet data.
 	Store interface {
-		ProcessChainApplyUpdate(cau chain.ApplyUpdate) error
-		ProcessChainRevertUpdate(cru chain.RevertUpdate) error
+		UpdateChainState(reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error
 
 		WalletEvents(walletID ID, offset, limit int) ([]Event, error)
 		AddWallet(Wallet) (Wallet, error)
@@ -172,19 +171,10 @@ func syncStore(store Store, cm ChainManager, index types.ChainIndex) error {
 		crus, caus, err := cm.UpdatesSince(index, 1000)
 		if err != nil {
 			return fmt.Errorf("failed to subscribe to chain manager: %w", err)
+		} else if err := store.UpdateChainState(crus, caus); err != nil {
+			return fmt.Errorf("failed to update chain state: %w", err)
 		}
-		for _, cru := range crus {
-			if err := store.ProcessChainRevertUpdate(cru); err != nil {
-				return fmt.Errorf("failed to process revert update: %w", err)
-			}
-			index = cru.State.Index
-		}
-		for _, cau := range caus {
-			if err := store.ProcessChainApplyUpdate(cau); err != nil {
-				return fmt.Errorf("failed to process apply update: %w", err)
-			}
-			index = cau.State.Index
-		}
+		index = caus[len(caus)-1].State.Index
 	}
 	return nil
 }
