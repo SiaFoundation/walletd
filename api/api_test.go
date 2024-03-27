@@ -1084,6 +1084,7 @@ func TestP2P(t *testing.T) {
 			return err
 		}
 		checkBalances(pbal, sbal)
+		waitForBlock(t, cm1, store1)
 		return nil
 	}
 	sendV2 := func() error {
@@ -1134,6 +1135,7 @@ func TestP2P(t *testing.T) {
 		} else if err := addBlock(); err != nil {
 			return err
 		}
+		waitForBlock(t, cm1, store1)
 		checkBalances(pbal, sbal)
 		return nil
 	}
