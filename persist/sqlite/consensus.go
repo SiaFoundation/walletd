@@ -10,7 +10,6 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/walletd/wallet"
-	"go.uber.org/zap"
 )
 
 type updateTx struct {
@@ -573,49 +572,16 @@ func (ut *updateTx) RevertEvents(index types.ChainIndex) error {
 }
 
 // ProcessChainApplyUpdate implements chain.Subscriber
-func (s *Store) ProcessChainApplyUpdate(cau chain.ApplyUpdate) error {
-	s.updates = append(s.updates, cau)
-	log := s.log.Named("ProcessChainApplyUpdate").With(zap.Stringer("index", cau.State.Index))
-	log.Debug("received update")
-	log.Debug("committing updates", zap.Int("n", len(s.updates)))
+func (s *Store) UpdateChainState(reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error {
 	return s.transaction(func(tx *txn) error {
 		utx := &updateTx{
 			tx:                tx,
 			relevantAddresses: make(map[types.Address]bool),
 		}
 
-		if err := wallet.ApplyChainUpdates(utx, s.updates); err != nil {
-			return fmt.Errorf("failed to apply updates: %w", err)
-		} else if err := setLastCommittedIndex(tx, cau.State.Index); err != nil {
-			return fmt.Errorf("failed to set last committed index: %w", err)
-		}
-		s.updates = nil
-		return nil
-	})
-}
-
-// ProcessChainRevertUpdate implements chain.Subscriber
-func (s *Store) ProcessChainRevertUpdate(cru chain.RevertUpdate) error {
-	log := s.log.Named("ProcessChainRevertUpdate").With(zap.Stringer("index", cru.State.Index))
-
-	// update hasn't been committed yet
-	if len(s.updates) > 0 && s.updates[len(s.updates)-1].Block.ID() == cru.Block.ID() {
-		log.Debug("removed uncommitted update")
-		s.updates = s.updates[:len(s.updates)-1]
-		return nil
-	}
-
-	log.Debug("reverting update")
-	// update has been committed, revert it
-	return s.transaction(func(tx *txn) error {
-		utx := &updateTx{
-			tx:                tx,
-			relevantAddresses: make(map[types.Address]bool),
-		}
-
-		if err := wallet.RevertChainUpdate(utx, cru); err != nil {
-			return fmt.Errorf("failed to revert update: %w", err)
-		} else if err := setLastCommittedIndex(tx, cru.State.Index); err != nil {
+		if err := wallet.UpdateChainState(utx, reverted, applied); err != nil {
+			return fmt.Errorf("failed to update chain state: %w", err)
+		} else if err := setLastCommittedIndex(tx, applied[len(applied)-1].State.Index); err != nil {
 			return fmt.Errorf("failed to set last committed index: %w", err)
 		}
 		return nil
