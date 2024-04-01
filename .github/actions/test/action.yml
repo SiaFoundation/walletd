@@ -8,7 +8,7 @@ runs:
       shell: bash
       run: git config --global core.autocrlf false
     - name: Lint
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v4
       with:
         skip-cache: true
 #    - name: Analyze
@@ -17,6 +17,6 @@ runs:
 #        analyzers: |
 #          go.sia.tech/jape.Analyzer
     - name: Test
-      uses: n8maninger/action-golang-test@v1
+      uses: n8maninger/action-golang-test@v2
       with:
         args: "-race;-tags=testing netgo"
