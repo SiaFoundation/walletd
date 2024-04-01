@@ -21,6 +21,11 @@ type (
 	}
 )
 
+// Close closes the underlying database.
+func (s *Store) Close() error {
+	return s.db.Close()
+}
+
 // transaction executes a function within a database transaction. If the
 // function returns an error, the transaction is rolled back. Otherwise, the
 // transaction is committed. If the transaction fails due to a busy error, it is
@@ -53,11 +58,6 @@ func (s *Store) transaction(fn func(*txn) error) error {
 		jitterSleep(sleep)
 	}
 	return fmt.Errorf("transaction failed (attempt %d): %w", attempt, err)
-}
-
-// Close closes the underlying database.
-func (s *Store) Close() error {
-	return s.db.Close()
 }
 
 func sqliteFilepath(fp string) string {

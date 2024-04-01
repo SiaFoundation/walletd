@@ -18,10 +18,11 @@ CREATE TABLE siacoin_elements (
 	merkle_proof BLOB NOT NULL,
 	leaf_index INTEGER NOT NULL,
 	maturity_height INTEGER NOT NULL, /* stored as int64 for easier querying */
-	address_id INTEGER NOT NULL REFERENCES sia_addresses (id)
+	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
+	matured BOOLEAN NOT NULL /* tracks whether the value has been added to the address balance */
 );
 CREATE INDEX siacoin_elements_address_id ON siacoin_elements (address_id);
-CREATE INDEX siacoin_elements_maturity_height ON siacoin_elements (maturity_height);
+CREATE INDEX siacoin_elements_maturity_height_matured ON siacoin_elements (maturity_height, matured);
 
 CREATE TABLE siafund_elements (
 	id BLOB PRIMARY KEY,
