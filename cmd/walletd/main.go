@@ -139,6 +139,8 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		defer n.Close()
+
 		log.Println("p2p: Listening on", n.s.Addr())
 		stop := n.Start()
 		log.Println("api: Listening on", l.Addr())
