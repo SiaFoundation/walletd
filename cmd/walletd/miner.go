@@ -16,19 +16,14 @@ func runCPUMiner(c *api.Client, minerAddr types.Address, n int) {
 	log.Println("Started mining into", minerAddr)
 	start := time.Now()
 
-	var last types.ChainIndex
 	var blocksFound int
 	for {
-		if n > 0 && blocksFound >= n {
+		if n >= 0 && blocksFound >= n {
 			break
 		}
 		elapsed := time.Since(start)
 		cs, err := c.ConsensusTipState()
 		check("Couldn't get consensus tip state:", err)
-		if cs.Index == last {
-			fmt.Println("Tip now", cs.Index)
-			last = cs.Index
-		}
 		d, _ := new(big.Int).SetString(cs.Difficulty.String(), 10)
 		d.Mul(d, big.NewInt(int64(1+elapsed)))
 		fmt.Printf("\rMining block %4v...(%.2f blocks/day), difficulty %v)", cs.Index.Height+1, float64(blocksFound)*float64(24*time.Hour)/float64(elapsed), cs.Difficulty)
