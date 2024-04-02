@@ -2,11 +2,17 @@ FROM docker.io/library/golang:1.21 AS builder
 
 WORKDIR /walletd
 
+# Install dependencies
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source
 COPY . .
 
 # Enable CGO for sqlite3 support
 ENV CGO_ENABLED=1 
 
+RUN go generate ./...
 RUN go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-s -w -linkmode external -extldflags "-static"'  ./cmd/walletd
 
 FROM docker.io/library/alpine:3
