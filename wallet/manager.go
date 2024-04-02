@@ -191,12 +191,20 @@ func NewManager(cm ChainManager, store Store, log *zap.Logger) (*Manager, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get last committed index: %w", err)
 	}
-	if err := syncStore(store, cm, lastTip); err != nil {
-		return nil, fmt.Errorf("failed to subscribe to chain manager: %w", err)
-	}
 
-	reorgChan := make(chan types.ChainIndex, 1)
 	go func() {
+		if err := syncStore(store, cm, lastTip); err != nil {
+			log.Fatal("failed to subscribe to chain manager", zap.Error(err))
+		}
+
+		reorgChan := make(chan types.ChainIndex, 1)
+		m.unsubscribe = cm.OnReorg(func(index types.ChainIndex) {
+			select {
+			case reorgChan <- index:
+			default:
+			}
+		})
+
 		for range reorgChan {
 			m.mu.Lock()
 			lastTip, err := store.LastCommittedIndex()
@@ -208,11 +216,5 @@ func NewManager(cm ChainManager, store Store, log *zap.Logger) (*Manager, error)
 			m.mu.Unlock()
 		}
 	}()
-	m.unsubscribe = cm.OnReorg(func(index types.ChainIndex) {
-		select {
-		case reorgChan <- index:
-		default:
-		}
-	})
 	return m, nil
 }

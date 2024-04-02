@@ -13,8 +13,7 @@ import (
 )
 
 type updateTx struct {
-	tx *txn
-
+	tx                *txn
 	relevantAddresses map[types.Address]bool
 }
 
@@ -130,25 +129,38 @@ func (ut *updateTx) AddressBalance(addr types.Address) (balance wallet.Balance, 
 }
 
 func (ut *updateTx) ApplyMatureSiacoinBalance(index types.ChainIndex) error {
-	const query = `SELECT se.address_id, se.siacoin_value
+	const query = `SELECT id, se.address_id, se.siacoin_value
 FROM siacoin_elements se
-WHERE maturity_height=$1`
+WHERE maturity_height=$1 AND matured=false`
 	rows, err := ut.tx.Query(query, index.Height)
 	if err != nil {
 		return fmt.Errorf("failed to query siacoin elements: %w", err)
 	}
 	defer rows.Close()
 
+	var matured []types.SiacoinOutputID
 	balanceDelta := make(map[int64]types.Currency)
 	for rows.Next() {
+		var outputID types.SiacoinOutputID
 		var addressID int64
 		var value types.Currency
 
-		if err := rows.Scan(&addressID, decode(&value)); err != nil {
+		if err := rows.Scan(decode(&outputID), &addressID, decode(&value)); err != nil {
 			return fmt.Errorf("failed to scan siacoin balance: %w", err)
 		}
 		balanceDelta[addressID] = balanceDelta[addressID].Add(value)
+		matured = append(matured, outputID)
 	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to scan siacoin elements: %w", err)
+	}
+
+	updateMaturedStmt, err := ut.tx.Prepare(`UPDATE siacoin_elements SET matured=true WHERE id=$1`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer updateMaturedStmt.Close()
 
 	getAddressBalanceStmt, err := ut.tx.Prepare(`SELECT siacoin_balance, immature_siacoin_balance FROM sia_addresses WHERE id=$1`)
 	if err != nil {
@@ -168,7 +180,6 @@ WHERE maturity_height=$1`
 		if err != nil {
 			return fmt.Errorf("failed to get address balance: %w", err)
 		}
-
 		balance = balance.Add(delta)
 		immatureBalance = immatureBalance.Sub(delta)
 
@@ -181,29 +192,53 @@ WHERE maturity_height=$1`
 			return fmt.Errorf("expected 1 row affected, got %v", n)
 		}
 	}
+
+	for _, id := range matured {
+		res, err := updateMaturedStmt.Exec(encode(id))
+		if err != nil {
+			return fmt.Errorf("failed to update matured: %w", err)
+		} else if n, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		} else if n != 1 {
+			return fmt.Errorf("expected 1 row affected, got %v", n)
+		}
+	}
 	return nil
 }
 
 func (ut *updateTx) RevertMatureSiacoinBalance(index types.ChainIndex) error {
-	const query = `SELECT se.address_id, se.siacoin_value
+	const query = `SELECT se.id, se.address_id, se.siacoin_value
 	FROM siacoin_elements se
-	WHERE maturity_height=$1`
+	WHERE maturity_height=$1 AND matured=true`
 	rows, err := ut.tx.Query(query, index.Height)
 	if err != nil {
 		return fmt.Errorf("failed to query siacoin elements: %w", err)
 	}
 	defer rows.Close()
 
+	var matured []types.SiacoinOutputID
 	balanceDelta := make(map[int64]types.Currency)
 	for rows.Next() {
+		var outputID types.SiacoinOutputID
 		var addressID int64
 		var value types.Currency
 
-		if err := rows.Scan(&addressID, decode(&value)); err != nil {
+		if err := rows.Scan(decode(&outputID), &addressID, decode(&value)); err != nil {
 			return fmt.Errorf("failed to scan siacoin balance: %w", err)
 		}
 		balanceDelta[addressID] = balanceDelta[addressID].Add(value)
+		matured = append(matured, outputID)
 	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to scan siacoin elements: %w", err)
+	}
+
+	updateMaturedStmt, err := ut.tx.Prepare(`UPDATE siacoin_elements SET matured=false WHERE id=$1`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer updateMaturedStmt.Close()
 
 	getAddressBalanceStmt, err := ut.tx.Prepare(`SELECT siacoin_balance, immature_siacoin_balance FROM sia_addresses WHERE id=$1`)
 	if err != nil {
@@ -236,6 +271,17 @@ func (ut *updateTx) RevertMatureSiacoinBalance(index types.ChainIndex) error {
 			return fmt.Errorf("expected 1 row affected, got %v", n)
 		}
 	}
+
+	for _, id := range matured {
+		res, err := updateMaturedStmt.Exec(encode(id))
+		if err != nil {
+			return fmt.Errorf("failed to update matured: %w", err)
+		} else if n, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		} else if n != 1 {
+			return fmt.Errorf("expected 1 row affected, got %v", n)
+		}
+	}
 	return nil
 }
 
@@ -251,7 +297,7 @@ func (ut *updateTx) AddSiacoinElements(elements []types.SiacoinElement, index ty
 	defer addrStmt.Close()
 
 	// ignore elements already in the database.
-	insertStmt, err := ut.tx.Prepare(`INSERT INTO siacoin_elements (id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING RETURNING id`)
+	insertStmt, err := ut.tx.Prepare(`INSERT INTO siacoin_elements (id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert statement: %w", err)
 	}
@@ -267,7 +313,7 @@ func (ut *updateTx) AddSiacoinElements(elements []types.SiacoinElement, index ty
 		}
 
 		var dummyID types.Hash256
-		err = insertStmt.QueryRow(encode(se.ID), encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addrRef.ID).Scan(decode(&dummyID))
+		err = insertStmt.QueryRow(encode(se.ID), encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0).Scan(decode(&dummyID))
 		if errors.Is(err, sql.ErrNoRows) {
 			continue // skip if the element already exists
 		} else if err != nil {
