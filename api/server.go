@@ -23,6 +23,7 @@ import (
 type (
 	// A ChainManager manages blockchain and txpool state.
 	ChainManager interface {
+		BestIndex(height uint64) (types.ChainIndex, bool)
 		TipState() consensus.State
 		AddBlocks([]types.Block) error
 		RecommendedFee() types.Currency
@@ -47,7 +48,8 @@ type (
 
 	// A WalletManager manages wallets, keyed by name.
 	WalletManager interface {
-		Subscribe(startHeight uint64) error
+		Tip() (types.ChainIndex, error)
+		Scan(index types.ChainIndex) error
 
 		AddWallet(wallet.Wallet) (wallet.Wallet, error)
 		UpdateWallet(wallet.Wallet) (wallet.Wallet, error)
@@ -82,6 +84,10 @@ type server struct {
 	// for walletsReserveHandler
 	mu   sync.Mutex
 	used map[types.Hash256]bool
+
+	scanMu         sync.Mutex // for resubscribe
+	scanInProgress bool
+	scanInfo       RescanResponse
 }
 
 func (s *server) stateHandler(jc jape.Context) {
@@ -254,13 +260,65 @@ func (s *server) walletsIDHandlerDELETE(jc jape.Context) {
 	}
 }
 
-func (s *server) resubscribeHandler(jc jape.Context) {
+func (s *server) rescanHandlerGET(jc jape.Context) {
+	index, err := s.wm.Tip()
+	if jc.Check("couldn't get tip", err) != nil {
+		return
+	}
+
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+	if s.scanInfo.StartTime.IsZero() {
+		s.scanInfo.StartTime = startTime
+	}
+	s.scanInfo.Index = index
+	jc.Encode(s.scanInfo)
+}
+
+func (s *server) rescanHandlerPOST(jc jape.Context) {
 	var height uint64
 	if jc.Decode(&height) != nil {
 		return
-	} else if jc.Check("couldn't subscribe wallet", s.wm.Subscribe(height)) != nil {
+	}
+
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+
+	if s.scanInProgress {
+		jc.Error(errors.New("scan already in progress"), http.StatusConflict)
 		return
 	}
+
+	var index types.ChainIndex
+	if height > 0 {
+		var ok bool
+		index, ok = s.cm.BestIndex(height)
+		if !ok {
+			jc.Error(errors.New("height not found"), http.StatusNotFound)
+			return
+		}
+	}
+
+	s.scanInProgress = true
+	s.scanInfo = RescanResponse{
+		StartIndex: index,
+		Index:      index,
+		StartTime:  time.Now(),
+		Error:      nil,
+	}
+
+	go func() {
+		err := s.wm.Scan(index)
+
+		// update the scan state
+		s.scanMu.Lock()
+		defer s.scanMu.Unlock()
+		s.scanInProgress = false
+		if err != nil {
+			msg := err.Error()
+			s.scanInfo.Error = &msg
+		}
+	}()
 }
 
 func (s *server) walletsAddressHandlerPUT(jc jape.Context) {
@@ -656,7 +714,8 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"GET /txpool/fee":          srv.txpoolFeeHandler,
 		"POST /txpool/broadcast":   srv.txpoolBroadcastHandler,
 
-		"POST /resubscribe": srv.resubscribeHandler,
+		"GET /rescan":  srv.rescanHandlerGET,
+		"POST /rescan": srv.rescanHandlerPOST,
 
 		"GET /wallets":                        srv.walletsHandler,
 		"POST /wallets":                       srv.walletsHandlerPOST,

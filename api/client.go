@@ -116,10 +116,15 @@ func (c *Client) Wallet(id wallet.ID) *WalletClient {
 	return &WalletClient{c: c.c, id: id}
 }
 
-// Resubscribe subscribes the wallet to consensus updates, starting at the
-// specified height.
-func (c *Client) Resubscribe(height uint64) (err error) {
-	err = c.c.POST("/resubscribe", height, nil)
+// ScanStatus returns the current state of wallet scanning.
+func (c *Client) ScanStatus() (resp RescanResponse, err error) {
+	err = c.c.GET("/rescan", &resp)
+	return
+}
+
+// Rescan rescans the blockchain starting from the specified height.
+func (c *Client) Rescan(height uint64) (err error) {
+	err = c.c.POST("/rescan", height, nil)
 	return
 }
 

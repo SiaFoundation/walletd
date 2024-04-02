@@ -1,7 +1,6 @@
 package wallet
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -59,6 +58,11 @@ type (
 		unsubscribe func()
 	}
 )
+
+// Tip returns the last scanned chain index of the manager.
+func (m *Manager) Tip() (types.ChainIndex, error) {
+	return m.store.LastCommittedIndex()
+}
 
 // AddWallet adds the given wallet.
 func (m *Manager) AddWallet(w Wallet) (Wallet, error) {
@@ -150,19 +154,10 @@ func (m *Manager) Reserve(ids []types.Hash256, duration time.Duration) error {
 	return nil
 }
 
-// Subscribe resubscribes the indexer starting at the given height.
-func (m *Manager) Subscribe(startHeight uint64) error {
-	var index types.ChainIndex
-	if startHeight > 0 {
-		var ok bool
-		index, ok = m.chain.BestIndex(startHeight - 1)
-		if !ok {
-			return errors.New("invalid height")
-		}
-	}
+// Scan rescans the chain starting from the given index.
+func (m *Manager) Scan(index types.ChainIndex) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// TODO: is this right? won't it result in duplicate state?
 	return syncStore(m.store, m.chain, index)
 }
 

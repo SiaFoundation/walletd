@@ -93,3 +93,10 @@ type SeedSignRequest struct {
 	Transaction types.Transaction `json:"transaction"`
 	Keys        []uint64          `json:"keys"`
 }
+
+type RescanResponse struct {
+	StartIndex types.ChainIndex `json:"startIndex"`
+	Index      types.ChainIndex `json:"index"`
+	StartTime  time.Time        `json:"startTime"`
+	Error      *string          `json:"error,omitempty"`
+}
