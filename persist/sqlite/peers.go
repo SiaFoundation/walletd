@@ -7,32 +7,102 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.sia.tech/coreutils/syncer"
 	"go.uber.org/zap"
 )
 
+// A PeerStore stores information about peers.
+type PeerStore struct {
+	s *Store
+
+	// session-specific peer info is stored in memory to reduce write load
+	// on the database
+	mu       sync.Mutex
+	peerInfo map[string]syncer.PeerInfo
+}
+
+// AddPeer adds the given peer to the store.
+func (ps *PeerStore) AddPeer(peer string) error {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	ps.peerInfo[peer] = syncer.PeerInfo{
+		Address:   peer,
+		FirstSeen: time.Now(),
+	}
+	return ps.s.AddPeer(peer)
+}
+
+// Peers returns the addresses of all known peers.
+func (ps *PeerStore) Peers() ([]syncer.PeerInfo, error) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	// copy the map to a slice
+	peers := make([]syncer.PeerInfo, 0, len(ps.peerInfo))
+	for _, pi := range ps.peerInfo {
+		peers = append(peers, pi)
+	}
+	return peers, nil
+}
+
+// UpdatePeerInfo updates the information for the given peer.
+func (ps *PeerStore) UpdatePeerInfo(peer string, fn func(*syncer.PeerInfo)) error {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if pi, ok := ps.peerInfo[peer]; !ok {
+		return syncer.ErrPeerNotFound
+	} else {
+		fn(&pi)
+		ps.peerInfo[peer] = pi
+	}
+	return nil
+}
+
+// Ban temporarily bans the given peer.
+func (ps *PeerStore) Ban(peer string, duration time.Duration, reason string) error {
+	return ps.s.Ban(peer, duration, reason)
+}
+
+// Banned returns true if the peer is banned.
+func (ps *PeerStore) Banned(peer string) (bool, error) {
+	return ps.s.Banned(peer)
+}
+
+// PeerInfo returns the information for the given peer.
+func (ps *PeerStore) PeerInfo(peer string) (syncer.PeerInfo, error) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if pi, ok := ps.peerInfo[peer]; ok {
+		return pi, nil
+	}
+	return syncer.PeerInfo{}, syncer.ErrPeerNotFound
+}
+
+// NewPeerStore creates a new peer store using the given store.
+func NewPeerStore(s *Store) (syncer.PeerStore, error) {
+	ps := &PeerStore{s: s, peerInfo: make(map[string]syncer.PeerInfo)}
+	peers, err := s.Peers()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load peers: %w", err)
+	}
+	for _, pi := range peers {
+		ps.peerInfo[pi.Address] = pi
+	}
+	return ps, nil
+}
+
 func scanPeerInfo(s scanner) (pi syncer.PeerInfo, err error) {
-	err = s.Scan(&pi.Address, decode(&pi.FirstSeen), decode(&pi.LastConnect), &pi.SyncedBlocks, &pi.SyncDuration)
+	err = s.Scan(&pi.Address, decode(&pi.FirstSeen))
 	return
-}
-
-func getPeerInfo(tx *txn, peer string) (syncer.PeerInfo, error) {
-	const query = `SELECT peer_address, first_seen, last_connect, synced_blocks, sync_duration FROM syncer_peers WHERE peer_address=$1`
-	return scanPeerInfo(tx.QueryRow(query, peer))
-}
-
-func (s *Store) updatePeerInfo(tx *txn, peer string, info syncer.PeerInfo) error {
-	const query = `UPDATE syncer_peers SET first_seen=$1, last_connect=$2, synced_blocks=$3, sync_duration=$4 WHERE peer_address=$5 RETURNING peer_address`
-	err := tx.QueryRow(query, encode(info.FirstSeen), encode(info.LastConnect), info.SyncedBlocks, info.SyncDuration, peer).Scan(&peer)
-	return err
 }
 
 // AddPeer adds the given peer to the store.
 func (s *Store) AddPeer(peer string) error {
 	return s.transaction(func(tx *txn) error {
-		const query = `INSERT INTO syncer_peers (peer_address, first_seen, last_connect, synced_blocks, sync_duration) VALUES ($1, $2, 0, 0, 0) ON CONFLICT (peer_address) DO NOTHING`
+		const query = `INSERT INTO syncer_peers (peer_address, first_seen) VALUES ($1, $2) ON CONFLICT (peer_address) DO NOTHING`
 		_, err := tx.Exec(query, peer, encode(time.Now()))
 		return err
 	})
@@ -41,7 +111,7 @@ func (s *Store) AddPeer(peer string) error {
 // Peers returns the addresses of all known peers.
 func (s *Store) Peers() (peers []syncer.PeerInfo, _ error) {
 	err := s.transaction(func(tx *txn) error {
-		const query = `SELECT peer_address, first_seen, last_connect, synced_blocks, sync_duration FROM syncer_peers`
+		const query = `SELECT peer_address, first_seen FROM syncer_peers`
 		rows, err := tx.Query(query)
 		if err != nil {
 			return err
@@ -57,34 +127,6 @@ func (s *Store) Peers() (peers []syncer.PeerInfo, _ error) {
 		return rows.Err()
 	})
 	return peers, err
-}
-
-// UpdatePeerInfo updates the info for the given peer.
-func (s *Store) UpdatePeerInfo(peer string, fn func(*syncer.PeerInfo)) error {
-	return s.transaction(func(tx *txn) error {
-		info, err := getPeerInfo(tx, peer)
-		if err != nil {
-			return fmt.Errorf("failed to get peer info: %w", err)
-		}
-		fn(&info)
-		return s.updatePeerInfo(tx, peer, info)
-	})
-}
-
-// PeerInfo returns the info for the given peer.
-func (s *Store) PeerInfo(peer string) (syncer.PeerInfo, error) {
-	var info syncer.PeerInfo
-	var err error
-	err = s.transaction(func(tx *txn) error {
-		info, err = getPeerInfo(tx, peer)
-		return err
-	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return syncer.PeerInfo{}, syncer.ErrPeerNotFound
-	} else if err != nil {
-		return syncer.PeerInfo{}, err
-	}
-	return info, nil
 }
 
 // normalizePeer normalizes a peer address to a CIDR subnet.
