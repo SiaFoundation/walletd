@@ -8,6 +8,16 @@ import (
 	"go.sia.tech/walletd/wallet"
 )
 
+// A StateResponse returns information about the current state of the walletd
+// daemon.
+type StateResponse struct {
+	Version   string    `json:"version"`
+	Commit    string    `json:"commit"`
+	OS        string    `json:"os"`
+	BuildTime time.Time `json:"buildTime"`
+	StartTime time.Time `json:"startTime"`
+}
+
 // A GatewayPeer is a currently-connected peer.
 type GatewayPeer struct {
 	Addr    string `json:"addr"`

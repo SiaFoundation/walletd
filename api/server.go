@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"runtime"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/syncer"
+	"go.sia.tech/walletd/build"
 	"go.sia.tech/walletd/wallet"
 )
 
@@ -70,6 +72,8 @@ type (
 	}
 )
 
+var startTime = time.Now()
+
 type server struct {
 	cm ChainManager
 	s  Syncer
@@ -78,6 +82,16 @@ type server struct {
 	// for walletsReserveHandler
 	mu   sync.Mutex
 	used map[types.Hash256]bool
+}
+
+func (s *server) stateHandler(jc jape.Context) {
+	jc.Encode(StateResponse{
+		Version:   build.Version(),
+		Commit:    build.Commit(),
+		OS:        runtime.GOOS,
+		BuildTime: build.Time(),
+		StartTime: startTime,
+	})
 }
 
 func (s *server) consensusNetworkHandler(jc jape.Context) {
@@ -628,36 +642,38 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		used: make(map[types.Hash256]bool),
 	}
 	return jape.Mux(map[string]jape.Handler{
-		"GET    /consensus/network":  srv.consensusNetworkHandler,
-		"GET    /consensus/tip":      srv.consensusTipHandler,
-		"GET    /consensus/tipstate": srv.consensusTipStateHandler,
+		"GET /state": srv.stateHandler,
 
-		"GET    /syncer/peers":           srv.syncerPeersHandler,
-		"POST   /syncer/connect":         srv.syncerConnectHandler,
-		"POST   /syncer/broadcast/block": srv.syncerBroadcastBlockHandler,
+		"GET /consensus/network":  srv.consensusNetworkHandler,
+		"GET /consensus/tip":      srv.consensusTipHandler,
+		"GET /consensus/tipstate": srv.consensusTipStateHandler,
 
-		"GET    /txpool/transactions": srv.txpoolTransactionsHandler,
-		"GET    /txpool/fee":          srv.txpoolFeeHandler,
-		"POST   /txpool/broadcast":    srv.txpoolBroadcastHandler,
+		"GET /syncer/peers":            srv.syncerPeersHandler,
+		"POST /syncer/connect":         srv.syncerConnectHandler,
+		"POST /syncer/broadcast/block": srv.syncerBroadcastBlockHandler,
 
-		"POST   /resubscribe": srv.resubscribeHandler,
+		"GET /txpool/transactions": srv.txpoolTransactionsHandler,
+		"GET /txpool/fee":          srv.txpoolFeeHandler,
+		"POST /txpool/broadcast":   srv.txpoolBroadcastHandler,
 
-		"GET    /wallets":                     srv.walletsHandler,
+		"POST /resubscribe": srv.resubscribeHandler,
+
+		"GET /wallets":                        srv.walletsHandler,
 		"POST /wallets":                       srv.walletsHandlerPOST,
-		"POST    /wallets/:id":                srv.walletsIDHandlerPOST,
-		"DELETE /wallets/:id":                 srv.walletsIDHandlerDELETE,
-		"PUT    /wallets/:id/addresses":       srv.walletsAddressHandlerPUT,
+		"POST /wallets/:id":                   srv.walletsIDHandlerPOST,
+		"DELETE	/wallets/:id":                 srv.walletsIDHandlerDELETE,
+		"PUT /wallets/:id/addresses":          srv.walletsAddressHandlerPUT,
 		"DELETE /wallets/:id/addresses/:addr": srv.walletsAddressHandlerDELETE,
-		"GET    /wallets/:id/addresses":       srv.walletsAddressesHandlerGET,
-		"GET    /wallets/:id/balance":         srv.walletsBalanceHandler,
-		"GET    /wallets/:id/events":          srv.walletsEventsHandler,
-		"GET    /wallets/:id/txpool":          srv.walletsTxpoolHandler,
-		"GET    /wallets/:id/outputs/siacoin": srv.walletsOutputsSiacoinHandler,
-		"GET    /wallets/:id/outputs/siafund": srv.walletsOutputsSiafundHandler,
-		"POST   /wallets/:id/reserve":         srv.walletsReserveHandler,
-		"POST   /wallets/:id/release":         srv.walletsReleaseHandler,
-		"POST   /wallets/:id/fund":            srv.walletsFundHandler,
-		"POST   /wallets/:id/fundsf":          srv.walletsFundSFHandler,
+		"GET /wallets/:id/addresses":          srv.walletsAddressesHandlerGET,
+		"GET /wallets/:id/balance":            srv.walletsBalanceHandler,
+		"GET /wallets/:id/events":             srv.walletsEventsHandler,
+		"GET /wallets/:id/txpool":             srv.walletsTxpoolHandler,
+		"GET /wallets/:id/outputs/siacoin":    srv.walletsOutputsSiacoinHandler,
+		"GET /wallets/:id/outputs/siafund":    srv.walletsOutputsSiafundHandler,
+		"POST /wallets/:id/reserve":           srv.walletsReserveHandler,
+		"POST /wallets/:id/release":           srv.walletsReleaseHandler,
+		"POST /wallets/:id/fund":              srv.walletsFundHandler,
+		"POST /wallets/:id/fundsf":            srv.walletsFundSFHandler,
 
 		"GET /addresses/:addr/balance":         srv.addressesAddrBalanceHandler,
 		"GET /addresses/:addr/events":          srv.addressesAddrEventsHandler,
