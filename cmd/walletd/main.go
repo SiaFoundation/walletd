@@ -7,16 +7,14 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
-	"strings"
 
 	"go.sia.tech/core/types"
+	cwallet "go.sia.tech/coreutils/wallet"
 	"go.sia.tech/walletd/api"
-	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/term"
 	"lukechampine.com/flagg"
-	"lukechampine.com/frand"
 )
 
 var commit = "?"
@@ -71,14 +69,9 @@ Run 'walletd' with no arguments to start the blockchain node and API server.
 
 Actions:
     version     print walletd version
+    seed        generate a recovery phrase
+    mine        run CPU miner`
 
-Testnet Actions:
-    seed        generate a seed
-    mine        run CPU miner
-    balance     view wallet balance
-    send        send a simple transaction
-    txns        view transaction history
-`
 	versionUsage = `Usage:
     walletd version
 
@@ -87,33 +80,12 @@ Prints the version of the walletd binary.
 	seedUsage = `Usage:
     walletd seed
 
-Generates a secure testnet seed.
+Generates a secure BIP-39 recovery phrase.
 `
 	mineUsage = `Usage:
     walletd mine
 
-Runs a testnet CPU miner.
-`
-	balanceUsage = `Usage:
-    walletd balance
-
-Displays testnet balance.
-`
-	sendUsage = `Usage:
-    walletd send [flags] [amount] [address]
-
-Sends a simple testnet transaction.
-`
-	txnsUsage = `Usage:
-    walletd txns
-
-Lists testnet transactions and miner rewards.
-`
-	txpoolUsage = `Usage:
-    walletd txpool
-
-Lists unconfirmed testnet transactions in the txpool.
-Note that only transactions relevant to the wallet are shown.
+Runs a CPU miner. Not intended for production use.
 `
 )
 
@@ -121,7 +93,7 @@ func main() {
 	log.SetFlags(0)
 
 	var gatewayAddr, apiAddr, dir, network, seed string
-	var upnp, v2 bool
+	var upnp, bootstrap bool
 
 	var minerAddrStr string
 	var minerBlocks int
@@ -133,17 +105,13 @@ func main() {
 	rootCmd.StringVar(&dir, "dir", ".", "directory to store node state in")
 	rootCmd.StringVar(&network, "network", "mainnet", "network to connect to")
 	rootCmd.BoolVar(&upnp, "upnp", true, "attempt to forward ports and discover IP with UPnP")
+	rootCmd.BoolVar(&bootstrap, "bootstrap", true, "attempt to bootstrap the network")
 	rootCmd.StringVar(&seed, "seed", "", "testnet seed")
 	versionCmd := flagg.New("version", versionUsage)
 	seedCmd := flagg.New("seed", seedUsage)
 	mineCmd := flagg.New("mine", mineUsage)
 	mineCmd.IntVar(&minerBlocks, "n", -1, "mine this many blocks. If negative, mine indefinitely")
 	mineCmd.StringVar(&minerAddrStr, "addr", "", "address to send block rewards to (required)")
-	balanceCmd := flagg.New("balance", balanceUsage)
-	sendCmd := flagg.New("send", sendUsage)
-	sendCmd.BoolVar(&v2, "v2", false, "send a v2 transaction")
-	txnsCmd := flagg.New("txns", txnsUsage)
-	txpoolCmd := flagg.New("txpool", txpoolUsage)
 
 	cmd := flagg.Parse(flagg.Tree{
 		Cmd: rootCmd,
@@ -151,10 +119,6 @@ func main() {
 			{Cmd: versionCmd},
 			{Cmd: seedCmd},
 			{Cmd: mineCmd},
-			{Cmd: balanceCmd},
-			{Cmd: sendCmd},
-			{Cmd: txnsCmd},
-			{Cmd: txpoolCmd},
 		},
 	})
 
@@ -195,7 +159,7 @@ func main() {
 		// redirect stdlib log to zap
 		zap.RedirectStdLog(logger.Named("stdlib"))
 
-		n, err := newNode(gatewayAddr, dir, network, upnp, logger)
+		n, err := newNode(gatewayAddr, dir, network, upnp, bootstrap, logger)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -222,13 +186,15 @@ func main() {
 			cmd.Usage()
 			return
 		}
-		seed := frand.Bytes(8)
-		var entropy [32]byte
-		copy(entropy[:], seed)
-		addr := types.StandardUnlockHash(wallet.NewSeedFromEntropy(&entropy).PublicKey(0))
-		fmt.Printf("Seed:    %x\n", seed)
-		fmt.Printf("Address: %v\n", strings.TrimPrefix(addr.String(), "addr:"))
+		recoveryPhrase := cwallet.NewSeedPhrase()
+		var seed [32]byte
+		if err := cwallet.SeedFromPhrase(&seed, recoveryPhrase); err != nil {
+			log.Fatal(err)
+		}
+		addr := types.StandardUnlockHash(cwallet.KeyFromSeed(&seed, 0).PublicKey())
 
+		fmt.Println("Recovery Phrase:", recoveryPhrase)
+		fmt.Println("Address", addr)
 	case mineCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
@@ -241,6 +207,6 @@ func main() {
 		}
 
 		c := api.NewClient("http://"+apiAddr+"/api", getAPIPassword())
-		runTestnetMiner(c, minerAddr, minerBlocks)
+		runCPUMiner(c, minerAddr, minerBlocks)
 	}
 }
