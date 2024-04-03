@@ -262,8 +262,13 @@ func TestWallet(t *testing.T) {
 	}
 	defer ws.Close()
 
+	peerStore, err := sqlite.NewPeerStore(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// create the syncer
-	s := syncer.New(syncerListener, cm, ws, gateway.Header{
+	s := syncer.New(syncerListener, cm, peerStore, gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerListener.Addr().String(),
@@ -288,9 +293,10 @@ func TestWallet(t *testing.T) {
 		t.Fatalf("expected wallet name to be 'primary', got %v", w.Name)
 	}
 	wc := c.Wallet(w.ID)
-	if err := c.Resubscribe(0); err != nil {
+	if err := c.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
+	waitForBlock(t, cm, ws)
 
 	balance, err := wc.Balance()
 	if err != nil {
@@ -505,9 +511,10 @@ func TestAddresses(t *testing.T) {
 		t.Fatalf("expected wallet name to be 'primary', got %v", w.Name)
 	}
 	wc := c.Wallet(w.ID)
-	if err := c.Resubscribe(0); err != nil {
+	if err := c.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
+	waitForBlock(t, cm, ws)
 
 	balance, err := wc.Balance()
 	if err != nil {
@@ -707,9 +714,11 @@ func TestV2(t *testing.T) {
 	if err := secondary.AddAddress(wallet.Address{Address: secondaryAddress}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Resubscribe(0); err != nil {
+
+	if err := c.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
+	waitForBlock(t, cm, ws)
 
 	// define some helper functions
 	addBlock := func(txns []types.Transaction, v2txns []types.V2Transaction) error {
@@ -901,6 +910,12 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store1.Close()
+
+	peerStore, err := sqlite.NewPeerStore(store1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	wm1, err := wallet.NewManager(cm1, store1, log1.Named("wallet"))
 	if err != nil {
 		t.Fatal(err)
@@ -910,7 +925,7 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer l1.Close()
-	s1 := syncer.New(l1, cm1, store1, gateway.Header{
+	s1 := syncer.New(l1, cm1, peerStore, gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: l1.Addr().String(),
@@ -926,9 +941,10 @@ func TestP2P(t *testing.T) {
 	if err := primary.AddAddress(wallet.Address{Address: primaryAddress}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c1.Resubscribe(0); err != nil {
+	if err := c1.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
+	waitForBlock(t, cm1, store1)
 
 	dbstore2, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
 	if err != nil {
@@ -950,7 +966,7 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer l2.Close()
-	s2 := syncer.New(l2, cm2, store2, gateway.Header{
+	s2 := syncer.New(l2, cm2, peerStore, gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: l2.Addr().String(),
@@ -967,9 +983,10 @@ func TestP2P(t *testing.T) {
 	if err := secondary.AddAddress(wallet.Address{Address: secondaryAddress}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c2.Resubscribe(0); err != nil {
+	if err := c2.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
+	waitForBlock(t, cm2, store2)
 
 	// define some helper functions
 	addBlock := func() error {

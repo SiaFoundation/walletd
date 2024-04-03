@@ -18,9 +18,14 @@ func TestAddPeer(t *testing.T) {
 	}
 	defer db.Close()
 
+	ps, err := NewPeerStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	const peer = "1.2.3.4:9981"
 
-	if err := db.AddPeer(peer); err != nil {
+	if err := ps.AddPeer(peer); err != nil {
 		t.Fatal(err)
 	}
 
@@ -28,7 +33,7 @@ func TestAddPeer(t *testing.T) {
 	syncedBlocks := uint64(15)
 	syncDuration := 5 * time.Second
 
-	err = db.UpdatePeerInfo(peer, func(info *syncer.PeerInfo) {
+	err = ps.UpdatePeerInfo(peer, func(info *syncer.PeerInfo) {
 		info.LastConnect = lastConnect
 		info.SyncedBlocks = syncedBlocks
 		info.SyncDuration = syncDuration
@@ -37,7 +42,7 @@ func TestAddPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	info, err := db.PeerInfo(peer)
+	info, err := ps.PeerInfo(peer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +57,7 @@ func TestAddPeer(t *testing.T) {
 		t.Errorf("expected SyncDuration = %s; got %s", syncDuration, info.SyncDuration)
 	}
 
-	peers, err := db.Peers()
+	peers, err := ps.Peers()
 	if err != nil {
 		t.Fatal(err)
 	} else if len(peers) != 1 {
@@ -78,23 +83,28 @@ func TestBanPeer(t *testing.T) {
 	}
 	defer db.Close()
 
+	ps, err := NewPeerStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	const peer = "1.2.3.4"
 
-	if banned, err := db.Banned(peer); err != nil || banned {
+	if banned, err := ps.Banned(peer); err != nil || banned {
 		t.Fatal("expected peer to not be banned", err)
 	}
 
 	// ban the peer
-	db.Ban(peer, time.Second, "test")
+	ps.Ban(peer, time.Second, "test")
 
-	if banned, err := db.Banned(peer); err != nil || !banned {
+	if banned, err := ps.Banned(peer); err != nil || !banned {
 		t.Fatal("expected peer to be banned", err)
 	}
 
 	// wait for the ban to expire
 	time.Sleep(time.Second)
 
-	if banned, err := db.Banned(peer); err != nil || banned {
+	if banned, err := ps.Banned(peer); err != nil || banned {
 		t.Fatal("expected peer to not be banned", err)
 	}
 
@@ -105,8 +115,8 @@ func TestBanPeer(t *testing.T) {
 	}
 
 	t.Log("banning", subnet)
-	db.Ban(subnet.String(), time.Second, "test")
-	if banned, err := db.Banned(peer); err != nil || !banned {
+	ps.Ban(subnet.String(), time.Second, "test")
+	if banned, err := ps.Banned(peer); err != nil || !banned {
 		t.Fatal("expected peer to be banned", err)
 	}
 }

@@ -6,40 +6,16 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"runtime/debug"
 
 	"go.sia.tech/core/types"
 	cwallet "go.sia.tech/coreutils/wallet"
 	"go.sia.tech/walletd/api"
+	"go.sia.tech/walletd/build"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/term"
 	"lukechampine.com/flagg"
 )
-
-var commit = "?"
-var timestamp = "?"
-
-func init() {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return
-	}
-	modified := false
-	for _, setting := range info.Settings {
-		switch setting.Key {
-		case "vcs.revision":
-			commit = setting.Value[:8]
-		case "vcs.time":
-			timestamp = setting.Value
-		case "vcs.modified":
-			modified = setting.Value == "true"
-		}
-	}
-	if modified {
-		commit += " (modified)"
-	}
-}
 
 func check(context string, err error) {
 	if err != nil {
@@ -122,7 +98,7 @@ func main() {
 		},
 	})
 
-	log.Println("walletd v0.1.0")
+	log.Println("walletd", build.Version())
 	switch cmd {
 	case rootCmd:
 		if len(cmd.Args()) != 0 {
@@ -163,6 +139,8 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		defer n.Close()
+
 		log.Println("p2p: Listening on", n.s.Addr())
 		stop := n.Start()
 		log.Println("api: Listening on", l.Addr())
@@ -178,9 +156,8 @@ func main() {
 			cmd.Usage()
 			return
 		}
-		log.Println("Commit Hash:", commit)
-		log.Println("Commit Date:", timestamp)
-
+		log.Println("Commit Hash:", build.Commit())
+		log.Println("Commit Date:", build.Time())
 	case seedCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()

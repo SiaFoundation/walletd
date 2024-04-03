@@ -174,12 +174,18 @@ func newNode(addr, dir string, chainNetwork string, useUPNP, useBootstrap bool, 
 		}
 	}
 
+	ps, err := sqlite.NewPeerStore(store)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create peer store: %w", err)
+	}
+
 	header := gateway.Header{
 		GenesisID:  genesisBlock.ID(),
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: syncerAddr,
 	}
-	s := syncer.New(l, cm, store, header, syncer.WithLogger(log.Named("syncer")))
+
+	s := syncer.New(l, cm, ps, header, syncer.WithLogger(log.Named("syncer")))
 	wm, err := wallet.NewManager(cm, store, log.Named("wallet"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wallet manager: %w", err)

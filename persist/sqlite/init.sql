@@ -75,10 +75,7 @@ CREATE INDEX event_addresses_address_id_idx ON event_addresses (address_id);
 
 CREATE TABLE syncer_peers (
 	peer_address TEXT PRIMARY KEY NOT NULL,
-	first_seen INTEGER NOT NULL,
-	last_connect INTEGER NOT NULL,
-	synced_blocks INTEGER NOT NULL,
-	sync_duration INTEGER NOT NULL
+	first_seen INTEGER NOT NULL
 );
 
 CREATE TABLE syncer_bans (

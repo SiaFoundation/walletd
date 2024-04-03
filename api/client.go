@@ -16,6 +16,12 @@ type Client struct {
 	n *consensus.Network // for ConsensusTipState
 }
 
+// State returns information about the current state of the walletd daemon.
+func (c *Client) State() (resp StateResponse, err error) {
+	err = c.c.GET("/state", &resp)
+	return
+}
+
 // TxpoolBroadcast broadcasts a set of transaction to the network.
 func (c *Client) TxpoolBroadcast(txns []types.Transaction, v2txns []types.V2Transaction) (err error) {
 	err = c.c.POST("/txpool/broadcast", TxpoolBroadcastRequest{txns, v2txns}, nil)
@@ -110,10 +116,15 @@ func (c *Client) Wallet(id wallet.ID) *WalletClient {
 	return &WalletClient{c: c.c, id: id}
 }
 
-// Resubscribe subscribes the wallet to consensus updates, starting at the
-// specified height.
-func (c *Client) Resubscribe(height uint64) (err error) {
-	err = c.c.POST("/resubscribe", height, nil)
+// ScanStatus returns the current state of wallet scanning.
+func (c *Client) ScanStatus() (resp RescanResponse, err error) {
+	err = c.c.GET("/rescan", &resp)
+	return
+}
+
+// Rescan rescans the blockchain starting from the specified height.
+func (c *Client) Rescan(height uint64) (err error) {
+	err = c.c.POST("/rescan", height, nil)
 	return
 }
 

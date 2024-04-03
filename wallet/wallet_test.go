@@ -123,8 +123,8 @@ func TestResubscribe(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// resubscribe the wallet
-	if err := wm.Subscribe(0); err != nil {
+	// scan for changes
+	if err := wm.Scan(types.ChainIndex{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -140,8 +140,8 @@ func TestResubscribe(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// resubscribe
-	if err := wm.Subscribe(0); err != nil {
+	// scan for changes
+	if err := wm.Scan(types.ChainIndex{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -160,7 +160,7 @@ func TestResubscribe(t *testing.T) {
 	}
 
 	// sanity check
-	if err := wm.Subscribe(0); err != nil {
+	if err := wm.Scan(types.ChainIndex{}); err != nil {
 		t.Fatal(err)
 	}
 
