@@ -74,9 +74,9 @@ type (
 	}
 )
 
-var startTime = time.Now()
-
 type server struct {
+	startTime time.Time
+
 	cm ChainManager
 	s  Syncer
 	wm WalletManager
@@ -96,7 +96,7 @@ func (s *server) stateHandler(jc jape.Context) {
 		Commit:    build.Commit(),
 		OS:        runtime.GOOS,
 		BuildTime: build.Time(),
-		StartTime: startTime,
+		StartTime: s.startTime,
 	})
 }
 
@@ -269,7 +269,7 @@ func (s *server) rescanHandlerGET(jc jape.Context) {
 	s.scanMu.Lock()
 	defer s.scanMu.Unlock()
 	if s.scanInfo.StartTime.IsZero() {
-		s.scanInfo.StartTime = startTime
+		s.scanInfo.StartTime = s.startTime
 	}
 	s.scanInfo.Index = index
 	jc.Encode(s.scanInfo)
@@ -694,6 +694,8 @@ func (s *server) addressesAddrOutputsSFHandler(jc jape.Context) {
 // NewServer returns an HTTP handler that serves the walletd API.
 func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 	srv := server{
+		startTime: time.Now(),
+
 		cm:   cm,
 		s:    s,
 		wm:   wm,

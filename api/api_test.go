@@ -715,8 +715,6 @@ func TestV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// rescan is a helper function that waits for the wallet to finish
-	// rescanning
 	if err := c.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
