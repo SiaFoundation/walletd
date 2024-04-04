@@ -20,10 +20,10 @@ go.sia.tech/jape v0.11.2-0.20240124024603-93559895d640 h1:mSaJ622P7T/M97dAK8iPV+
 go.sia.tech/jape v0.11.2-0.20240124024603-93559895d640/go.mod h1:4QqmBB+t3W7cNplXPj++ZqpoUb2PeiS66RLpXmEGap4=
 go.sia.tech/mux v1.2.0 h1:ofa1Us9mdymBbGMY2XH/lSpY8itFsKIo/Aq8zwe+GHU=
 go.sia.tech/mux v1.2.0/go.mod h1:Yyo6wZelOYTyvrHmJZ6aQfRoer3o4xyKQ4NmQLJrBSo=
-go.sia.tech/web v0.0.0-20230628194305-c6e1696bad89 h1:wB/JRFeTEs6gviB6k7QARY7Goh54ufkADsdBdn0ZhRo=
-go.sia.tech/web v0.0.0-20230628194305-c6e1696bad89/go.mod h1:RKODSdOmR3VtObPAcGwQqm4qnqntDVFylbvOBbWYYBU=
-go.sia.tech/web/walletd v0.17.0 h1:8k/m1L50LIylw1HYLlTuc3e4bYlx//qZ8xG4C/YNeA0=
-go.sia.tech/web/walletd v0.17.0/go.mod h1:OHFWEbjLCR5I06E05GA98HIAdacTM5Ag7sL9ubcvgKw=
+go.sia.tech/web v0.0.0-20240403150056-0f3b9f006d5b h1:nwfLGAR0sjN/zb9QW0xWeNR8MjdtJl6KKZqPo2Amz3U=
+go.sia.tech/web v0.0.0-20240403150056-0f3b9f006d5b/go.mod h1:nGEhGmI8zV/BcC3LOCC5JLVYpidNYJIvLGIqVRWQBCg=
+go.sia.tech/web/walletd v0.18.0 h1:Sc04C9dTA7pWvC6AOfdQ5scd3zMNJb8Oc3vHqLAdY54=
+go.sia.tech/web/walletd v0.18.0/go.mod h1:xlrUEt6cNA3vABwXpZaNDS3DM5Jh8IpqutdHqlVW+Os=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
 go.uber.org/multierr v1.10.0 h1:S0h4aNzvfcFsC3dRF1jLoaov7oRaKqRGC/pUEJ2yvPQ=
