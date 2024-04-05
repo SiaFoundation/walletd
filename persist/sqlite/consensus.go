@@ -477,13 +477,17 @@ func (ut *updateTx) AddSiafundElements(elements []types.SiafundElement, index ty
 }
 
 func (ut *updateTx) RemoveSiafundElements(elements []types.SiafundElement, index types.ChainIndex) error {
+	if len(elements) == 0 {
+		return nil
+	}
+
 	addrStmt, err := insertAddressStatement(ut.tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare address statement: %w", err)
 	}
 	defer addrStmt.Close()
 
-	stmt, err := ut.tx.Prepare(`DELETE FROM siacoin_elements WHERE id=$1 RETURNING id`)
+	stmt, err := ut.tx.Prepare(`DELETE FROM siafund_elements WHERE id=$1 RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}

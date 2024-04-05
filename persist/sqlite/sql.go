@@ -13,7 +13,7 @@ import (
 
 const (
 	longQueryDuration = 10 * time.Millisecond
-	longTxnDuration   = 10 * time.Millisecond
+	longTxnDuration   = time.Second // reduce syncing spam
 )
 
 type (
