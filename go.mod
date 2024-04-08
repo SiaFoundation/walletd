@@ -11,7 +11,7 @@ require (
 	go.sia.tech/jape v0.11.2-0.20240124024603-93559895d640
 	go.sia.tech/web/walletd v0.18.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/term v0.18.0
+	golang.org/x/term v0.19.0
 	lukechampine.com/flagg v1.1.1
 	lukechampine.com/frand v1.4.2
 	lukechampine.com/upnp v0.3.0
@@ -25,6 +25,6 @@ require (
 	go.sia.tech/web v0.0.0-20240403150056-0f3b9f006d5b // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/crypto v0.21.0 // indirect
-	golang.org/x/sys v0.18.0 // indirect
+	golang.org/x/sys v0.19.0 // indirect
 	golang.org/x/tools v0.7.0 // indirect
 )
