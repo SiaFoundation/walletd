@@ -1,12 +1,14 @@
 package wallet
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
+	"go.sia.tech/walletd/internal/threadgroup"
 	"go.uber.org/zap"
 )
 
@@ -52,10 +54,10 @@ type (
 		chain ChainManager
 		store Store
 		log   *zap.Logger
+		tg    *threadgroup.ThreadGroup
 
-		mu          sync.Mutex
-		used        map[types.Hash256]bool
-		unsubscribe func()
+		mu   sync.Mutex
+		used map[types.Hash256]bool
 	}
 )
 
@@ -154,15 +156,33 @@ func (m *Manager) Reserve(ids []types.Hash256, duration time.Duration) error {
 	return nil
 }
 
-// Scan rescans the chain starting from the given index.
-func (m *Manager) Scan(index types.ChainIndex) error {
+// Scan rescans the chain starting from the given index. The scan will complete
+// when the chain manager reaches the current tip or the context is canceled.
+func (m *Manager) Scan(ctx context.Context, index types.ChainIndex) error {
+	ctx, cancel, err := m.tg.AddContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return syncStore(m.store, m.chain, index)
+	return syncStore(ctx, m.store, m.chain, index)
 }
 
-func syncStore(store Store, cm ChainManager, index types.ChainIndex) error {
+// Close closes the wallet manager.
+func (m *Manager) Close() error {
+	m.tg.Stop()
+	return nil
+}
+
+func syncStore(ctx context.Context, store Store, cm ChainManager, index types.ChainIndex) error {
 	for index != cm.Tip() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		crus, caus, err := cm.UpdatesSince(index, 1000)
 		if err != nil {
 			return fmt.Errorf("failed to subscribe to chain manager: %w", err)
@@ -180,6 +200,7 @@ func NewManager(cm ChainManager, store Store, log *zap.Logger) (*Manager, error)
 		chain: cm,
 		store: store,
 		log:   log,
+		tg:    threadgroup.New(),
 	}
 
 	lastTip, err := store.LastCommittedIndex()
@@ -188,24 +209,46 @@ func NewManager(cm ChainManager, store Store, log *zap.Logger) (*Manager, error)
 	}
 
 	go func() {
-		if err := syncStore(store, cm, lastTip); err != nil {
+		ctx, cancel, err := m.tg.AddContext(context.Background())
+		if err != nil {
+			log.Panic("failed to add to threadgroup", zap.Error(err))
+		}
+		defer cancel()
+
+		if err := syncStore(ctx, store, cm, lastTip); err != nil {
 			log.Fatal("failed to subscribe to chain manager", zap.Error(err))
 		}
 
 		reorgChan := make(chan types.ChainIndex, 1)
-		m.unsubscribe = cm.OnReorg(func(index types.ChainIndex) {
+		unsubscribe := cm.OnReorg(func(index types.ChainIndex) {
 			select {
 			case reorgChan <- index:
 			default:
 			}
 		})
+		defer unsubscribe()
 
-		for range reorgChan {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-reorgChan:
+			}
+
 			m.mu.Lock()
+			// check that the context was not canceled while waiting for the
+			// lock
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			// update the store
 			lastTip, err := store.LastCommittedIndex()
 			if err != nil {
 				log.Error("failed to get last committed index", zap.Error(err))
-			} else if err := syncStore(store, cm, lastTip); err != nil {
+			} else if err := syncStore(ctx, store, cm, lastTip); err != nil {
 				log.Error("failed to sync store", zap.Error(err))
 			}
 			m.mu.Unlock()

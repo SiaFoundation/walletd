@@ -91,8 +91,7 @@ func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) 
 		defer rows.Close()
 
 		for rows.Next() {
-			var siafund types.SiafundElement
-			err := rows.Scan(decode(&siafund.ID), &siafund.LeafIndex, decodeSlice(&siafund.MerkleProof), &siafund.SiafundOutput.Value, decode(&siafund.ClaimStart), decode(&siafund.SiafundOutput.Address))
+			siafund, err := scanSiafundElement(rows)
 			if err != nil {
 				return fmt.Errorf("failed to scan siafund element: %w", err)
 			}

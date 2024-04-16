@@ -35,11 +35,18 @@ type (
 
 		RevertMatureSiacoinBalance(types.ChainIndex) error
 		RevertEvents(index types.ChainIndex) error
+
+		RevertOrphans(types.ChainIndex) (reverted []types.BlockID, err error)
 	}
 )
 
 // applyChainUpdate atomically applies a chain update to a store
 func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate) error {
+	// revert any orphaned chain indices
+	if _, err := tx.RevertOrphans(cau.State.Index); err != nil {
+		return fmt.Errorf("failed to revert orphans: %w", err)
+	}
+
 	// update the immature balance of each relevant address
 	if err := tx.ApplyMatureSiacoinBalance(cau.State.Index); err != nil {
 		return fmt.Errorf("failed to get matured siacoin elements: %w", err)

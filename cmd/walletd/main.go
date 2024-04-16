@@ -150,7 +150,6 @@ func main() {
 		<-signalCh
 		log.Println("Shutting down...")
 		stop()
-
 	case versionCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()

@@ -95,6 +95,7 @@ type node struct {
 
 // Close shuts down the node and closes its database.
 func (n *node) Close() error {
+	n.wm.Close()
 	n.chainStore.Close()
 	return n.store.Close()
 }

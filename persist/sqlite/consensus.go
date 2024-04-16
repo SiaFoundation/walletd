@@ -10,6 +10,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/walletd/wallet"
+	"go.uber.org/zap"
 )
 
 type updateTx struct {
@@ -296,8 +297,14 @@ func (ut *updateTx) AddSiacoinElements(elements []types.SiacoinElement, index ty
 	}
 	defer addrStmt.Close()
 
+	indexStmt, err := insertIndexStmt(ut.tx)
+	if err != nil {
+		return fmt.Errorf("failed to prepare index statement: %w", err)
+	}
+	defer indexStmt.Close()
+
 	// ignore elements already in the database.
-	insertStmt, err := ut.tx.Prepare(`INSERT INTO siacoin_elements (id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING RETURNING id`)
+	insertStmt, err := ut.tx.Prepare(`INSERT INTO siacoin_elements (id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured, chain_index_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert statement: %w", err)
 	}
@@ -305,6 +312,12 @@ func (ut *updateTx) AddSiacoinElements(elements []types.SiacoinElement, index ty
 
 	balanceChanges := make(map[int64]wallet.Balance)
 	for _, se := range elements {
+		var chainIndexID int64
+		err := indexStmt.QueryRow(index.Height, encode(index.ID)).Scan(&chainIndexID)
+		if err != nil {
+			return fmt.Errorf("failed to execute statement: %w", err)
+		}
+
 		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiacoinOutput.Address), encode(types.ZeroCurrency), 0))
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
@@ -313,7 +326,7 @@ func (ut *updateTx) AddSiacoinElements(elements []types.SiacoinElement, index ty
 		}
 
 		var dummyID types.Hash256
-		err = insertStmt.QueryRow(encode(se.ID), encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0).Scan(decode(&dummyID))
+		err = insertStmt.QueryRow(encode(se.ID), encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0, chainIndexID).Scan(decode(&dummyID))
 		if errors.Is(err, sql.ErrNoRows) {
 			continue // skip if the element already exists
 		} else if err != nil {
@@ -422,13 +435,19 @@ func (ut *updateTx) AddSiafundElements(elements []types.SiafundElement, index ty
 		return nil
 	}
 
+	indexStmt, err := insertIndexStmt(ut.tx)
+	if err != nil {
+		return fmt.Errorf("failed to prepare index statement: %w", err)
+	}
+	defer indexStmt.Close()
+
 	addrStmt, err := insertAddressStatement(ut.tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare address statement: %w", err)
 	}
 	defer addrStmt.Close()
 
-	insertStmt, err := ut.tx.Prepare(`INSERT INTO siafund_elements (id, siafund_value, merkle_proof, leaf_index, claim_start, address_id) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING RETURNING id`)
+	insertStmt, err := ut.tx.Prepare(`INSERT INTO siafund_elements (id, siafund_value, merkle_proof, leaf_index, claim_start, address_id, chain_index_id) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
@@ -436,6 +455,11 @@ func (ut *updateTx) AddSiafundElements(elements []types.SiafundElement, index ty
 
 	balanceChanges := make(map[int64]uint64)
 	for _, se := range elements {
+		var chainIndexID int64
+		if err := indexStmt.QueryRow(index.Height, encode(index.ID)).Scan(&chainIndexID); err != nil {
+			return fmt.Errorf("failed to execute statement: %w", err)
+		}
+
 		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiafundOutput.Address), encode(types.ZeroCurrency), 0))
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
@@ -444,7 +468,7 @@ func (ut *updateTx) AddSiafundElements(elements []types.SiafundElement, index ty
 		}
 
 		var dummy types.Hash256
-		err = insertStmt.QueryRow(encode(se.ID), se.SiafundOutput.Value, encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ClaimStart), addrRef.ID).Scan(decode(&dummy))
+		err = insertStmt.QueryRow(encode(se.ID), se.SiafundOutput.Value, encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ClaimStart), addrRef.ID, chainIndexID).Scan(decode(&dummy))
 		if errors.Is(err, sql.ErrNoRows) {
 			continue // skip if the element already exists
 		} else if err != nil {
@@ -621,6 +645,164 @@ func (ut *updateTx) RevertEvents(index types.ChainIndex) error {
 	return err
 }
 
+func (ut *updateTx) getOrphanedSiacoinBalance(indexID int64) (map[int64]wallet.Balance, error) {
+	const query = `SELECT address_id, siacoin_value, matured 
+FROM siacoin_elements
+WHERE chain_index_id=$1`
+	rows, err := ut.tx.Query(query, indexID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
+	}
+	defer rows.Close()
+
+	balances := make(map[int64]wallet.Balance)
+	for rows.Next() {
+		var addrID int64
+		var value types.Currency
+		var matured bool
+
+		if err := rows.Scan(&addrID, decode(&value), &matured); err != nil {
+			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
+		}
+
+		balance := balances[addrID]
+		if matured {
+			balance.Siacoins = balance.Siacoins.Add(value)
+		} else {
+			balance.ImmatureSiacoins = balance.ImmatureSiacoins.Add(value)
+		}
+		balances[addrID] = balance
+	}
+	return balances, rows.Err()
+}
+
+func (ut *updateTx) getOrphanedSiafundBalance(indexID int64) (map[int64]uint64, error) {
+	const query = `SELECT address_id, siafund_value
+FROM siafund_elements
+WHERE chain_index_id=$1`
+	rows, err := ut.tx.Query(query, indexID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query siafund elements: %w", err)
+	}
+	defer rows.Close()
+
+	balances := make(map[int64]uint64)
+	for rows.Next() {
+		var addrID int64
+		var value uint64
+
+		if err := rows.Scan(&addrID, &value); err != nil {
+			return nil, fmt.Errorf("failed to scan siafund element: %w", err)
+		}
+		balances[addrID] += value
+	}
+	return balances, rows.Err()
+}
+
+func (ut *updateTx) getOrphanedIndexes(index types.ChainIndex) (orphaned []int64, err error) {
+	rows, err := ut.tx.Query(`SELECT id FROM chain_indices WHERE height=$1 AND block_id<>$2`, index.Height, encode(index.ID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query orphans: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var indexID int64
+		if err := rows.Scan(&indexID); err != nil {
+			return nil, fmt.Errorf("failed to scan orphan: %w", err)
+		}
+		orphaned = append(orphaned, indexID)
+	}
+	return orphaned, rows.Err()
+}
+
+// RevertOrphans reverts any chain indices that were orphaned by the given index
+func (ut *updateTx) RevertOrphans(index types.ChainIndex) (reverted []types.BlockID, err error) {
+	log := ut.tx.log.Named("RevertOrphans").With(zap.Uint64("height", index.Height), zap.Stringer("applied", index.ID))
+
+	orphaned, err := ut.getOrphanedIndexes(index)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get orphaned indexes: %w", err)
+	}
+
+	if len(orphaned) == 0 {
+		return nil, nil
+	}
+
+	var revertedBalance map[int64]wallet.Balance
+	for _, id := range orphaned {
+		// revert siacoin balances
+		siacoins, err := ut.getOrphanedSiacoinBalance(id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get orphaned siacoin elements: %w", err)
+		}
+
+		// revert siafund balances
+		siafunds, err := ut.getOrphanedSiafundBalance(id)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get orphaned siafund elements: %w", err)
+		}
+
+		for addr, balance := range siafunds {
+			b := siacoins[addr]
+			b.Siafunds = balance
+			siacoins[addr] = b
+		}
+		revertedBalance = siacoins
+	}
+
+	getBalanceStmt, err := ut.tx.Prepare(`SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses WHERE id=$1`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare balance statement: %w", err)
+	}
+	defer getBalanceStmt.Close()
+
+	updateBalanceStmt, err := ut.tx.Prepare(`UPDATE sia_addresses SET siacoin_balance=$1, immature_siacoin_balance=$2, siafund_balance=$3 WHERE id=$4`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare update statement: %w", err)
+	}
+
+	for addrID, balance := range revertedBalance {
+		var existing wallet.Balance
+		err := getBalanceStmt.QueryRow(addrID).Scan(decode(&existing.Siacoins), decode(&existing.ImmatureSiacoins), &existing.Siafunds)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get balance: %w", err)
+		}
+
+		existing.Siacoins = existing.Siacoins.Sub(balance.Siacoins)
+		existing.ImmatureSiacoins = existing.ImmatureSiacoins.Sub(balance.ImmatureSiacoins)
+		if existing.Siafunds < balance.Siafunds {
+			panic("siafund balance cannot be negative")
+		}
+		existing.Siafunds -= balance.Siafunds
+
+		res, err := updateBalanceStmt.Exec(encode(existing.Siacoins), encode(existing.ImmatureSiacoins), existing.Siafunds, addrID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update balance: %w", err)
+		} else if n, err := res.RowsAffected(); err != nil {
+			return nil, fmt.Errorf("failed to get rows affected: %w", err)
+		} else if n != 1 {
+			return nil, fmt.Errorf("expected 1 row affected, got %v", n)
+		}
+	}
+
+	rows, err := ut.tx.Query(`DELETE FROM chain_indices WHERE height=$1 AND block_id<>$2 RETURNING block_id`, index.Height, encode(index.ID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query orphans: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var orphan types.BlockID
+		if err := rows.Scan(decode(&orphan)); err != nil {
+			return nil, fmt.Errorf("failed to scan orphan: %w", err)
+		}
+		reverted = append(reverted, orphan)
+		log.Debug("reverted orphan", zap.Stringer("orphan", orphan))
+	}
+	return reverted, rows.Err()
+}
+
 // ProcessChainApplyUpdate implements chain.Subscriber
 func (s *Store) UpdateChainState(reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error {
 	return s.transaction(func(tx *txn) error {
@@ -644,15 +826,24 @@ func (s *Store) LastCommittedIndex() (index types.ChainIndex, err error) {
 	return
 }
 
+// ResetLastIndex resets the last indexed tip to trigger a full rescan.
+func (s *Store) ResetLastIndex() error {
+	_, err := s.db.Exec(`UPDATE global_settings SET last_indexed_tip=$1`, encode(types.ChainIndex{}))
+	return err
+
+}
+
 func setLastCommittedIndex(tx *txn, index types.ChainIndex) error {
 	_, err := tx.Exec(`UPDATE global_settings SET last_indexed_tip=$1`, encode(index))
 	return err
 }
 
 func insertAddressStatement(tx *txn) (*stmt, error) {
+	// the on conflict is effectively a no-op, but enables us to return the id of the existing address
 	return tx.Prepare(`INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) VALUES ($1, $2, $2, $3) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address RETURNING id, siacoin_balance, immature_siacoin_balance, siafund_balance`)
 }
 
 func insertIndexStmt(tx *txn) (*stmt, error) {
+	// the on conflict is effectively a no-op, but enables us to return the id of the existing index
 	return tx.Prepare(`INSERT INTO chain_indices (height, block_id) VALUES ($1, $2) ON CONFLICT (block_id) DO UPDATE SET height=EXCLUDED.height RETURNING id`)
 }
