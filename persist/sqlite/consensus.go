@@ -830,7 +830,6 @@ func (s *Store) LastCommittedIndex() (index types.ChainIndex, err error) {
 func (s *Store) ResetLastIndex() error {
 	_, err := s.db.Exec(`UPDATE global_settings SET last_indexed_tip=$1`, encode(types.ChainIndex{}))
 	return err
-
 }
 
 func setLastCommittedIndex(tx *txn, index types.ChainIndex) error {
