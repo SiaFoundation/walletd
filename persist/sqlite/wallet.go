@@ -17,7 +17,7 @@ func scanSiacoinElement(s scanner) (se types.SiacoinElement, err error) {
 }
 
 func scanSiafundElement(s scanner) (se types.SiafundElement, err error) {
-	s.Scan(decode(&se.ID), &se.LeafIndex, decodeSlice(&se.MerkleProof), &se.SiafundOutput.Value, decode(&se.ClaimStart), decode(&se.SiafundOutput.Address))
+	err = s.Scan(decode(&se.ID), &se.LeafIndex, decodeSlice(&se.MerkleProof), &se.SiafundOutput.Value, decode(&se.ClaimStart), decode(&se.SiafundOutput.Address))
 	return
 }
 
