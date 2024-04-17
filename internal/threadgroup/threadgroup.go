@@ -1,3 +1,18 @@
+// Package threadgroup exposes a ThreadGroup object which can be used to
+// facilitate clean shutdown. A ThreadGroup is similar to a sync.WaitGroup,
+// but with two important additions: The ability to detect when shutdown has
+// been initiated, and protections against adding more threads after shutdown
+// has completed.
+//
+// ThreadGroup was designed with the following shutdown sequence in mind:
+//
+// 1. Call Stop, signaling that shutdown has begun. After Stop is called, no
+// new goroutines should be created.
+//
+// 2. Wait for Stop to return. When Stop returns, all goroutines should have
+// returned.
+//
+// 3. Free any resources used by the goroutines.
 package threadgroup
 
 import (
@@ -7,8 +22,8 @@ import (
 )
 
 type (
-	// A ThreadGroup provides synchronization between a module and its
-	// goroutines to enable clean shutdowns
+	// A ThreadGroup is a sync.WaitGroup with additional functionality for
+	// facilitating clean shutdown.
 	ThreadGroup struct {
 		mu     sync.Mutex
 		wg     sync.WaitGroup
@@ -49,19 +64,16 @@ func (tg *ThreadGroup) WithContext(parent context.Context) (context.Context, con
 	go func() {
 		select {
 		case <-ctx.Done():
-			break
 		case <-tg.closed:
-			break
 		}
-		// threadgroup or parent context cancelled, cancel the child context
-		cancel()
+		cancel() // threadgroup is stopping or context cancelled, cancel the context
 	}()
 	return ctx, cancel
 }
 
-// AddContext adds a new thread to the group and returns a copy of the parent
+// AddWithContext adds a new thread to the group and returns a copy of the parent
 // context. It is a convenience function combining Add and WithContext.
-func (tg *ThreadGroup) AddContext(parent context.Context) (context.Context, context.CancelFunc, error) {
+func (tg *ThreadGroup) AddWithContext(parent context.Context) (context.Context, context.CancelFunc, error) {
 	// try to add to the group
 	done, err := tg.Add()
 	if err != nil {
@@ -72,6 +84,8 @@ func (tg *ThreadGroup) AddContext(parent context.Context) (context.Context, cont
 	var once sync.Once
 	return ctx, func() {
 		cancel()
+		// it must be safe to call cancel multiple times, but it is not safe to
+		// call done multiple times since it's decrementing the waitgroup
 		once.Do(done)
 	}, nil
 }

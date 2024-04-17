@@ -33,7 +33,7 @@ func TestThreadgroupContext(t *testing.T) {
 	tg := New()
 
 	t.Run("context cancel", func(t *testing.T) {
-		ctx, cancel, err := tg.AddContext(context.Background())
+		ctx, cancel, err := tg.AddWithContext(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -55,7 +55,7 @@ func TestThreadgroupContext(t *testing.T) {
 		parentCtx, parentCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer parentCancel()
 
-		ctx, cancel, err := tg.AddContext(parentCtx)
+		ctx, cancel, err := tg.AddWithContext(parentCtx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -73,7 +73,7 @@ func TestThreadgroupContext(t *testing.T) {
 
 	t.Run("stop", func(t *testing.T) {
 		for i := 0; i < 10; i++ {
-			_, cancel, err := tg.AddContext(context.Background())
+			_, cancel, err := tg.AddWithContext(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}

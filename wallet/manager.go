@@ -159,7 +159,7 @@ func (m *Manager) Reserve(ids []types.Hash256, duration time.Duration) error {
 // Scan rescans the chain starting from the given index. The scan will complete
 // when the chain manager reaches the current tip or the context is canceled.
 func (m *Manager) Scan(ctx context.Context, index types.ChainIndex) error {
-	ctx, cancel, err := m.tg.AddContext(ctx)
+	ctx, cancel, err := m.tg.AddWithContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -209,7 +209,7 @@ func NewManager(cm ChainManager, store Store, log *zap.Logger) (*Manager, error)
 	}
 
 	go func() {
-		ctx, cancel, err := m.tg.AddContext(context.Background())
+		ctx, cancel, err := m.tg.AddWithContext(context.Background())
 		if err != nil {
 			log.Panic("failed to add to threadgroup", zap.Error(err))
 		}
@@ -236,14 +236,6 @@ func NewManager(cm ChainManager, store Store, log *zap.Logger) (*Manager, error)
 			}
 
 			m.mu.Lock()
-			// check that the context was not canceled while waiting for the
-			// lock
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
 			// update the store
 			lastTip, err := store.LastCommittedIndex()
 			if err != nil {

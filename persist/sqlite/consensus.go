@@ -645,7 +645,7 @@ func (ut *updateTx) RevertEvents(index types.ChainIndex) error {
 	return err
 }
 
-func (ut *updateTx) getOrphanedSiacoinBalance(indexID int64) (map[int64]wallet.Balance, error) {
+func (ut *updateTx) orphanedSiacoinBalance(indexID int64) (map[int64]wallet.Balance, error) {
 	const query = `SELECT address_id, siacoin_value, matured 
 FROM siacoin_elements
 WHERE chain_index_id=$1`
@@ -676,7 +676,7 @@ WHERE chain_index_id=$1`
 	return balances, rows.Err()
 }
 
-func (ut *updateTx) getOrphanedSiafundBalance(indexID int64) (map[int64]uint64, error) {
+func (ut *updateTx) orphanedSiafundBalance(indexID int64) (map[int64]uint64, error) {
 	const query = `SELECT address_id, siafund_value
 FROM siafund_elements
 WHERE chain_index_id=$1`
@@ -732,13 +732,13 @@ func (ut *updateTx) RevertOrphans(index types.ChainIndex) (reverted []types.Bloc
 	var revertedBalance map[int64]wallet.Balance
 	for _, id := range orphaned {
 		// revert siacoin balances
-		siacoins, err := ut.getOrphanedSiacoinBalance(id)
+		siacoins, err := ut.orphanedSiacoinBalance(id)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get orphaned siacoin elements: %w", err)
 		}
 
 		// revert siafund balances
-		siafunds, err := ut.getOrphanedSiafundBalance(id)
+		siafunds, err := ut.orphanedSiafundBalance(id)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get orphaned siafund elements: %w", err)
 		}
