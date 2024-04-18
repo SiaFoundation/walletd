@@ -49,7 +49,7 @@ type (
 	// A WalletManager manages wallets, keyed by name.
 	WalletManager interface {
 		Tip() (types.ChainIndex, error)
-		Scan(index types.ChainIndex) error
+		Scan(_ context.Context, index types.ChainIndex) error
 
 		AddWallet(wallet.Wallet) (wallet.Wallet, error)
 		UpdateWallet(wallet.Wallet) (wallet.Wallet, error)
@@ -308,7 +308,7 @@ func (s *server) rescanHandlerPOST(jc jape.Context) {
 	}
 
 	go func() {
-		err := s.wm.Scan(index)
+		err := s.wm.Scan(context.Background(), index)
 
 		// update the scan state
 		s.scanMu.Lock()

@@ -16,6 +16,11 @@ func scanSiacoinElement(s scanner) (se types.SiacoinElement, err error) {
 	return
 }
 
+func scanSiafundElement(s scanner) (se types.SiafundElement, err error) {
+	err = s.Scan(decode(&se.ID), &se.LeafIndex, decodeSlice(&se.MerkleProof), &se.SiafundOutput.Value, decode(&se.ClaimStart), decode(&se.SiafundOutput.Address))
+	return
+}
+
 func insertAddress(tx *txn, addr types.Address) (id int64, err error) {
 	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) 
 VALUES ($1, $2, $2, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
@@ -142,8 +147,8 @@ func (s *Store) WalletEvents(id wallet.ID, offset, limit int) (events []wallet.E
 
 // AddWallet adds a wallet to the database.
 func (s *Store) AddWallet(w wallet.Wallet) (wallet.Wallet, error) {
-	w.DateCreated = time.Now()
-	w.LastUpdated = time.Now()
+	w.DateCreated = time.Now().Truncate(time.Second)
+	w.LastUpdated = time.Now().Truncate(time.Second)
 
 	err := s.transaction(func(tx *txn) error {
 		const query = `INSERT INTO wallets (friendly_name, description, date_created, last_updated, extra_data) VALUES ($1, $2, $3, $4, $5) RETURNING id`
@@ -337,8 +342,7 @@ func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds 
 		defer rows.Close()
 
 		for rows.Next() {
-			var siafund types.SiafundElement
-			err := rows.Scan(decode(&siafund.ID), &siafund.LeafIndex, decodeSlice(&siafund.MerkleProof), &siafund.SiafundOutput.Value, decode(&siafund.ClaimStart), decode(&siafund.SiafundOutput.Address))
+			siafund, err := scanSiafundElement(rows)
 			if err != nil {
 				return fmt.Errorf("failed to scan siafund element: %w", err)
 			}
