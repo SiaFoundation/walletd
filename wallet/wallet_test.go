@@ -123,6 +123,7 @@ func TestReorg(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm.Close()
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -324,6 +325,7 @@ func TestEphemeralBalance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm.Close()
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -519,6 +521,7 @@ func TestWalletAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm.Close()
 
 	// Add a wallet
 	w := wallet.Wallet{
@@ -648,6 +651,7 @@ func TestV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm.Close()
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -772,6 +776,7 @@ func TestResubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm.Close()
 
 	pk2 := types.GeneratePrivateKey()
 	addr2 := types.StandardUnlockHash(pk2.PublicKey())
@@ -925,6 +930,7 @@ func TestSiafunds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm.Close()
 
 	pk2 := types.GeneratePrivateKey()
 	addr2 := types.StandardUnlockHash(pk2.PublicKey())
@@ -1061,6 +1067,7 @@ func TestOrphans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm.Close()
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {

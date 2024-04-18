@@ -92,6 +92,7 @@ func TestWalletAdd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm.Close()
 
 	c, shutdown := runServer(cm, nil, wm)
 	defer shutdown()
@@ -279,6 +280,7 @@ func TestWallet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm.Close()
 
 	// create seed address vault
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
@@ -500,6 +502,7 @@ func TestAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm.Close()
 
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
 	c, shutdown := runServer(cm, nil, wm)
@@ -696,6 +699,8 @@ func TestV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm.Close()
+
 	c, shutdown := runServer(cm, nil, wm)
 	defer shutdown()
 	primaryWallet, err := c.AddWallet(api.WalletUpdateRequest{Name: "primary"})
@@ -920,6 +925,8 @@ func TestP2P(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm1.Close()
+
 	l1, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -961,6 +968,8 @@ func TestP2P(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer wm2.Close()
+
 	l2, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
