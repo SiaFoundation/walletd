@@ -763,7 +763,6 @@ func (ut *updateTx) RevertOrphans(index types.ChainIndex) (reverted []types.Bloc
 	if err != nil {
 		return nil, err
 	}
-	reverted = append(reverted, orphanedSCEs...)
 
 	// delete orphaned siafund elements
 	orphanedSFEs, err := ut.deleteOrphanedSiafundElements(index)
