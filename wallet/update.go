@@ -33,9 +33,8 @@ type (
 		ApplyMatureSiacoinBalance(types.ChainIndex) error
 		AddEvents([]Event) error
 
+		RevertIndex(index types.ChainIndex) error
 		RevertMatureSiacoinBalance(types.ChainIndex) error
-		RevertEvents(index types.ChainIndex) error
-
 		RevertOrphans(types.ChainIndex) (reverted []types.BlockID, err error)
 	}
 )
@@ -277,8 +276,8 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 		return fmt.Errorf("failed to update siafund state elements: %w", err)
 	}
 
-	// revert events
-	return tx.RevertEvents(revertedIndex)
+	// revert index
+	return tx.RevertIndex(revertedIndex)
 }
 
 func UpdateChainState(tx UpdateTx, reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error {
