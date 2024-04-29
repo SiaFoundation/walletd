@@ -26,15 +26,16 @@ type (
 		RemoveSiacoinElements([]types.SiacoinElement, types.ChainIndex) error
 
 		AddSiafundElements([]types.SiafundElement, types.ChainIndex) error
-		RemoveSiafundElements([]types.SiafundElement, types.ChainIndex) error
+		RemoveSiafundElements([]types.SiafundElement) error
+
+		ApplyMatureSiacoinBalance(types.ChainIndex) error
+		RevertMatureSiacoinBalance(types.ChainIndex) error
+
+		AddEvents([]Event) error
+		RemoveEvents(index types.ChainIndex) error
 
 		AddressRelevant(types.Address) (bool, error)
 
-		ApplyMatureSiacoinBalance(types.ChainIndex) error
-		AddEvents([]Event) error
-
-		RevertIndex(index types.ChainIndex) error
-		RevertMatureSiacoinBalance(types.ChainIndex) error
 		RevertOrphans(types.ChainIndex) (reverted []types.BlockID, err error)
 	}
 )
@@ -121,7 +122,7 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate) error {
 
 	if err := tx.AddSiafundElements(newSiafundElements, cau.State.Index); err != nil {
 		return fmt.Errorf("failed to add siafund elements: %w", err)
-	} else if err := tx.RemoveSiafundElements(spentSiafundElements, cau.State.Index); err != nil {
+	} else if err := tx.RemoveSiafundElements(spentSiafundElements); err != nil {
 		return fmt.Errorf("failed to remove siafund elements: %w", err)
 	}
 
@@ -169,7 +170,7 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate) error {
 }
 
 // revertChainUpdate atomically reverts a chain update from a store
-func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.ChainIndex) error {
+func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex, appliedIndex types.ChainIndex) error {
 	// determine which siacoin and siafund elements are ephemeral
 	//
 	// note: I thought we could use LeafIndex == EphemeralLeafIndex, but
@@ -213,7 +214,7 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 		}
 	})
 
-	if err := tx.AddSiacoinElements(addedSiacoinElements, revertedIndex); err != nil {
+	if err := tx.AddSiacoinElements(addedSiacoinElements, appliedIndex); err != nil {
 		return fmt.Errorf("failed to add siacoin elements: %w", err)
 	} else if err := tx.RemoveSiacoinElements(removedSiacoinElements, revertedIndex); err != nil {
 		return fmt.Errorf("failed to remove siacoin elements: %w", err)
@@ -242,9 +243,9 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 	})
 
 	// revert siafund element changes
-	if err := tx.AddSiafundElements(addedSiafundElements, revertedIndex); err != nil {
+	if err := tx.AddSiafundElements(addedSiafundElements, appliedIndex); err != nil {
 		return fmt.Errorf("failed to add siafund elements: %w", err)
-	} else if err := tx.RemoveSiafundElements(removedSiafundElements, revertedIndex); err != nil {
+	} else if err := tx.RemoveSiafundElements(removedSiafundElements); err != nil {
 		return fmt.Errorf("failed to remove siafund elements: %w", err)
 	}
 
@@ -276,18 +277,38 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 		return fmt.Errorf("failed to update siafund state elements: %w", err)
 	}
 
-	// revert index
-	return tx.RevertIndex(revertedIndex)
+	// remove events
+	return tx.RemoveEvents(revertedIndex)
 }
 
 func UpdateChainState(tx UpdateTx, reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error {
-	for _, cru := range reverted {
-		revertedIndex := types.ChainIndex{
-			ID:     cru.Block.ID(),
-			Height: cru.State.Index.Height + 1,
+	if len(reverted) > 0 {
+		// map height to the newly applied chain index
+		indices := make(map[uint64]types.ChainIndex)
+		for _, cau := range applied {
+			indices[cau.State.Index.Height] = cau.State.Index
 		}
-		if err := revertChainUpdate(tx, cru, revertedIndex); err != nil {
-			return fmt.Errorf("failed to revert chain update %q: %w", revertedIndex, err)
+
+		// loop over every revert update
+		for _, cru := range reverted {
+			revertedIndex := types.ChainIndex{
+				ID:     cru.Block.ID(),
+				Height: cru.State.Index.Height + 1,
+			}
+
+			// find the index corresponding to the reverted index's height, any
+			// spent elements that are being re-added will be linked to this
+			// index seeing as we lost that information
+			appliedIndex, ok := indices[revertedIndex.Height]
+			if !ok {
+				// if there's no corresponding index use the tip (highly
+				// unlikely to happen but a shorter chain can theoretically be
+				// heavier)
+				appliedIndex = applied[len(applied)-1].State.Index
+			}
+			if err := revertChainUpdate(tx, cru, revertedIndex, appliedIndex); err != nil {
+				return fmt.Errorf("failed to revert chain update %q: %w", revertedIndex, err)
+			}
 		}
 	}
 

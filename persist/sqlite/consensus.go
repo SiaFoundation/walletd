@@ -477,7 +477,7 @@ func (ut *updateTx) AddSiafundElements(elements []types.SiafundElement, index ty
 	return nil
 }
 
-func (ut *updateTx) RemoveSiafundElements(elements []types.SiafundElement, index types.ChainIndex) error {
+func (ut *updateTx) RemoveSiafundElements(elements []types.SiafundElement) error {
 	if len(elements) == 0 {
 		return nil
 	}
@@ -600,13 +600,9 @@ func (ut *updateTx) AddEvents(events []wallet.Event) error {
 	return nil
 }
 
-// RevertIndex reverts all siacoin_elements, siafund_elements or events that were added by the index
-func (ut *updateTx) RevertIndex(index types.ChainIndex) error {
-	if _, err := ut.tx.Exec(`DELETE FROM siacoin_elements WHERE block_id=$1 AND height=$2`, encode(index.ID), index.Height); err != nil {
-		return fmt.Errorf("failed to delete siacoin elements: %w", err)
-	} else if _, err := ut.tx.Exec(`DELETE FROM siafund_elements WHERE block_id=$1 AND height=$2`, encode(index.ID), index.Height); err != nil {
-		return fmt.Errorf("failed to delete siafund elements: %w", err)
-	} else if _, err := ut.tx.Exec(`DELETE FROM events WHERE block_id=$1 AND height=$2`, encode(index.ID), index.Height); err != nil {
+// RemoveEvents removes all siacoin_elements that correspond to the given index.
+func (ut *updateTx) RemoveEvents(index types.ChainIndex) error {
+	if _, err := ut.tx.Exec(`DELETE FROM events WHERE block_id=$1 AND height=$2`, encode(index.ID), index.Height); err != nil {
 		return fmt.Errorf("failed to delete events: %w", err)
 	}
 	return nil
@@ -628,7 +624,6 @@ func (ut *updateTx) orphanedSiacoinBalances(index types.ChainIndex) (map[int64]w
 		if err := rows.Scan(&addrID, decode(&value), &matured); err != nil {
 			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
 		}
-
 		balance := balances[addrID]
 		if matured {
 			balance.Siacoins = balance.Siacoins.Add(value)
