@@ -181,7 +181,7 @@ func (ut *updateTx) RevertIndex(index types.ChainIndex, state wallet.RevertedSta
 	return nil
 }
 
-// ProcessChainApplyUpdate implements chain.Subscriber
+// UpdateChainState implements chain.Subscriber
 func (s *Store) UpdateChainState(reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error {
 	log := s.log.Named("UpdateChainState").With(zap.Int("reverted", len(reverted)), zap.Int("applied", len(applied)))
 	return s.transaction(func(tx *txn) error {

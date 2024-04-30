@@ -15,6 +15,8 @@ type (
 		Balance
 	}
 
+	// AppliedState contains all state changes made to a store after applying a chain
+	// update.
 	AppliedState struct {
 		Events                 []Event
 		CreatedSiacoinElements []types.SiacoinElement
@@ -23,6 +25,8 @@ type (
 		SpentSiafundElements   []types.SiafundElement
 	}
 
+	// RevertedState contains all state changes made to a store after reverting
+	// a chain update.
 	RevertedState struct {
 		UnspentSiacoinElements []types.SiacoinElement
 		DeletedSiacoinElements []types.SiacoinElement
@@ -250,6 +254,8 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 	return nil
 }
 
+// UpdateChainState atomically updates the state of a store with a set of
+// updates from the chain manager.
 func UpdateChainState(tx UpdateTx, reverted []chain.RevertUpdate, applied []chain.ApplyUpdate, log *zap.Logger) error {
 	for _, cru := range reverted {
 		revertedIndex := types.ChainIndex{
