@@ -5,6 +5,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
+	"go.uber.org/zap"
 )
 
 type (
@@ -12,6 +13,21 @@ type (
 	AddressBalance struct {
 		Address types.Address `json:"address"`
 		Balance
+	}
+
+	AppliedState struct {
+		Events                 []Event
+		CreatedSiacoinElements []types.SiacoinElement
+		SpentSiacoinElements   []types.SiacoinElement
+		CreatedSiafundElements []types.SiafundElement
+		SpentSiafundElements   []types.SiafundElement
+	}
+
+	RevertedState struct {
+		UnspentSiacoinElements []types.SiacoinElement
+		DeletedSiacoinElements []types.SiacoinElement
+		UnspentSiafundElements []types.SiafundElement
+		DeletedSiafundElements []types.SiafundElement
 	}
 
 	// An UpdateTx atomically updates the state of a store.
@@ -22,34 +38,16 @@ type (
 		SiafundStateElements() ([]types.StateElement, error)
 		UpdateSiafundStateElements([]types.StateElement) error
 
-		AddSiacoinElements([]types.SiacoinElement, types.ChainIndex) error
-		RemoveSiacoinElements([]types.SiacoinElement, types.ChainIndex) error
-
-		AddSiafundElements([]types.SiafundElement, types.ChainIndex) error
-		RemoveSiafundElements([]types.SiafundElement, types.ChainIndex) error
-
 		AddressRelevant(types.Address) (bool, error)
 
-		ApplyMatureSiacoinBalance(types.ChainIndex) error
-		AddEvents([]Event) error
-
-		RevertIndex(index types.ChainIndex) error
-		RevertMatureSiacoinBalance(types.ChainIndex) error
-		RevertOrphans(types.ChainIndex) (reverted []types.BlockID, err error)
+		ApplyIndex(types.ChainIndex, AppliedState) error
+		RevertIndex(types.ChainIndex, RevertedState) error
 	}
 )
 
 // applyChainUpdate atomically applies a chain update to a store
 func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate) error {
-	// revert any orphaned chain indices
-	if _, err := tx.RevertOrphans(cau.State.Index); err != nil {
-		return fmt.Errorf("failed to revert orphans: %w", err)
-	}
-
-	// update the immature balance of each relevant address
-	if err := tx.ApplyMatureSiacoinBalance(cau.State.Index); err != nil {
-		return fmt.Errorf("failed to get matured siacoin elements: %w", err)
-	}
+	var applied AppliedState
 
 	// determine which siacoin and siafund elements are ephemeral
 	//
@@ -73,7 +71,6 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate) error {
 	}
 
 	// add new siacoin elements to the store
-	var newSiacoinElements, spentSiacoinElements []types.SiacoinElement
 	cau.ForEachSiacoinElement(func(se types.SiacoinElement, spent bool) {
 		if ephemeral[se.ID] {
 			return
@@ -87,19 +84,12 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate) error {
 		}
 
 		if spent {
-			spentSiacoinElements = append(spentSiacoinElements, se)
+			applied.SpentSiacoinElements = append(applied.SpentSiacoinElements, se)
 		} else {
-			newSiacoinElements = append(newSiacoinElements, se)
+			applied.CreatedSiacoinElements = append(applied.CreatedSiacoinElements, se)
 		}
 	})
 
-	if err := tx.AddSiacoinElements(newSiacoinElements, cau.State.Index); err != nil {
-		return fmt.Errorf("failed to add siacoin elements: %w", err)
-	} else if err := tx.RemoveSiacoinElements(spentSiacoinElements, cau.State.Index); err != nil {
-		return fmt.Errorf("failed to remove siacoin elements: %w", err)
-	}
-
-	var newSiafundElements, spentSiafundElements []types.SiafundElement
 	cau.ForEachSiafundElement(func(se types.SiafundElement, spent bool) {
 		if ephemeral[se.ID] {
 			return
@@ -113,17 +103,11 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate) error {
 		}
 
 		if spent {
-			spentSiafundElements = append(spentSiafundElements, se)
+			applied.SpentSiafundElements = append(applied.SpentSiafundElements, se)
 		} else {
-			newSiafundElements = append(newSiafundElements, se)
+			applied.CreatedSiafundElements = append(applied.CreatedSiafundElements, se)
 		}
 	})
-
-	if err := tx.AddSiafundElements(newSiafundElements, cau.State.Index); err != nil {
-		return fmt.Errorf("failed to add siafund elements: %w", err)
-	} else if err := tx.RemoveSiafundElements(spentSiafundElements, cau.State.Index); err != nil {
-		return fmt.Errorf("failed to remove siafund elements: %w", err)
-	}
 
 	// add events
 	relevant := func(addr types.Address) bool {
@@ -133,9 +117,7 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate) error {
 		}
 		return relevant
 	}
-	if err := tx.AddEvents(AppliedEvents(cau.State, cau.Block, cau, relevant)); err != nil {
-		return fmt.Errorf("failed to add events: %w", err)
-	}
+	applied.Events = AppliedEvents(cau.State, cau.Block, cau, relevant)
 
 	// fetch all siacoin and siafund state elements
 	siacoinStateElements, err := tx.SiacoinStateElements()
@@ -165,11 +147,17 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate) error {
 	if err := tx.UpdateSiafundStateElements(siafundStateElements); err != nil {
 		return fmt.Errorf("failed to update siacoin state elements: %w", err)
 	}
+
+	if err := tx.ApplyIndex(cau.State.Index, applied); err != nil {
+		return fmt.Errorf("failed to apply chain update %q: %w", cau.State.Index, err)
+	}
 	return nil
 }
 
 // revertChainUpdate atomically reverts a chain update from a store
 func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.ChainIndex) error {
+	var reverted RevertedState
+
 	// determine which siacoin and siafund elements are ephemeral
 	//
 	// note: I thought we could use LeafIndex == EphemeralLeafIndex, but
@@ -191,7 +179,6 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 		}
 	}
 
-	var removedSiacoinElements, addedSiacoinElements []types.SiacoinElement
 	cru.ForEachSiacoinElement(func(se types.SiacoinElement, spent bool) {
 		if ephemeral[se.ID] {
 			return
@@ -206,20 +193,13 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 
 		if spent {
 			// re-add any spent siacoin elements
-			addedSiacoinElements = append(addedSiacoinElements, se)
+			reverted.UnspentSiacoinElements = append(reverted.UnspentSiacoinElements, se)
 		} else {
 			// delete any created siacoin elements
-			removedSiacoinElements = append(removedSiacoinElements, se)
+			reverted.DeletedSiacoinElements = append(reverted.DeletedSiacoinElements, se)
 		}
 	})
 
-	if err := tx.AddSiacoinElements(addedSiacoinElements, revertedIndex); err != nil {
-		return fmt.Errorf("failed to add siacoin elements: %w", err)
-	} else if err := tx.RemoveSiacoinElements(removedSiacoinElements, revertedIndex); err != nil {
-		return fmt.Errorf("failed to remove siacoin elements: %w", err)
-	}
-
-	var removedSiafundElements, addedSiafundElements []types.SiafundElement
 	cru.ForEachSiafundElement(func(se types.SiafundElement, spent bool) {
 		if ephemeral[se.ID] {
 			return
@@ -234,23 +214,15 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 
 		if spent {
 			// re-add any spent siafund elements
-			addedSiafundElements = append(addedSiafundElements, se)
+			reverted.UnspentSiafundElements = append(reverted.UnspentSiafundElements, se)
 		} else {
 			// delete any created siafund elements
-			removedSiafundElements = append(removedSiafundElements, se)
+			reverted.DeletedSiafundElements = append(reverted.DeletedSiafundElements, se)
 		}
 	})
 
-	// revert siafund element changes
-	if err := tx.AddSiafundElements(addedSiafundElements, revertedIndex); err != nil {
-		return fmt.Errorf("failed to add siafund elements: %w", err)
-	} else if err := tx.RemoveSiafundElements(removedSiafundElements, revertedIndex); err != nil {
-		return fmt.Errorf("failed to remove siafund elements: %w", err)
-	}
-
-	// revert mature siacoin balance for each relevant address
-	if err := tx.RevertMatureSiacoinBalance(revertedIndex); err != nil {
-		return fmt.Errorf("failed to get matured siacoin elements: %w", err)
+	if err := tx.RevertIndex(revertedIndex, reverted); err != nil {
+		return fmt.Errorf("failed to revert index %q: %w", revertedIndex, err)
 	}
 
 	siacoinElements, err := tx.SiacoinStateElements()
@@ -275,12 +247,10 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 	if err := tx.UpdateSiafundStateElements(siafundElements); err != nil {
 		return fmt.Errorf("failed to update siafund state elements: %w", err)
 	}
-
-	// revert index
-	return tx.RevertIndex(revertedIndex)
+	return nil
 }
 
-func UpdateChainState(tx UpdateTx, reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error {
+func UpdateChainState(tx UpdateTx, reverted []chain.RevertUpdate, applied []chain.ApplyUpdate, log *zap.Logger) error {
 	for _, cru := range reverted {
 		revertedIndex := types.ChainIndex{
 			ID:     cru.Block.ID(),
@@ -289,12 +259,15 @@ func UpdateChainState(tx UpdateTx, reverted []chain.RevertUpdate, applied []chai
 		if err := revertChainUpdate(tx, cru, revertedIndex); err != nil {
 			return fmt.Errorf("failed to revert chain update %q: %w", revertedIndex, err)
 		}
+		log.Debug("reverted chain update", zap.Stringer("blockID", revertedIndex.ID), zap.Uint64("height", revertedIndex.Height))
 	}
 
 	for _, cau := range applied {
+		// apply the chain update
 		if err := applyChainUpdate(tx, cau); err != nil {
 			return fmt.Errorf("failed to apply chain update %q: %w", cau.State.Index, err)
 		}
+		log.Debug("applied chain update", zap.Stringer("blockID", cau.State.Index.ID), zap.Uint64("height", cau.State.Index.Height))
 	}
 	return nil
 }

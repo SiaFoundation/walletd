@@ -1,3 +1,10 @@
+CREATE TABLE chain_indices (
+	id INTEGER PRIMARY KEY,
+	block_id BLOB UNIQUE NOT NULL,
+	height INTEGER UNIQUE NOT NULL
+);
+CREATE INDEX chain_indices_height ON chain_indices (block_id, height);
+
 CREATE TABLE sia_addresses (
 	id INTEGER PRIMARY KEY,
 	sia_address BLOB UNIQUE NOT NULL,
@@ -14,12 +21,13 @@ CREATE TABLE siacoin_elements (
 	maturity_height INTEGER NOT NULL, /* stored as int64 for easier querying */
 	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
 	matured BOOLEAN NOT NULL, /* tracks whether the value has been added to the address balance */
-	block_id BLOB NOT NULL,
-	height INTEGER NOT NULL
+	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
+	spent_index_id INTEGER REFERENCES chain_indices (id) /* soft delete */
 );
 CREATE INDEX siacoin_elements_address_id ON siacoin_elements (address_id);
 CREATE INDEX siacoin_elements_maturity_height_matured ON siacoin_elements (maturity_height, matured);
-CREATE INDEX siacoin_elements_block_id_height ON siacoin_elements (block_id, height);
+CREATE INDEX siacoin_elements_chain_index_id ON siacoin_elements (chain_index_id);
+CREATE INDEX siacoin_elements_spent_index_id ON siacoin_elements (spent_index_id);
 
 CREATE TABLE siafund_elements (
 	id BLOB PRIMARY KEY,
@@ -28,23 +36,23 @@ CREATE TABLE siafund_elements (
 	leaf_index INTEGER NOT NULL,
 	siafund_value INTEGER NOT NULL,
 	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
-	block_id BLOB NOT NULL,
-	height INTEGER NOT NULL
+	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
+	spent_index_id INTEGER REFERENCES chain_indices (id) /* soft delete */	
 );
 CREATE INDEX siafund_elements_address_id ON siafund_elements (address_id);
-CREATE INDEX siafund_elements_block_id_height ON siafund_elements (block_id, height);
+CREATE INDEX siafund_elements_chain_index_id ON siafund_elements (chain_index_id);
+CREATE INDEX siafund_elements_spent_index_id ON siafund_elements (spent_index_id);
 
 CREATE TABLE events (
 	id INTEGER PRIMARY KEY,
+	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
 	event_id BLOB UNIQUE NOT NULL,
 	maturity_height INTEGER NOT NULL,
 	date_created INTEGER NOT NULL,
 	event_type TEXT NOT NULL,
-	event_data BLOB NOT NULL,
-	block_id BLOB NOT NULL,
-	height INTEGER NOT NULL
+	event_data BLOB NOT NULL
 );
-CREATE INDEX events_block_id_height ON events (block_id, height);
+CREATE INDEX events_chain_index_id ON events (chain_index_id);
 
 CREATE TABLE event_addresses (
 	event_id INTEGER NOT NULL REFERENCES events (id) ON DELETE CASCADE,

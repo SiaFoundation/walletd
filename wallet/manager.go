@@ -195,7 +195,7 @@ func syncStore(ctx context.Context, store Store, cm ChainManager, index types.Ch
 }
 
 // NewManager creates a new wallet manager.
-func NewManager(cm ChainManager, store Store, log *zap.Logger) (*Manager, error) {
+func NewManager(cm ChainManager, store Store, log *zap.Logger) *Manager {
 	m := &Manager{
 		chain: cm,
 		store: store,
@@ -203,30 +203,23 @@ func NewManager(cm ChainManager, store Store, log *zap.Logger) (*Manager, error)
 		tg:    threadgroup.New(),
 	}
 
-	lastTip, err := store.LastCommittedIndex()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last committed index: %w", err)
-	}
+	reorgChan := make(chan struct{}, 1)
+	reorgChan <- struct{}{}
+	unsubscribe := cm.OnReorg(func(index types.ChainIndex) {
+		select {
+		case reorgChan <- struct{}{}:
+		default:
+		}
+	})
 
 	go func() {
+		defer unsubscribe()
+
 		ctx, cancel, err := m.tg.AddWithContext(context.Background())
 		if err != nil {
 			log.Panic("failed to add to threadgroup", zap.Error(err))
 		}
 		defer cancel()
-
-		if err := syncStore(ctx, store, cm, lastTip); err != nil {
-			log.Fatal("failed to subscribe to chain manager", zap.Error(err))
-		}
-
-		reorgChan := make(chan types.ChainIndex, 1)
-		unsubscribe := cm.OnReorg(func(index types.ChainIndex) {
-			select {
-			case reorgChan <- index:
-			default:
-			}
-		})
-		defer unsubscribe()
 
 		for {
 			select {
@@ -246,5 +239,5 @@ func NewManager(cm ChainManager, store Store, log *zap.Logger) (*Manager, error)
 			m.mu.Unlock()
 		}
 	}()
-	return m, nil
+	return m
 }

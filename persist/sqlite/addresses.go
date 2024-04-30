@@ -19,10 +19,11 @@ func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, e
 // AddressEvents returns the events of a single address.
 func (s *Store) AddressEvents(address types.Address, offset, limit int) (events []wallet.Event, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ev.height, ev.block_id, ev.event_type, ev.event_data
+		const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
 	FROM events ev
 	INNER JOIN event_addresses ea ON (ev.id = ea.event_id)
 	INNER JOIN sia_addresses sa ON (ea.address_id = sa.id)
+	INNER JOIN chain_indices ci ON (ev.chain_index_id = ci.id)
 	WHERE sa.sia_address = $1
 	ORDER BY ev.maturity_height DESC, ev.id DESC
 	LIMIT $2 OFFSET $3`
@@ -52,7 +53,7 @@ func (s *Store) AddressSiacoinOutputs(address types.Address, offset, limit int) 
 		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address 
 		FROM siacoin_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
-		WHERE sa.sia_address=$1
+		WHERE sa.sia_address=$1 AND se.spent_index_id IS NULL
 		LIMIT $2 OFFSET $3`
 
 		rows, err := tx.Query(query, encode(address), limit, offset)
@@ -80,7 +81,7 @@ func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) 
 		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
 		FROM siafund_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
-		WHERE sa.sia_address = $1
+		WHERE sa.sia_address = $1 AND se.spent_index_id IS NULL
 		LIMIT $2 OFFSET $3`
 
 		rows, err := tx.Query(query, encode(address), limit, offset)

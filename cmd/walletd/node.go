@@ -187,10 +187,7 @@ func newNode(addr, dir string, chainNetwork string, useUPNP, useBootstrap bool, 
 	}
 
 	s := syncer.New(l, cm, ps, header, syncer.WithLogger(log.Named("syncer")))
-	wm, err := wallet.NewManager(cm, store, log.Named("wallet"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create wallet manager: %w", err)
-	}
+	wm := wallet.NewManager(cm, store, log.Named("wallet"))
 
 	return &node{
 		chainStore: bdb,
