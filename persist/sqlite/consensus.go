@@ -559,7 +559,7 @@ func (ut *updateTx) AddEvents(events []wallet.Event) error {
 	if err != nil {
 		return fmt.Errorf("failed to prepare relevant address statement: %w", err)
 	}
-	defer addrStmt.Close()
+	defer relevantAddrStmt.Close()
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -728,6 +728,7 @@ func (ut *updateTx) RevertOrphans(index types.ChainIndex) (reverted []types.Bloc
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare update statement: %w", err)
 	}
+	defer updateBalanceStmt.Close()
 
 	for addrID, balance := range revertedBalance {
 		var existing wallet.Balance
