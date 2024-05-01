@@ -148,7 +148,7 @@ func (ut *updateTx) ApplyIndex(index types.ChainIndex, state wallet.AppliedState
 
 	if err := spendSiafundElements(tx, state.SpentSiafundElements, indexID); err != nil {
 		return fmt.Errorf("failed to spend siafund elements: %w", err)
-	} else if err := addSiafundElements(tx, state.CreatedSiafundElements, indexID); err != nil {
+	} else if err := addSiafundElements(tx, state.CreatedSiafundElements, indexID, log.Named("addSiafundElements")); err != nil {
 		return fmt.Errorf("failed to add siafund elements: %w", err)
 	}
 
@@ -412,8 +412,14 @@ func addSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64,
 	}
 	defer addrStmt.Close()
 
+	existsStmt, err := tx.Prepare(`SELECT EXISTS(SELECT 1 FROM siacoin_elements WHERE id=$1)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare exists statement: %w", err)
+	}
+	defer existsStmt.Close()
+
 	// ignore elements already in the database.
-	insertStmt, err := tx.Prepare(`INSERT INTO siacoin_elements (id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured, chain_index_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING RETURNING id`)
+	insertStmt, err := tx.Prepare(`INSERT INTO siacoin_elements (id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured, chain_index_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET leaf_index=EXCLUDED.leaf_index, merkle_proof=EXCLUDED.merkle_proof`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert statement: %w", err)
 	}
@@ -428,16 +434,22 @@ func addSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64,
 			balanceChanges[addrRef.ID] = addrRef.Balance
 		}
 
-		var dummyID types.Hash256
-		err = insertStmt.QueryRow(encode(se.ID), encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0, indexID).Scan(decode(&dummyID))
-		if errors.Is(err, sql.ErrNoRows) {
-			log.Debug("siacoin element already exists", zap.Stringer("id", se.ID), zap.Stringer("address", se.SiacoinOutput.Address))
-			continue // skip if the element already exists
-		} else if err != nil {
-			return fmt.Errorf("failed to execute statement: %w", err)
+		var exists bool
+		err = existsStmt.QueryRow(encode(se.ID)).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("failed to check if siacoin element exists: %w", err)
 		}
 
-		// update the balance if the element does not exist
+		_, err = insertStmt.Exec(encode(se.ID), encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0, indexID)
+		if err != nil {
+			return fmt.Errorf("failed to execute statement: %w", err)
+		}
+		// skip balance update if the element already exists
+		if exists {
+			log.Debug("updated siacoin element", zap.Stringer("id", se.ID), zap.Stringer("address", se.SiacoinOutput.Address), zap.Stringer("value", se.SiacoinOutput.Value))
+			continue
+		}
+
 		balance := balanceChanges[addrRef.ID]
 		if se.MaturityHeight == 0 {
 			balance.Siacoins = balance.Siacoins.Add(se.SiacoinOutput.Value)
@@ -659,7 +671,7 @@ func spendSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int6
 	return nil
 }
 
-func addSiafundElements(tx *txn, elements []types.SiafundElement, indexID int64) error {
+func addSiafundElements(tx *txn, elements []types.SiafundElement, indexID int64, log *zap.Logger) error {
 	if len(elements) == 0 {
 		return nil
 	}
@@ -670,7 +682,13 @@ func addSiafundElements(tx *txn, elements []types.SiafundElement, indexID int64)
 	}
 	defer addrStmt.Close()
 
-	insertStmt, err := tx.Prepare(`INSERT INTO siafund_elements (id, siafund_value, merkle_proof, leaf_index, claim_start, address_id, chain_index_id) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO NOTHING RETURNING id`)
+	existsStmt, err := tx.Prepare(`SELECT EXISTS(SELECT 1 FROM siafund_elements WHERE id=$1)`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare exists statement: %w", err)
+	}
+	defer existsStmt.Close()
+
+	insertStmt, err := tx.Prepare(`INSERT INTO siafund_elements (id, siafund_value, merkle_proof, leaf_index, claim_start, address_id, chain_index_id) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET leaf_index=EXCLUDED.leaf_index, merkle_proof=EXCLUDED.merkle_proof`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
@@ -685,12 +703,18 @@ func addSiafundElements(tx *txn, elements []types.SiafundElement, indexID int64)
 			balanceChanges[addrRef.ID] = addrRef.Balance.Siafunds
 		}
 
-		var dummy types.Hash256
-		err = insertStmt.QueryRow(encode(se.ID), se.SiafundOutput.Value, encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ClaimStart), addrRef.ID, indexID).Scan(decode(&dummy))
-		if errors.Is(err, sql.ErrNoRows) {
-			continue // skip if the element already exists
-		} else if err != nil {
+		var exists bool
+		if err := existsStmt.QueryRow(encode(se.ID)).Scan(&exists); err != nil {
+			return fmt.Errorf("failed to check if siafund element exists: %w", err)
+		}
+
+		_, err = insertStmt.Exec(encode(se.ID), se.SiafundOutput.Value, encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ClaimStart), addrRef.ID, indexID)
+		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
+		} else if exists {
+			// skip balance update if the element already exists
+			log.Debug("updated siafund element", zap.Stringer("id", se.ID), zap.Stringer("address", se.SiafundOutput.Address), zap.Uint64("value", se.SiafundOutput.Value))
+			continue
 		}
 		balanceChanges[addrRef.ID] += se.SiafundOutput.Value
 	}
