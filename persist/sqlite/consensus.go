@@ -24,7 +24,7 @@ type addressRef struct {
 }
 
 func (ut *updateTx) SiacoinStateElements() ([]types.StateElement, error) {
-	const query = `SELECT id, leaf_index, merkle_proof FROM siacoin_elements WHERE spent_index_id IS NULL`
+	const query = `SELECT id, leaf_index, merkle_proof FROM siacoin_elements`
 	rows, err := ut.tx.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
@@ -65,7 +65,7 @@ func (ut *updateTx) UpdateSiacoinStateElements(elements []types.StateElement) er
 }
 
 func (ut *updateTx) SiafundStateElements() ([]types.StateElement, error) {
-	const query = `SELECT id, leaf_index, merkle_proof FROM siafund_elements WHERE spent_index_id IS NULL`
+	const query = `SELECT id, leaf_index, merkle_proof FROM siafund_elements`
 	rows, err := ut.tx.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
