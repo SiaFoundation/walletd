@@ -227,31 +227,34 @@ func (*EventContractPayout) EventType() string { return EventTypeContractPayout 
 func (e Event) MarshalJSON() ([]byte, error) {
 	val, _ := json.Marshal(e.Data)
 	return json.Marshal(struct {
-		ID        types.Hash256    `json:"id"`
-		Timestamp time.Time        `json:"timestamp"`
-		Index     types.ChainIndex `json:"index"`
-		Relevant  []types.Address  `json:"relevant"`
-		Type      string           `json:"type"`
-		Val       json.RawMessage  `json:"val"`
+		ID             types.Hash256    `json:"id"`
+		Timestamp      time.Time        `json:"timestamp"`
+		Index          types.ChainIndex `json:"index"`
+		MaturityHeight uint64           `json:"maturityHeight"`
+		Relevant       []types.Address  `json:"relevant"`
+		Type           string           `json:"type"`
+		Data           json.RawMessage  `json:"data"`
 	}{
-		ID:        e.ID,
-		Timestamp: e.Timestamp,
-		Index:     e.Index,
-		Relevant:  e.Relevant,
-		Type:      e.Data.EventType(),
-		Val:       val,
+		ID:             e.ID,
+		Timestamp:      e.Timestamp,
+		Index:          e.Index,
+		MaturityHeight: e.MaturityHeight,
+		Relevant:       e.Relevant,
+		Type:           e.Data.EventType(),
+		Data:           val,
 	})
 }
 
 // UnmarshalJSON implements json.Unarshaler.
 func (e *Event) UnmarshalJSON(data []byte) error {
 	var s struct {
-		ID        types.Hash256    `json:"id"`
-		Timestamp time.Time        `json:"timestamp"`
-		Index     types.ChainIndex `json:"index"`
-		Relevant  []types.Address  `json:"relevant"`
-		Type      string           `json:"type"`
-		Val       json.RawMessage  `json:"val"`
+		ID             types.Hash256    `json:"id"`
+		Timestamp      time.Time        `json:"timestamp"`
+		Index          types.ChainIndex `json:"index"`
+		MaturityHeight uint64           `json:"maturityHeight"`
+		Relevant       []types.Address  `json:"relevant"`
+		Type           string           `json:"type"`
+		Data           json.RawMessage  `json:"data"`
 	}
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
@@ -259,6 +262,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	e.ID = s.ID
 	e.Timestamp = s.Timestamp
 	e.Index = s.Index
+	e.MaturityHeight = s.MaturityHeight
 	e.Relevant = s.Relevant
 	switch s.Type {
 	case (*EventTransaction)(nil).EventType():
@@ -271,7 +275,7 @@ func (e *Event) UnmarshalJSON(data []byte) error {
 	if e.Data == nil {
 		return fmt.Errorf("unknown event type %q", s.Type)
 	}
-	return json.Unmarshal(s.Val, e.Data)
+	return json.Unmarshal(s.Data, e.Data)
 }
 
 // A HostAnnouncement represents a host announcement within an EventTransaction.
