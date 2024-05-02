@@ -1173,3 +1173,47 @@ func TestOrphans(t *testing.T) {
 		t.Fatalf("expected 0 output, got %v", len(utxos))
 	}
 }
+
+func TestDeleteWallet(t *testing.T) {
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
+
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(store, genesisState)
+
+	wm, err := wallet.NewManager(cm, db, log.Named("wallet"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
+	if err != nil {
+		t.Fatal(err)
+	} else if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := wm.DeleteWallet(w.ID); err != nil {
+		t.Fatal(err)
+	}
+}

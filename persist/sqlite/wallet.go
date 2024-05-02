@@ -175,8 +175,13 @@ func (s *Store) UpdateWallet(w wallet.Wallet) (wallet.Wallet, error) {
 // addresses that were previously associated with the wallet.
 func (s *Store) DeleteWallet(id wallet.ID) error {
 	return s.transaction(func(tx *txn) error {
+		_, err := tx.Exec(`DELETE FROM wallet_addresses WHERE wallet_id=$1`, id)
+		if err != nil {
+			return fmt.Errorf("failed to delete wallet addresses: %w", err)
+		}
+
 		var dummyID int64
-		err := tx.QueryRow(`DELETE FROM wallets WHERE id=$1 RETURNING id`, id).Scan(&dummyID)
+		err = tx.QueryRow(`DELETE FROM wallets WHERE id=$1 RETURNING id`, id).Scan(&dummyID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return wallet.ErrNotFound
 		}
