@@ -9,4 +9,6 @@ const (
 	maxRetryAttempts = 10  // 10 attempts
 	factor           = 2.0 // factor ^ retryAttempts = backoff time in milliseconds
 	maxBackoff       = 15 * time.Second
+
+	spentElementRetentionBlocks = 36
 )

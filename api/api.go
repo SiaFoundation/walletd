@@ -94,6 +94,7 @@ type SeedSignRequest struct {
 	Keys        []uint64          `json:"keys"`
 }
 
+// RescanResponse contains information about the state of a chain rescan.
 type RescanResponse struct {
 	StartIndex types.ChainIndex `json:"startIndex"`
 	Index      types.ChainIndex `json:"index"`

@@ -71,8 +71,9 @@ func scanEvent(s scanner) (ev wallet.Event, eventID int64, err error) {
 }
 
 func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.Event, eventIDs []int64, err error) {
-	const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ev.height, ev.block_id, ev.event_type, ev.event_data
+	const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
 	FROM events ev
+	INNER JOIN chain_indices ci ON (ev.chain_index_id = ci.id)
 	WHERE ev.id IN (SELECT event_id FROM event_addresses WHERE address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1))
 	ORDER BY ev.maturity_height DESC, ev.id DESC
 	LIMIT $2 OFFSET $3`
@@ -304,7 +305,7 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address
 		FROM siacoin_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
-		WHERE se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)
+		WHERE se.spent_index_id IS NULL AND se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)
 		LIMIT $2 OFFSET $3`
 
 		rows, err := tx.Query(query, id, limit, offset)
@@ -336,7 +337,7 @@ func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds 
 		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
 		FROM siafund_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
-		WHERE se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)
+		WHERE se.spent_index_id IS NULL AND se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)
 		LIMIT $2 OFFSET $3`
 
 		rows, err := tx.Query(query, id, limit, offset)
