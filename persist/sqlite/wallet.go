@@ -5,99 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/bits"
 	"time"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/wallet"
 )
-
-func scanSiacoinElement(s scanner) (se types.SiacoinElement, err error) {
-	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decodeSlice(&se.MerkleProof), &se.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address))
-	return
-}
-
-func scanSiafundElement(s scanner) (se types.SiafundElement, err error) {
-	err = s.Scan(decode(&se.ID), &se.LeafIndex, decodeSlice(&se.MerkleProof), &se.SiafundOutput.Value, decode(&se.ClaimStart), decode(&se.SiafundOutput.Address))
-	return
-}
-
-func insertAddress(tx *txn, addr types.Address) (id int64, err error) {
-	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) 
-VALUES ($1, $2, $2, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
-RETURNING id`
-
-	err = tx.QueryRow(query, encode(addr), encode(types.ZeroCurrency)).Scan(&id)
-	return
-}
-
-func scanEvent(s scanner) (ev wallet.Event, eventID int64, err error) {
-	var eventType string
-	var eventBuf []byte
-
-	err = s.Scan(&eventID, decode(&ev.ID), &ev.MaturityHeight, decode(&ev.Timestamp), &ev.Index.Height, decode(&ev.Index.ID), &eventType, &eventBuf)
-	if err != nil {
-		return
-	}
-
-	switch eventType {
-	case wallet.EventTypeTransaction:
-		var tx wallet.EventTransaction
-		if err = json.Unmarshal(eventBuf, &tx); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal transaction event: %w", err)
-		}
-		ev.Data = &tx
-	case wallet.EventTypeContractPayout:
-		var m wallet.EventContractPayout
-		if err = json.Unmarshal(eventBuf, &m); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal missed file contract event: %w", err)
-		}
-		ev.Data = &m
-	case wallet.EventTypeMinerPayout:
-		var m wallet.EventMinerPayout
-		if err = json.Unmarshal(eventBuf, &m); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal payout event: %w", err)
-		}
-		ev.Data = &m
-	case wallet.EventTypeFoundationSubsidy:
-		var m wallet.EventFoundationSubsidy
-		if err = json.Unmarshal(eventBuf, &m); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal foundation subsidy event: %w", err)
-		}
-		ev.Data = &m
-	default:
-		return wallet.Event{}, 0, fmt.Errorf("unknown event type: %s", eventType)
-	}
-	return
-}
-
-func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.Event, eventIDs []int64, err error) {
-	const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
-	FROM events ev
-	INNER JOIN chain_indices ci ON (ev.chain_index_id = ci.id)
-	WHERE ev.id IN (SELECT event_id FROM event_addresses WHERE address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1))
-	ORDER BY ev.maturity_height DESC, ev.id DESC
-	LIMIT $2 OFFSET $3`
-
-	rows, err := tx.Query(query, id, limit, offset)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		event, eventID, err := scanEvent(rows)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to scan event: %w", err)
-		}
-
-		events = append(events, event)
-		eventIDs = append(eventIDs, eventID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
-	}
-	return
-}
 
 func (s *Store) getWalletEventRelevantAddresses(tx *txn, id wallet.ID, eventIDs []int64) (map[int64][]types.Address, error) {
 	query := `SELECT ea.event_id, sa.sia_address
@@ -322,7 +235,26 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 
 			siacoins = append(siacoins, siacoin)
 		}
-		return rows.Err()
+
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		// retrieve the merkle proofs for the siacoin elements
+		if s.indexMode == wallet.IndexModeFull {
+			indices := make([]uint64, len(siacoins))
+			for i, se := range siacoins {
+				indices[i] = se.LeafIndex
+			}
+			proofs, err := fillElementProofs(tx, indices)
+			if err != nil {
+				return fmt.Errorf("failed to fill element proofs: %w", err)
+			}
+			for i, proof := range proofs {
+				siacoins[i].MerkleProof = proof
+			}
+		}
+		return nil
 	})
 	return
 }
@@ -353,7 +285,25 @@ func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds 
 			}
 			siafunds = append(siafunds, siafund)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		// retrieve the merkle proofs for the siacoin elements
+		if s.indexMode == wallet.IndexModeFull {
+			indices := make([]uint64, len(siafunds))
+			for i, se := range siafunds {
+				indices[i] = se.LeafIndex
+			}
+			proofs, err := fillElementProofs(tx, indices)
+			if err != nil {
+				return fmt.Errorf("failed to fill element proofs: %w", err)
+			}
+			for i, proof := range proofs {
+				siafunds[i].MerkleProof = proof
+			}
+		}
+		return nil
 	})
 	return
 }
@@ -434,10 +384,142 @@ WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`
 	return
 }
 
+func scanSiacoinElement(s scanner) (se types.SiacoinElement, err error) {
+	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decodeSlice(&se.MerkleProof), &se.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address))
+	return
+}
+
+func scanSiafundElement(s scanner) (se types.SiafundElement, err error) {
+	err = s.Scan(decode(&se.ID), &se.LeafIndex, decodeSlice(&se.MerkleProof), &se.SiafundOutput.Value, decode(&se.ClaimStart), decode(&se.SiafundOutput.Address))
+	return
+}
+
+func insertAddress(tx *txn, addr types.Address) (id int64, err error) {
+	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) 
+VALUES ($1, $2, $3, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
+RETURNING id`
+
+	err = tx.QueryRow(query, encode(addr), encode(types.ZeroCurrency), encode(types.ZeroCurrency)).Scan(&id)
+	return
+}
+
+func fillElementProofs(tx *txn, indices []uint64) (proofs [][]types.Hash256, _ error) {
+	if len(indices) == 0 {
+		return nil, nil
+	}
+
+	var numLeaves uint64
+	if err := tx.QueryRow(`SELECT element_num_leaves FROM global_settings LIMIT 1`).Scan(&numLeaves); err != nil {
+		return nil, fmt.Errorf("failed to query state tree leaves: %w", err)
+	}
+
+	stmt, err := tx.Prepare(`SELECT value FROM state_tree WHERE row=? AND column=?`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	data := make(map[uint64]map[uint64]types.Hash256)
+	for _, leafIndex := range indices {
+		proof := make([]types.Hash256, bits.Len64(leafIndex^numLeaves)-1)
+		for j := range proof {
+			row, col := uint64(j), (leafIndex>>j)^1
+
+			// check if the hash is already in the cache
+			if h, ok := data[row][col]; ok {
+				proof[j] = h
+				continue
+			}
+
+			// query the hash from the database
+			if err := stmt.QueryRow(row, col).Scan(decode(&proof[j])); err != nil {
+				return nil, fmt.Errorf("failed to query state element (%d,%d): %w", row, col, err)
+			}
+
+			// cache the hash
+			if _, ok := data[row]; !ok {
+				data[row] = make(map[uint64]types.Hash256)
+			}
+			data[row][col] = proof[j]
+		}
+		proofs = append(proofs, proof)
+	}
+	return
+}
+
+func scanEvent(s scanner) (ev wallet.Event, eventID int64, err error) {
+	var eventType string
+	var eventBuf []byte
+
+	err = s.Scan(&eventID, decode(&ev.ID), &ev.MaturityHeight, decode(&ev.Timestamp), &ev.Index.Height, decode(&ev.Index.ID), &eventType, &eventBuf)
+	if err != nil {
+		return
+	}
+
+	switch eventType {
+	case wallet.EventTypeTransaction:
+		var tx wallet.EventTransaction
+		if err = json.Unmarshal(eventBuf, &tx); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal transaction event: %w", err)
+		}
+		ev.Data = &tx
+	case wallet.EventTypeContractPayout:
+		var m wallet.EventContractPayout
+		if err = json.Unmarshal(eventBuf, &m); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal missed file contract event: %w", err)
+		}
+		ev.Data = &m
+	case wallet.EventTypeMinerPayout:
+		var m wallet.EventMinerPayout
+		if err = json.Unmarshal(eventBuf, &m); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal payout event: %w", err)
+		}
+		ev.Data = &m
+	case wallet.EventTypeFoundationSubsidy:
+		var m wallet.EventFoundationSubsidy
+		if err = json.Unmarshal(eventBuf, &m); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal foundation subsidy event: %w", err)
+		}
+		ev.Data = &m
+	default:
+		return wallet.Event{}, 0, fmt.Errorf("unknown event type: %s", eventType)
+	}
+	return
+}
+
+func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.Event, eventIDs []int64, err error) {
+	const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
+	FROM events ev
+	INNER JOIN chain_indices ci ON (ev.chain_index_id = ci.id)
+	WHERE ev.id IN (SELECT event_id FROM event_addresses WHERE address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1))
+	ORDER BY ev.maturity_height DESC, ev.id DESC
+	LIMIT $2 OFFSET $3`
+
+	rows, err := tx.Query(query, id, limit, offset)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		event, eventID, err := scanEvent(rows)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to scan event: %w", err)
+		}
+
+		events = append(events, event)
+		eventIDs = append(eventIDs, eventID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return
+}
+
 func walletExists(tx *txn, id wallet.ID) error {
-	const query = `SELECT id FROM wallets WHERE id=$1`
-	var dummyID int64
-	err := tx.QueryRow(query, id).Scan(&dummyID)
+	const query = `SELECT 1 FROM wallets WHERE id=$1`
+	var dummy int
+	err := tx.QueryRow(query, id).Scan(&dummy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return wallet.ErrNotFound
 	}

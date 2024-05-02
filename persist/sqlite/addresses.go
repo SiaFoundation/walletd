@@ -1,6 +1,8 @@
 package sqlite
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"go.sia.tech/core/types"
@@ -11,7 +13,12 @@ import (
 func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses WHERE sia_address=$1`
-		return tx.QueryRow(query, encode(address)).Scan(decode(&balance.Siacoins), decode(&balance.ImmatureSiacoins), &balance.Siafunds)
+		err := tx.QueryRow(query, encode(address)).Scan(decode(&balance.Siacoins), decode(&balance.ImmatureSiacoins), &balance.Siafunds)
+		if errors.Is(err, sql.ErrNoRows) {
+			balance = wallet.Balance{}
+			return nil
+		}
+		return err
 	})
 	return
 }
@@ -70,7 +77,25 @@ func (s *Store) AddressSiacoinOutputs(address types.Address, offset, limit int) 
 
 			siacoins = append(siacoins, siacoin)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		// retrieve the merkle proofs for the siacoin elements
+		if s.indexMode == wallet.IndexModeFull {
+			indices := make([]uint64, len(siacoins))
+			for i, se := range siacoins {
+				indices[i] = se.LeafIndex
+			}
+			proofs, err := fillElementProofs(tx, indices)
+			if err != nil {
+				return fmt.Errorf("failed to fill element proofs: %w", err)
+			}
+			for i, proof := range proofs {
+				siacoins[i].MerkleProof = proof
+			}
+		}
+		return nil
 	})
 	return
 }
@@ -97,7 +122,25 @@ func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) 
 			}
 			siafunds = append(siafunds, siafund)
 		}
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		// retrieve the merkle proofs for the siafund elements
+		if s.indexMode == wallet.IndexModeFull {
+			indices := make([]uint64, len(siafunds))
+			for i, se := range siafunds {
+				indices[i] = se.LeafIndex
+			}
+			proofs, err := fillElementProofs(tx, indices)
+			if err != nil {
+				return fmt.Errorf("failed to fill element proofs: %w", err)
+			}
+			for i, proof := range proofs {
+				siafunds[i].MerkleProof = proof
+			}
+		}
+		return nil
 	})
 	return
 }

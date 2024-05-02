@@ -11,11 +11,12 @@ import (
 // A StateResponse returns information about the current state of the walletd
 // daemon.
 type StateResponse struct {
-	Version   string    `json:"version"`
-	Commit    string    `json:"commit"`
-	OS        string    `json:"os"`
-	BuildTime time.Time `json:"buildTime"`
-	StartTime time.Time `json:"startTime"`
+	Version   string           `json:"version"`
+	Commit    string           `json:"commit"`
+	OS        string           `json:"os"`
+	BuildTime time.Time        `json:"buildTime"`
+	StartTime time.Time        `json:"startTime"`
+	IndexMode wallet.IndexMode `json:"indexMode"`
 }
 
 // A GatewayPeer is a currently-connected peer.

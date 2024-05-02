@@ -11,6 +11,7 @@ import (
 	cwallet "go.sia.tech/coreutils/wallet"
 	"go.sia.tech/walletd/api"
 	"go.sia.tech/walletd/build"
+	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/term"
@@ -68,7 +69,7 @@ Runs a CPU miner. Not intended for production use.
 func main() {
 	log.SetFlags(0)
 
-	var gatewayAddr, apiAddr, dir, network, seed string
+	var gatewayAddr, apiAddr, dir, network, seed, indexModeStr string
 	var upnp, bootstrap bool
 
 	var minerAddrStr string
@@ -83,6 +84,7 @@ func main() {
 	rootCmd.BoolVar(&upnp, "upnp", true, "attempt to forward ports and discover IP with UPnP")
 	rootCmd.BoolVar(&bootstrap, "bootstrap", true, "attempt to bootstrap the network")
 	rootCmd.StringVar(&seed, "seed", "", "testnet seed")
+	rootCmd.StringVar(&indexModeStr, "index", "full", "address index mode (full, partial, off)")
 	versionCmd := flagg.New("version", versionUsage)
 	seedCmd := flagg.New("seed", seedUsage)
 	mineCmd := flagg.New("mine", mineUsage)
@@ -135,7 +137,17 @@ func main() {
 		// redirect stdlib log to zap
 		zap.RedirectStdLog(logger.Named("stdlib"))
 
-		n, err := newNode(gatewayAddr, dir, network, upnp, bootstrap, logger)
+		var indexMode wallet.IndexMode
+		switch indexModeStr {
+		case "full":
+			indexMode = wallet.IndexModeFull
+		case "partial":
+			indexMode = wallet.IndexModePartial
+		case "off":
+			indexMode = wallet.IndexModeNone
+		}
+
+		n, err := newNode(gatewayAddr, dir, network, upnp, bootstrap, indexMode, logger)
 		if err != nil {
 			log.Fatal(err)
 		}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
@@ -16,6 +17,8 @@ import (
 type (
 	// A Store is a persistent store that uses a SQL database as its backend.
 	Store struct {
+		indexMode wallet.IndexMode
+
 		db  *sql.DB
 		log *zap.Logger
 	}
@@ -75,11 +78,11 @@ func sqliteFilepath(fp string) string {
 // an error, the transaction is rolled back. Otherwise, the transaction is
 // committed.
 func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx *txn) error) error {
-	start := time.Now()
 	dbtx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	start := time.Now()
 	defer func() {
 		if err := dbtx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
 			log.Error("failed to rollback transaction", zap.Error(err))

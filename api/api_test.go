@@ -88,7 +88,10 @@ func TestWalletAdd(t *testing.T) {
 	}
 	defer ws.Close()
 
-	wm := wallet.NewManager(cm, ws, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	c, shutdown := runServer(cm, nil, wm)
@@ -273,7 +276,10 @@ func TestWallet(t *testing.T) {
 	})
 
 	// create the wallet manager
-	wm := wallet.NewManager(cm, ws, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	// create seed address vault
@@ -492,7 +498,10 @@ func TestAddresses(t *testing.T) {
 	}
 	defer ws.Close()
 
-	wm := wallet.NewManager(cm, ws, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
@@ -686,7 +695,10 @@ func TestV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ws.Close()
-	wm := wallet.NewManager(cm, ws, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	c, shutdown := runServer(cm, nil, wm)
@@ -909,7 +921,10 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wm1 := wallet.NewManager(cm1, store1, log1.Named("wallet"))
+	wm1, err := wallet.NewManager(cm1, store1, wallet.WithLogger(log1.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm1.Close()
 
 	l1, err := net.Listen("tcp", ":0")
@@ -949,7 +964,10 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store2.Close()
-	wm2 := wallet.NewManager(cm2, store2, log2.Named("wallet"))
+	wm2, err := wallet.NewManager(cm2, store2, wallet.WithLogger(log2.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm2.Close()
 
 	l2, err := net.Listen("tcp", ":0")

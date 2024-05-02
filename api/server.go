@@ -48,6 +48,7 @@ type (
 
 	// A WalletManager manages wallets, keyed by name.
 	WalletManager interface {
+		IndexMode() wallet.IndexMode
 		Tip() (types.ChainIndex, error)
 		Scan(_ context.Context, index types.ChainIndex) error
 
@@ -97,6 +98,7 @@ func (s *server) stateHandler(jc jape.Context) {
 		OS:        runtime.GOOS,
 		BuildTime: build.Time(),
 		StartTime: s.startTime,
+		IndexMode: s.wm.IndexMode(),
 	})
 }
 
