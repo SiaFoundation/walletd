@@ -1856,10 +1856,7 @@ func TestDeleteWallet(t *testing.T) {
 	}
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, log.Named("wallet"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	wm := wallet.NewManager(cm, db, log.Named("wallet"))
 	defer wm.Close()
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
