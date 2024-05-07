@@ -71,6 +71,10 @@ type (
 // updateStateElements updates the state elements in a store according to the
 // changes made by a chain update.
 func updateStateElements(tx UpdateTx, update stateTreeUpdater, indexMode IndexMode) error {
+	if indexMode == IndexModeNone {
+		panic("updateStateElements called with IndexModeNone") // developer error
+	}
+
 	if indexMode == IndexModeFull {
 		var updates []TreeNodeUpdate
 		update.ForEachTreeNode(func(row, col uint64, h types.Hash256) {
