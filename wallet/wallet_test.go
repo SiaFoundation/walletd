@@ -98,200 +98,220 @@ func TestReorg(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	setupNode := func(t *testing.T, mode wallet.IndexMode) (consensus.State, *sqlite.Store, *chain.Manager, *wallet.Manager) {
+		t.Helper()
 
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm := wallet.NewManager(cm, db, log.Named("wallet"))
-	defer wm.Close()
-
-	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
-	if err != nil {
-		t.Fatal(err)
-	} else if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
-		t.Fatal(err)
-	}
-
-	expectedPayout := cm.TipState().BlockReward()
-	maturityHeight := cm.TipState().MaturityHeight()
-	// mine a block sending the payout to the wallet
-	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
-		t.Fatal(err)
-	}
-	waitForBlock(t, cm, db)
-
-	assertBalance := func(siacoin, immature types.Currency) error {
-		b, err := wm.WalletBalance(w.ID)
+		log := zaptest.NewLogger(t)
+		dir := t.TempDir()
+		db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
 		if err != nil {
-			return fmt.Errorf("failed to check balance: %w", err)
-		} else if !b.Siacoins.Equals(siacoin) {
-			return fmt.Errorf("expected siacoin balance %v, got %v", siacoin, b.Siacoins)
-		} else if !b.ImmatureSiacoins.Equals(immature) {
-			return fmt.Errorf("expected immature siacoin balance %v, got %v", immature, b.ImmatureSiacoins)
-		}
-		return nil
-	}
-
-	if err := assertBalance(types.ZeroCurrency, expectedPayout); err != nil {
-		t.Fatal(err)
-	}
-
-	// check that a payout event was recorded
-	events, err := wm.Events(w.ID, 0, 100)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(events) != 1 {
-		t.Fatalf("expected 1 event, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
-	}
-
-	// check that the utxo was created
-	utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(utxos) != 1 {
-		t.Fatalf("expected 1 output, got %v", len(utxos))
-	} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
-		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
-	} else if utxos[0].MaturityHeight != maturityHeight {
-		t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
-	}
-
-	// mine to trigger a reorg
-	var blocks []types.Block
-	state := genesisState
-	for i := 0; i < 10; i++ {
-		block := mineBlock(state, nil, types.VoidAddress)
-		blocks = append(blocks, block)
-		state.Index.ID = block.ID()
-		state.Index.Height++
-	}
-	if err := cm.AddBlocks(blocks); err != nil {
-		t.Fatal(err)
-	}
-	waitForBlock(t, cm, db)
-
-	// check that the balance was reverted
-	if err := assertBalance(types.ZeroCurrency, types.ZeroCurrency); err != nil {
-		t.Fatal(err)
-	}
-
-	// check that the payout event was reverted
-	events, err = wm.Events(w.ID, 0, 100)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(events) != 0 {
-		t.Fatalf("expected 0 events, got %v", len(events))
-	}
-
-	// check that the utxo was removed
-	utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(utxos) != 0 {
-		t.Fatalf("expected 0 outputs, got %v", len(utxos))
-	}
-
-	// mine a new payout
-	expectedPayout = cm.TipState().BlockReward()
-	maturityHeight = cm.TipState().MaturityHeight()
-	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
-		t.Fatal(err)
-	}
-	waitForBlock(t, cm, db)
-
-	// check that the payout was received
-	if err := assertBalance(types.ZeroCurrency, expectedPayout); err != nil {
-		t.Fatal(err)
-	}
-
-	// check that a payout event was recorded
-	events, err = wm.Events(w.ID, 0, 100)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(events) != 1 {
-		t.Fatalf("expected 1 event, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
-	}
-
-	// check that the utxo was created
-	utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(utxos) != 1 {
-		t.Fatalf("expected 1 output, got %v", len(utxos))
-	} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
-		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
-	} else if utxos[0].MaturityHeight != maturityHeight {
-		t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
-	}
-
-	// mine until the payout matures
-	var prevState consensus.State
-	for i := cm.TipState().Index.Height; i < maturityHeight+1; i++ {
-		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
 			t.Fatal(err)
 		}
-		if i == maturityHeight-5 {
-			prevState = cm.TipState()
+		t.Cleanup(func() { db.Close() })
+
+		bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { bdb.Close() })
+
+		network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
+
+		store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cm := chain.NewManager(store, genesisState)
+
+		wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(mode))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { wm.Close() })
+		return genesisState, db, cm, wm
+	}
+
+	testReorg := func(t *testing.T, genesisState consensus.State, db *sqlite.Store, cm *chain.Manager, wm *wallet.Manager) {
+		w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
+		if err != nil {
+			t.Fatal(err)
+		} else if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+			t.Fatal(err)
+		}
+
+		expectedPayout := cm.TipState().BlockReward()
+		maturityHeight := cm.TipState().MaturityHeight()
+		// mine a block sending the payout to the wallet
+		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
+			t.Fatal(err)
+		}
+		waitForBlock(t, cm, db)
+
+		assertBalance := func(siacoin, immature types.Currency) error {
+			b, err := wm.WalletBalance(w.ID)
+			if err != nil {
+				return fmt.Errorf("failed to check balance: %w", err)
+			} else if !b.Siacoins.Equals(siacoin) {
+				return fmt.Errorf("expected siacoin balance %v, got %v", siacoin, b.Siacoins)
+			} else if !b.ImmatureSiacoins.Equals(immature) {
+				return fmt.Errorf("expected immature siacoin balance %v, got %v", immature, b.ImmatureSiacoins)
+			}
+			return nil
+		}
+
+		if err := assertBalance(types.ZeroCurrency, expectedPayout); err != nil {
+			t.Fatal(err)
+		}
+
+		// check that a payout event was recorded
+		events, err := wm.Events(w.ID, 0, 100)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(events) != 1 {
+			t.Fatalf("expected 1 event, got %v", len(events))
+		} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
+			t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+		}
+
+		// check that the utxo was created
+		utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(utxos) != 1 {
+			t.Fatalf("expected 1 output, got %v", len(utxos))
+		} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
+			t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
+		} else if utxos[0].MaturityHeight != maturityHeight {
+			t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
+		}
+
+		// mine to trigger a reorg
+		var blocks []types.Block
+		state := genesisState
+		for i := 0; i < 10; i++ {
+			block := mineBlock(state, nil, types.VoidAddress)
+			blocks = append(blocks, block)
+			state.Index.ID = block.ID()
+			state.Index.Height++
+		}
+		if err := cm.AddBlocks(blocks); err != nil {
+			t.Fatal(err)
+		}
+		waitForBlock(t, cm, db)
+
+		// check that the balance was reverted
+		if err := assertBalance(types.ZeroCurrency, types.ZeroCurrency); err != nil {
+			t.Fatal(err)
+		}
+
+		// check that the payout event was reverted
+		events, err = wm.Events(w.ID, 0, 100)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(events) != 0 {
+			t.Fatalf("expected 0 events, got %v", len(events))
+		}
+
+		// check that the utxo was removed
+		utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(utxos) != 0 {
+			t.Fatalf("expected 0 outputs, got %v", len(utxos))
+		}
+
+		// mine a new payout
+		expectedPayout = cm.TipState().BlockReward()
+		maturityHeight = cm.TipState().MaturityHeight()
+		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
+			t.Fatal(err)
+		}
+		waitForBlock(t, cm, db)
+
+		// check that the payout was received
+		if err := assertBalance(types.ZeroCurrency, expectedPayout); err != nil {
+			t.Fatal(err)
+		}
+
+		// check that a payout event was recorded
+		events, err = wm.Events(w.ID, 0, 100)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(events) != 1 {
+			t.Fatalf("expected 1 event, got %v", len(events))
+		} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
+			t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+		}
+
+		// check that the utxo was created
+		utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(utxos) != 1 {
+			t.Fatalf("expected 1 output, got %v", len(utxos))
+		} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
+			t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
+		} else if utxos[0].MaturityHeight != maturityHeight {
+			t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
+		}
+
+		// mine until the payout matures
+		var prevState consensus.State
+		for i := cm.TipState().Index.Height; i < maturityHeight+1; i++ {
+			if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
+				t.Fatal(err)
+			}
+			if i == maturityHeight-5 {
+				prevState = cm.TipState()
+			}
+		}
+		waitForBlock(t, cm, db)
+
+		// check that the balance was updated
+		if err := assertBalance(expectedPayout, types.ZeroCurrency); err != nil {
+			t.Fatal(err)
+		}
+
+		// reorg the last few blocks to re-mature the payout
+		blocks = nil
+		state = prevState
+		for i := 0; i < 10; i++ {
+			blocks = append(blocks, mineBlock(state, nil, types.VoidAddress))
+			state.Index.ID = blocks[len(blocks)-1].ID()
+			state.Index.Height++
+		}
+		if err := cm.AddBlocks(blocks); err != nil {
+			t.Fatal(err)
+		}
+		waitForBlock(t, cm, db)
+
+		// check that the balance is correct
+		if err := assertBalance(expectedPayout, types.ZeroCurrency); err != nil {
+			t.Fatal(err)
+		}
+
+		// check that only the single utxo still exists
+		utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(utxos) != 1 {
+			t.Fatalf("expected 1 output, got %v", len(utxos))
+		} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
+			t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
+		} else if utxos[0].MaturityHeight != maturityHeight {
+			t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
 		}
 	}
-	waitForBlock(t, cm, db)
 
-	// check that the balance was updated
-	if err := assertBalance(expectedPayout, types.ZeroCurrency); err != nil {
-		t.Fatal(err)
-	}
+	t.Run("IndexModePartial", func(t *testing.T) {
+		state, db, cm, w := setupNode(t, wallet.IndexModePartial)
+		testReorg(t, state, db, cm, w)
+	})
 
-	// reorg the last few blocks to re-mature the payout
-	blocks = nil
-	state = prevState
-	for i := 0; i < 10; i++ {
-		blocks = append(blocks, mineBlock(state, nil, types.VoidAddress))
-		state.Index.ID = blocks[len(blocks)-1].ID()
-		state.Index.Height++
-	}
-	if err := cm.AddBlocks(blocks); err != nil {
-		t.Fatal(err)
-	}
-	waitForBlock(t, cm, db)
-
-	// check that the balance is correct
-	if err := assertBalance(expectedPayout, types.ZeroCurrency); err != nil {
-		t.Fatal(err)
-	}
-
-	// check that only the single utxo still exists
-	utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(utxos) != 1 {
-		t.Fatalf("expected 1 output, got %v", len(utxos))
-	} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
-		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
-	} else if utxos[0].MaturityHeight != maturityHeight {
-		t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
-	}
+	t.Run("IndexModeFull", func(t *testing.T) {
+		state, db, cm, w := setupNode(t, wallet.IndexModeFull)
+		testReorg(t, state, db, cm, w)
+	})
 }
 
 func TestEphemeralBalance(t *testing.T) {
@@ -320,7 +340,10 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 
 	cm := chain.NewManager(store, genesisState)
-	wm := wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
@@ -513,7 +536,10 @@ func TestWalletAddresses(t *testing.T) {
 	}
 
 	cm := chain.NewManager(store, genesisState)
-	wm := wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	// Add a wallet
@@ -644,7 +670,10 @@ func TestScan(t *testing.T) {
 
 	cm := chain.NewManager(store, genesisState)
 
-	wm := wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	pk2 := types.GeneratePrivateKey()
@@ -795,7 +824,10 @@ func TestSiafunds(t *testing.T) {
 
 	cm := chain.NewManager(store, genesisState)
 
-	wm := wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	pk2 := types.GeneratePrivateKey()
@@ -931,7 +963,10 @@ func TestOrphans(t *testing.T) {
 	}
 	cm := chain.NewManager(store, genesisState)
 
-	wm := wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
@@ -1062,7 +1097,10 @@ func TestOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wm = wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err = wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	waitForBlock(t, cm, db)
@@ -1088,6 +1126,217 @@ func TestOrphans(t *testing.T) {
 		t.Fatalf("expected 1 output, got %v", len(utxos))
 	} else if !utxos[0].SiacoinOutput.Value.Equals(expectedPayout) {
 		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
+	}
+}
+
+func TestFullIndex(t *testing.T) {
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
+	pk2 := types.GeneratePrivateKey()
+	addr2 := types.StandardUnlockHash(pk2.PublicKey())
+
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	network, genesisBlock := testV2Network(addr2)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(store, genesisState)
+
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	waitForBlock(t, cm, db)
+
+	assertBalance := func(t *testing.T, address types.Address, siacoin, immature types.Currency, siafund uint64) {
+		t.Helper()
+
+		b, err := wm.AddressBalance(address)
+		if err != nil {
+			t.Fatal(err)
+		} else if !b.ImmatureSiacoins.Equals(immature) {
+			t.Fatalf("expected immature siacoin balance %v, got %v", immature, b.ImmatureSiacoins)
+		} else if !b.Siacoins.Equals(siacoin) {
+			t.Fatalf("expected siacoin balance %v, got %v", siacoin, b.Siacoins)
+		} else if b.Siafunds != siafund {
+			t.Fatalf("expected siafund balance %v, got %v", siafund, b.Siafunds)
+		}
+	}
+
+	// check the events are empty for the first address
+	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 0 {
+		t.Fatalf("expected 0 events, got %v", len(events))
+	}
+
+	// assert that the airdropped siafunds are on the second address
+	assertBalance(t, addr2, types.ZeroCurrency, types.ZeroCurrency, cm.TipState().SiafundCount())
+	// check the events for the air dropped siafunds
+	if events, err := wm.AddressEvents(addr2, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	}
+
+	// mine a block and send the payout to the first address
+	expectedBalance1 := cm.TipState().BlockReward()
+	maturityHeight := cm.TipState().MaturityHeight()
+	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
+		t.Fatal(err)
+	}
+	waitForBlock(t, cm, db)
+
+	// check the payout was received
+	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 events, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected miner payout event, got %v", events[0].Data.EventType())
+	}
+
+	assertBalance(t, addr, types.ZeroCurrency, expectedBalance1, 0)
+
+	// mine until the payout matures
+	for i := cm.TipState().Index.Height; i < maturityHeight; i++ {
+		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitForBlock(t, cm, db)
+
+	// check that the events did not change
+	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 events, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected miner payout event, got %v", events[0].Data.EventType())
+	}
+
+	assertBalance(t, addr, expectedBalance1, types.ZeroCurrency, 0)
+	assertBalance(t, addr2, types.ZeroCurrency, types.ZeroCurrency, cm.TipState().SiafundCount())
+
+	// send half siacoins to the second address
+	utxos, err := wm.AddressSiacoinOutputs(addr, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	policy := types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey()))
+	txn := types.V2Transaction{
+		SiacoinInputs: []types.V2SiacoinInput{
+			{
+				Parent: utxos[0],
+				SatisfiedPolicy: types.SatisfiedPolicy{
+					Policy: types.SpendPolicy{
+						Type: policy,
+					},
+				},
+			},
+		},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: addr2, Value: utxos[0].SiacoinOutput.Value.Div64(2)},
+			{Address: addr, Value: utxos[0].SiacoinOutput.Value.Div64(2)},
+		},
+	}
+	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(cm.TipState().InputSigHash(txn))}
+
+	if err := cm.AddBlocks([]types.Block{mineV2Block(cm.TipState(), []types.V2Transaction{txn}, types.VoidAddress)}); err != nil {
+		t.Fatal(err)
+	}
+	waitForBlock(t, cm, db)
+
+	assertBalance(t, addr, expectedBalance1.Div64(2), types.ZeroCurrency, 0)
+	assertBalance(t, addr2, expectedBalance1.Div64(2), types.ZeroCurrency, cm.TipState().SiafundCount())
+
+	// check the events for the transaction
+	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	}
+
+	// check the events for the second address
+	if events, err := wm.AddressEvents(addr2, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 2 {
+		t.Fatalf("expected 2 event, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	}
+
+	sf, err := wm.AddressSiafundOutputs(addr2, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// send the siafunds to the first address
+	policy = types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk2.PublicKey()))
+	txn = types.V2Transaction{
+		SiafundInputs: []types.V2SiafundInput{
+			{
+				Parent: sf[0],
+				SatisfiedPolicy: types.SatisfiedPolicy{
+					Policy: types.SpendPolicy{
+						Type: policy,
+					},
+				},
+				ClaimAddress: addr2, // claim address shouldn't create an event since the value is 0
+			},
+		},
+		SiafundOutputs: []types.SiafundOutput{
+			{Address: addr, Value: sf[0].SiafundOutput.Value},
+		},
+	}
+	txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk2.SignHash(cm.TipState().InputSigHash(txn))}
+
+	if err := cm.AddBlocks([]types.Block{mineV2Block(cm.TipState(), []types.V2Transaction{txn}, types.VoidAddress)}); err != nil {
+		t.Fatal(err)
+	}
+	waitForBlock(t, cm, db)
+
+	assertBalance(t, addr, expectedBalance1.Div64(2), types.ZeroCurrency, cm.TipState().SiafundCount())
+	assertBalance(t, addr2, expectedBalance1.Div64(2), types.ZeroCurrency, 0)
+
+	// check the events for the transaction
+	if events, err := wm.AddressEvents(addr2, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	}
+
+	// check the events for the first address
+	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %v", len(events))
+	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
 	}
 }
 
@@ -1117,7 +1366,10 @@ func TestV2(t *testing.T) {
 	}
 
 	cm := chain.NewManager(store, genesisState)
-	wm := wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
@@ -1236,7 +1488,10 @@ func TestScanV2(t *testing.T) {
 
 	cm := chain.NewManager(store, genesisState)
 
-	wm := wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	pk2 := types.GeneratePrivateKey()
@@ -1414,7 +1669,10 @@ func TestReorgV2(t *testing.T) {
 	}
 	cm := chain.NewManager(store, genesisState)
 
-	wm := wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
@@ -1647,7 +1905,10 @@ func TestOrphansV2(t *testing.T) {
 	}
 	cm := chain.NewManager(store, genesisState)
 
-	wm := wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
@@ -1769,7 +2030,10 @@ func TestOrphansV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wm = wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err = wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	waitForBlock(t, cm, db)
@@ -1856,7 +2120,10 @@ func TestDeleteWallet(t *testing.T) {
 	}
 	cm := chain.NewManager(store, genesisState)
 
-	wm := wallet.NewManager(cm, db, log.Named("wallet"))
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer wm.Close()
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})

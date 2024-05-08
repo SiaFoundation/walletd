@@ -43,6 +43,13 @@ CREATE INDEX siafund_elements_address_id ON siafund_elements (address_id);
 CREATE INDEX siafund_elements_chain_index_id ON siafund_elements (chain_index_id);
 CREATE INDEX siafund_elements_spent_index_id ON siafund_elements (spent_index_id);
 
+CREATE TABLE state_tree (
+	row INTEGER,
+	column INTEGER,
+	value BLOB NOT NULL,
+	PRIMARY KEY (row, column)
+);
+
 CREATE TABLE events (
 	id INTEGER PRIMARY KEY,
 	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
@@ -97,5 +104,7 @@ CREATE INDEX syncer_bans_expiration_index ON syncer_bans (expiration);
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations
-	last_indexed_tip BLOB NOT NULL -- the last chain index that was processed
+	index_mode INTEGER, -- the mode of the data store
+	last_indexed_tip BLOB NOT NULL, -- the last chain index that was processed
+	element_num_leaves INTEGER NOT NULL -- the number of leaves in the state tree
 );

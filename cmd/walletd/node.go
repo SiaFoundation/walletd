@@ -100,7 +100,7 @@ func (n *node) Close() error {
 	return n.store.Close()
 }
 
-func newNode(addr, dir string, chainNetwork string, useUPNP, useBootstrap bool, log *zap.Logger) (*node, error) {
+func newNode(addr, dir string, chainNetwork string, useUPNP, useBootstrap bool, indexMode wallet.IndexMode, log *zap.Logger) (*node, error) {
 	var network *consensus.Network
 	var genesisBlock types.Block
 	var bootstrapPeers []string
@@ -187,8 +187,10 @@ func newNode(addr, dir string, chainNetwork string, useUPNP, useBootstrap bool, 
 	}
 
 	s := syncer.New(l, cm, ps, header, syncer.WithLogger(log.Named("syncer")))
-	wm := wallet.NewManager(cm, store, log.Named("wallet"))
-
+	wm, err := wallet.NewManager(cm, store, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(indexMode))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create wallet manager: %w", err)
+	}
 	return &node{
 		chainStore: bdb,
 		cm:         cm,

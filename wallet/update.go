@@ -9,6 +9,13 @@ import (
 )
 
 type (
+	// A stateTreeUpdater is an interface for applying and reverting
+	// Merkle tree updates.
+	stateTreeUpdater interface {
+		UpdateElementProof(e *types.StateElement)
+		ForEachTreeNode(fn func(row uint64, col uint64, h types.Hash256))
+	}
+
 	// AddressBalance pairs an address with its balance.
 	AddressBalance struct {
 		Address types.Address `json:"address"`
@@ -18,6 +25,7 @@ type (
 	// AppliedState contains all state changes made to a store after applying a chain
 	// update.
 	AppliedState struct {
+		NumLeaves              uint64
 		Events                 []Event
 		CreatedSiacoinElements []types.SiacoinElement
 		SpentSiacoinElements   []types.SiacoinElement
@@ -28,10 +36,19 @@ type (
 	// RevertedState contains all state changes made to a store after reverting
 	// a chain update.
 	RevertedState struct {
+		NumLeaves              uint64
 		UnspentSiacoinElements []types.SiacoinElement
 		DeletedSiacoinElements []types.SiacoinElement
 		UnspentSiafundElements []types.SiafundElement
 		DeletedSiafundElements []types.SiafundElement
+	}
+
+	// A TreeNodeUpdate contains the hash of a Merkle tree node and its row and
+	// column indices.
+	TreeNodeUpdate struct {
+		Hash   types.Hash256
+		Row    int
+		Column int
 	}
 
 	// An UpdateTx atomically updates the state of a store.
@@ -42,6 +59,8 @@ type (
 		SiafundStateElements() ([]types.StateElement, error)
 		UpdateSiafundStateElements([]types.StateElement) error
 
+		UpdateStateTree([]TreeNodeUpdate) error
+
 		AddressRelevant(types.Address) (bool, error)
 
 		ApplyIndex(types.ChainIndex, AppliedState) error
@@ -49,9 +68,53 @@ type (
 	}
 )
 
+// updateStateElements updates the state elements in a store according to the
+// changes made by a chain update.
+func updateStateElements(tx UpdateTx, update stateTreeUpdater, indexMode IndexMode) error {
+	if indexMode == IndexModeNone {
+		panic("updateStateElements called with IndexModeNone") // developer error
+	}
+
+	if indexMode == IndexModeFull {
+		var updates []TreeNodeUpdate
+		update.ForEachTreeNode(func(row, col uint64, h types.Hash256) {
+			updates = append(updates, TreeNodeUpdate{h, int(row), int(col)})
+		})
+		return tx.UpdateStateTree(updates)
+	} else {
+		// fetch all siacoin and siafund state elements
+		siacoinStateElements, err := tx.SiacoinStateElements()
+		if err != nil {
+			return fmt.Errorf("failed to get siacoin state elements: %w", err)
+		}
+
+		// update siacoin element proofs
+		for i := range siacoinStateElements {
+			update.UpdateElementProof(&siacoinStateElements[i])
+		}
+
+		if err := tx.UpdateSiacoinStateElements(siacoinStateElements); err != nil {
+			return fmt.Errorf("failed to update siacoin state elements: %w", err)
+		}
+
+		siafundStateElements, err := tx.SiafundStateElements()
+		if err != nil {
+			return fmt.Errorf("failed to get siafund state elements: %w", err)
+		}
+
+		// update siafund element proofs
+		for i := range siafundStateElements {
+			update.UpdateElementProof(&siafundStateElements[i])
+		}
+		return tx.UpdateSiafundStateElements(siafundStateElements)
+	}
+}
+
 // applyChainUpdate atomically applies a chain update to a store
-func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate) error {
-	var applied AppliedState
+func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) error {
+	applied := AppliedState{
+		NumLeaves: cau.State.Elements.NumLeaves,
+	}
 
 	// determine which siacoin and siafund elements are ephemeral
 	//
@@ -123,44 +186,19 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate) error {
 	}
 	applied.Events = AppliedEvents(cau.State, cau.Block, cau, relevant)
 
-	// fetch all siacoin and siafund state elements
-	siacoinStateElements, err := tx.SiacoinStateElements()
-	if err != nil {
-		return fmt.Errorf("failed to get siacoin state elements: %w", err)
-	}
-
-	// update siacoin element proofs
-	for i := range siacoinStateElements {
-		cau.UpdateElementProof(&siacoinStateElements[i])
-	}
-
-	if err := tx.UpdateSiacoinStateElements(siacoinStateElements); err != nil {
-		return fmt.Errorf("failed to update siacoin state elements: %w", err)
-	}
-
-	siafundStateElements, err := tx.SiafundStateElements()
-	if err != nil {
-		return fmt.Errorf("failed to get siafund state elements: %w", err)
-	}
-
-	// update siafund element proofs
-	for i := range siafundStateElements {
-		cau.UpdateElementProof(&siafundStateElements[i])
-	}
-
-	if err := tx.UpdateSiafundStateElements(siafundStateElements); err != nil {
-		return fmt.Errorf("failed to update siacoin state elements: %w", err)
-	}
-
-	if err := tx.ApplyIndex(cau.State.Index, applied); err != nil {
-		return fmt.Errorf("failed to apply chain update %q: %w", cau.State.Index, err)
+	if err := updateStateElements(tx, cau, indexMode); err != nil {
+		return fmt.Errorf("failed to update state elements: %w", err)
+	} else if err := tx.ApplyIndex(cau.State.Index, applied); err != nil {
+		return fmt.Errorf("failed to apply index: %w", err)
 	}
 	return nil
 }
 
 // revertChainUpdate atomically reverts a chain update from a store
-func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.ChainIndex) error {
-	var reverted RevertedState
+func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.ChainIndex, indexMode IndexMode) error {
+	reverted := RevertedState{
+		NumLeaves: cru.State.Elements.NumLeaves,
+	}
 
 	// determine which siacoin and siafund elements are ephemeral
 	//
@@ -226,43 +264,20 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 	})
 
 	if err := tx.RevertIndex(revertedIndex, reverted); err != nil {
-		return fmt.Errorf("failed to revert index %q: %w", revertedIndex, err)
+		return fmt.Errorf("failed to revert index: %w", err)
 	}
-
-	siacoinElements, err := tx.SiacoinStateElements()
-	if err != nil {
-		return fmt.Errorf("failed to get siacoin state elements: %w", err)
-	}
-	for i := range siacoinElements {
-		cru.UpdateElementProof(&siacoinElements[i])
-	}
-	if err := tx.UpdateSiacoinStateElements(siacoinElements); err != nil {
-		return fmt.Errorf("failed to update siacoin state elements: %w", err)
-	}
-
-	// update siafund element proofs
-	siafundElements, err := tx.SiafundStateElements()
-	if err != nil {
-		return fmt.Errorf("failed to get siafund state elements: %w", err)
-	}
-	for i := range siafundElements {
-		cru.UpdateElementProof(&siafundElements[i])
-	}
-	if err := tx.UpdateSiafundStateElements(siafundElements); err != nil {
-		return fmt.Errorf("failed to update siafund state elements: %w", err)
-	}
-	return nil
+	return updateStateElements(tx, cru, indexMode)
 }
 
 // UpdateChainState atomically updates the state of a store with a set of
 // updates from the chain manager.
-func UpdateChainState(tx UpdateTx, reverted []chain.RevertUpdate, applied []chain.ApplyUpdate, log *zap.Logger) error {
+func UpdateChainState(tx UpdateTx, reverted []chain.RevertUpdate, applied []chain.ApplyUpdate, indexMode IndexMode, log *zap.Logger) error {
 	for _, cru := range reverted {
 		revertedIndex := types.ChainIndex{
 			ID:     cru.Block.ID(),
 			Height: cru.State.Index.Height + 1,
 		}
-		if err := revertChainUpdate(tx, cru, revertedIndex); err != nil {
+		if err := revertChainUpdate(tx, cru, revertedIndex, indexMode); err != nil {
 			return fmt.Errorf("failed to revert chain update %q: %w", revertedIndex, err)
 		}
 		log.Debug("reverted chain update", zap.Stringer("blockID", revertedIndex.ID), zap.Uint64("height", revertedIndex.Height))
@@ -270,7 +285,7 @@ func UpdateChainState(tx UpdateTx, reverted []chain.RevertUpdate, applied []chai
 
 	for _, cau := range applied {
 		// apply the chain update
-		if err := applyChainUpdate(tx, cau); err != nil {
+		if err := applyChainUpdate(tx, cau, indexMode); err != nil {
 			return fmt.Errorf("failed to apply chain update %q: %w", cau.State.Index, err)
 		}
 		log.Debug("applied chain update", zap.Stringer("blockID", cau.State.Index.ID), zap.Uint64("height", cau.State.Index.Height))

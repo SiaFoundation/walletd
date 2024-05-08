@@ -14,6 +14,8 @@ import (
 )
 
 type updateTx struct {
+	indexMode wallet.IndexMode
+
 	tx                *txn
 	relevantAddresses map[types.Address]bool
 }
@@ -24,6 +26,10 @@ type addressRef struct {
 }
 
 func (ut *updateTx) SiacoinStateElements() ([]types.StateElement, error) {
+	if ut.indexMode == wallet.IndexModeFull {
+		panic("SiacoinStateElements called in full index mode")
+	}
+
 	const query = `SELECT id, leaf_index, merkle_proof FROM siacoin_elements`
 	rows, err := ut.tx.Query(query)
 	if err != nil {
@@ -43,6 +49,10 @@ func (ut *updateTx) SiacoinStateElements() ([]types.StateElement, error) {
 }
 
 func (ut *updateTx) UpdateSiacoinStateElements(elements []types.StateElement) error {
+	if ut.indexMode == wallet.IndexModeFull {
+		panic("UpdateSiacoinStateElements called in full index mode")
+	}
+
 	log := ut.tx.log.Named("UpdateSiacoinStateElements")
 	log.Debug("updating siacoin state elements", zap.Int("count", len(elements)))
 
@@ -65,6 +75,10 @@ func (ut *updateTx) UpdateSiacoinStateElements(elements []types.StateElement) er
 }
 
 func (ut *updateTx) SiafundStateElements() ([]types.StateElement, error) {
+	if ut.indexMode == wallet.IndexModeFull {
+		panic("SiafundStateElements called in full index mode")
+	}
+
 	const query = `SELECT id, leaf_index, merkle_proof FROM siafund_elements`
 	rows, err := ut.tx.Query(query)
 	if err != nil {
@@ -84,6 +98,10 @@ func (ut *updateTx) SiafundStateElements() ([]types.StateElement, error) {
 }
 
 func (ut *updateTx) UpdateSiafundStateElements(elements []types.StateElement) error {
+	if ut.indexMode == wallet.IndexModeFull {
+		panic("UpdateSiafundStateElements called in full index mode")
+	}
+
 	const query = `UPDATE siafund_elements SET merkle_proof=$1, leaf_index=$2 WHERE id=$3 RETURNING id`
 	stmt, err := ut.tx.Prepare(query)
 	if err != nil {
@@ -101,7 +119,31 @@ func (ut *updateTx) UpdateSiafundStateElements(elements []types.StateElement) er
 	return nil
 }
 
+func (ut *updateTx) UpdateStateTree(changes []wallet.TreeNodeUpdate) error {
+	if ut.indexMode != wallet.IndexModeFull {
+		panic("UpdateStateTree called in partial index mode")
+	}
+
+	stmt, err := ut.tx.Prepare(`INSERT INTO state_tree (row, column, value) VALUES ($1, $2, $3) ON CONFLICT (row, column) DO UPDATE SET value=EXCLUDED.value`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, change := range changes {
+		_, err := stmt.Exec(change.Row, change.Column, encode(change.Hash))
+		if err != nil {
+			return fmt.Errorf("failed to execute statement: %w", err)
+		}
+	}
+	return nil
+}
+
 func (ut *updateTx) AddressRelevant(addr types.Address) (bool, error) {
+	if ut.indexMode == wallet.IndexModeFull {
+		return true, nil
+	}
+
 	if relevant, ok := ut.relevantAddresses[addr]; ok {
 		return relevant, nil
 	}
@@ -142,13 +184,13 @@ func (ut *updateTx) ApplyIndex(index types.ChainIndex, state wallet.AppliedState
 
 	if err := spendSiacoinElements(tx, state.SpentSiacoinElements, indexID); err != nil {
 		return fmt.Errorf("failed to spend siacoin elements: %w", err)
-	} else if err := addSiacoinElements(tx, state.CreatedSiacoinElements, indexID, log.Named("addSiacoinElements")); err != nil {
+	} else if err := addSiacoinElements(tx, state.CreatedSiacoinElements, indexID, ut.indexMode, log.Named("addSiacoinElements")); err != nil {
 		return fmt.Errorf("failed to add siacoin elements: %w", err)
 	}
 
 	if err := spendSiafundElements(tx, state.SpentSiafundElements, indexID); err != nil {
 		return fmt.Errorf("failed to spend siafund elements: %w", err)
-	} else if err := addSiafundElements(tx, state.CreatedSiafundElements, indexID, log.Named("addSiafundElements")); err != nil {
+	} else if err := addSiafundElements(tx, state.CreatedSiafundElements, indexID, ut.indexMode, log.Named("addSiafundElements")); err != nil {
 		return fmt.Errorf("failed to add siafund elements: %w", err)
 	}
 
@@ -186,20 +228,22 @@ func (s *Store) UpdateChainState(reverted []chain.RevertUpdate, applied []chain.
 	log := s.log.Named("UpdateChainState").With(zap.Int("reverted", len(reverted)), zap.Int("applied", len(applied)))
 	return s.transaction(func(tx *txn) error {
 		utx := &updateTx{
+			indexMode: s.indexMode,
+
 			tx:                tx,
 			relevantAddresses: make(map[types.Address]bool),
 		}
 
-		if err := wallet.UpdateChainState(utx, reverted, applied, log); err != nil {
-			return fmt.Errorf("failed to update chain state: %w", err)
-		} else if err := setLastCommittedIndex(tx, applied[len(applied)-1].State.Index); err != nil {
+		state := applied[len(applied)-1].State
+
+		if err := wallet.UpdateChainState(utx, reverted, applied, s.indexMode, log); err != nil {
+			return err
+		} else if err := setGlobalState(tx, state.Index, state.Elements.NumLeaves); err != nil {
 			return fmt.Errorf("failed to set last committed index: %w", err)
 		}
 
-		height := applied[len(applied)-1].State.Index.Height
-
-		if height > spentElementRetentionBlocks {
-			pruneHeight := height - spentElementRetentionBlocks
+		if state.Index.Height > spentElementRetentionBlocks {
+			pruneHeight := state.Index.Height - spentElementRetentionBlocks
 
 			siacoins, err := pruneSpentSiacoinElements(tx, pruneHeight)
 			if err != nil {
@@ -210,10 +254,7 @@ func (s *Store) UpdateChainState(reverted []chain.RevertUpdate, applied []chain.
 			if err != nil {
 				return fmt.Errorf("failed to cleanup siafund elements: %w", err)
 			}
-
-			if len(siacoins) > 0 || len(siafunds) > 0 {
-				log.Debug("pruned elements", zap.Stringers("siacoins", siacoins), zap.Stringers("siafunds", siafunds), zap.Uint64("pruneHeight", pruneHeight))
-			}
+			log.Debug("pruned elements", zap.Int64("siacoins", siacoins), zap.Int64("siafunds", siafunds), zap.Uint64("pruneHeight", pruneHeight))
 		}
 		return nil
 	})
@@ -229,6 +270,35 @@ func (s *Store) LastCommittedIndex() (index types.ChainIndex, err error) {
 func (s *Store) ResetLastIndex() error {
 	_, err := s.db.Exec(`UPDATE global_settings SET last_indexed_tip=$1`, encode(types.ChainIndex{}))
 	return err
+}
+
+// IndexMode returns the current index mode.
+func (s *Store) IndexMode() (wallet.IndexMode, error) {
+	var mode wallet.IndexMode
+	err := s.db.QueryRow(`SELECT index_mode FROM global_settings`).Scan(&mode)
+	return mode, err
+}
+
+// SetIndexMode sets the index mode. If the index mode is already set, this
+// function will return an error.
+func (s *Store) SetIndexMode(mode wallet.IndexMode) error {
+	return s.transaction(func(tx *txn) error {
+		_, err := tx.Exec(`UPDATE global_settings SET index_mode=$1 WHERE index_mode IS NULL`, mode)
+		if err != nil {
+			return fmt.Errorf("failed to set index mode: %w", err)
+		}
+
+		// check that the index mode was set
+		var existingMode wallet.IndexMode
+		err = tx.QueryRow(`SELECT index_mode FROM global_settings`).Scan(&existingMode)
+		if err != nil {
+			return fmt.Errorf("failed to query index mode: %w", err)
+		} else if existingMode != mode {
+			return fmt.Errorf("cannot change index mode from %v to %v", existingMode, mode)
+		}
+		s.indexMode = mode // this is a bit annoying
+		return nil
+	})
 }
 
 func scanStateElement(s scanner) (se types.StateElement, err error) {
@@ -401,16 +471,16 @@ func revertMatureSiacoinBalance(tx *txn, index types.ChainIndex) error {
 	return nil
 }
 
-func addSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64, log *zap.Logger) error {
+func addSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64, indexMode wallet.IndexMode, log *zap.Logger) error {
 	if len(elements) == 0 {
 		return nil
 	}
 
-	addrStmt, err := insertAddressStatement(tx)
+	addressRefStmt, done, err := addressRefStmt(tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare address statement: %w", err)
 	}
-	defer addrStmt.Close()
+	defer done()
 
 	existsStmt, err := tx.Prepare(`SELECT EXISTS(SELECT 1 FROM siacoin_elements WHERE id=$1)`)
 	if err != nil {
@@ -427,7 +497,7 @@ func addSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64,
 
 	balanceChanges := make(map[int64]wallet.Balance)
 	for _, se := range elements {
-		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiacoinOutput.Address), encode(types.ZeroCurrency), 0))
+		addrRef, err := addressRefStmt(se.SiacoinOutput.Address)
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
 		} else if _, ok := balanceChanges[addrRef.ID]; !ok {
@@ -438,6 +508,12 @@ func addSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64,
 		err = existsStmt.QueryRow(encode(se.ID)).Scan(&exists)
 		if err != nil {
 			return fmt.Errorf("failed to check if siacoin element exists: %w", err)
+		}
+
+		// in full index mode, Merkle proofs are stored in the state tree table
+		// rather than per element.
+		if indexMode == wallet.IndexModeFull {
+			se.MerkleProof = nil
 		}
 
 		_, err = insertStmt.Exec(encode(se.ID), encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0, indexID)
@@ -489,11 +565,11 @@ func removeSiacoinElements(tx *txn, elements []types.SiacoinElement) error {
 		return nil
 	}
 
-	addrStmt, err := insertAddressStatement(tx)
+	addressRefStmt, done, err := addressRefStmt(tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare address statement: %w", err)
 	}
-	defer addrStmt.Close()
+	defer done()
 
 	stmt, err := tx.Prepare(`DELETE FROM siacoin_elements WHERE id=$1 RETURNING id, matured`)
 	if err != nil {
@@ -503,7 +579,7 @@ func removeSiacoinElements(tx *txn, elements []types.SiacoinElement) error {
 
 	balanceChanges := make(map[int64]wallet.Balance)
 	for _, se := range elements {
-		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiacoinOutput.Address), encode(types.ZeroCurrency), 0))
+		addrRef, err := addressRefStmt(se.SiacoinOutput.Address)
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
 		} else if _, ok := balanceChanges[addrRef.ID]; !ok {
@@ -554,11 +630,11 @@ func revertSpentSiacoinElements(tx *txn, elements []types.SiacoinElement) error 
 		return nil
 	}
 
-	addrStmt, err := insertAddressStatement(tx)
+	addressRefStmt, done, err := addressRefStmt(tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare address statement: %w", err)
 	}
-	defer addrStmt.Close()
+	defer done()
 
 	stmt, err := tx.Prepare(`UPDATE siacoin_elements SET spent_index_id=NULL WHERE id=$1 AND spent_index_id IS NOT NULL RETURNING id`)
 	if err != nil {
@@ -568,7 +644,7 @@ func revertSpentSiacoinElements(tx *txn, elements []types.SiacoinElement) error 
 
 	balanceChanges := make(map[int64]wallet.Balance)
 	for _, se := range elements {
-		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiacoinOutput.Address), encode(types.ZeroCurrency), 0))
+		addrRef, err := addressRefStmt(se.SiacoinOutput.Address)
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
 		} else if _, ok := balanceChanges[addrRef.ID]; !ok {
@@ -615,11 +691,11 @@ func spendSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int6
 		return nil
 	}
 
-	addrStmt, err := insertAddressStatement(tx)
+	addressRefStmt, done, err := addressRefStmt(tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare address statement: %w", err)
 	}
-	defer addrStmt.Close()
+	defer done()
 
 	stmt, err := tx.Prepare(`UPDATE siacoin_elements SET spent_index_id=$1 WHERE id=$2 AND spent_index_id IS NULL RETURNING id`)
 	if err != nil {
@@ -629,7 +705,7 @@ func spendSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int6
 
 	balanceChanges := make(map[int64]wallet.Balance)
 	for _, se := range elements {
-		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiacoinOutput.Address), encode(types.ZeroCurrency), 0))
+		addrRef, err := addressRefStmt(se.SiacoinOutput.Address)
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
 		} else if _, ok := balanceChanges[addrRef.ID]; !ok {
@@ -671,16 +747,16 @@ func spendSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int6
 	return nil
 }
 
-func addSiafundElements(tx *txn, elements []types.SiafundElement, indexID int64, log *zap.Logger) error {
+func addSiafundElements(tx *txn, elements []types.SiafundElement, indexID int64, indexMode wallet.IndexMode, log *zap.Logger) error {
 	if len(elements) == 0 {
 		return nil
 	}
 
-	addrStmt, err := insertAddressStatement(tx)
+	addressRefStmt, done, err := addressRefStmt(tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare address statement: %w", err)
 	}
-	defer addrStmt.Close()
+	defer done()
 
 	existsStmt, err := tx.Prepare(`SELECT EXISTS(SELECT 1 FROM siafund_elements WHERE id=$1)`)
 	if err != nil {
@@ -696,7 +772,7 @@ func addSiafundElements(tx *txn, elements []types.SiafundElement, indexID int64,
 
 	balanceChanges := make(map[int64]uint64)
 	for _, se := range elements {
-		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiafundOutput.Address), encode(types.ZeroCurrency), 0))
+		addrRef, err := addressRefStmt(se.SiafundOutput.Address)
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
 		} else if _, ok := balanceChanges[addrRef.ID]; !ok {
@@ -706,6 +782,12 @@ func addSiafundElements(tx *txn, elements []types.SiafundElement, indexID int64,
 		var exists bool
 		if err := existsStmt.QueryRow(encode(se.ID)).Scan(&exists); err != nil {
 			return fmt.Errorf("failed to check if siafund element exists: %w", err)
+		}
+
+		// in full index mode, Merkle proofs are stored in the state tree table
+		// rather than per element.
+		if indexMode == wallet.IndexModeFull {
+			se.MerkleProof = nil
 		}
 
 		_, err = insertStmt.Exec(encode(se.ID), se.SiafundOutput.Value, encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ClaimStart), addrRef.ID, indexID)
@@ -747,11 +829,11 @@ func removeSiafundElements(tx *txn, elements []types.SiafundElement) error {
 		return nil
 	}
 
-	addrStmt, err := insertAddressStatement(tx)
+	addressRefStmt, done, err := addressRefStmt(tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare address statement: %w", err)
 	}
-	defer addrStmt.Close()
+	defer done()
 
 	stmt, err := tx.Prepare(`DELETE FROM siafund_elements WHERE id=$1 RETURNING id`)
 	if err != nil {
@@ -761,7 +843,7 @@ func removeSiafundElements(tx *txn, elements []types.SiafundElement) error {
 
 	balanceChanges := make(map[int64]uint64)
 	for _, se := range elements {
-		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiafundOutput.Address), encode(types.ZeroCurrency), 0))
+		addrRef, err := addressRefStmt(se.SiafundOutput.Address)
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
 		} else if _, ok := balanceChanges[addrRef.ID]; !ok {
@@ -808,11 +890,11 @@ func spendSiafundElements(tx *txn, elements []types.SiafundElement, indexID int6
 		return nil
 	}
 
-	addrStmt, err := insertAddressStatement(tx)
+	addressRefStmt, done, err := addressRefStmt(tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare address statement: %w", err)
 	}
-	defer addrStmt.Close()
+	defer done()
 
 	stmt, err := tx.Prepare(`UPDATE siafund_elements SET spent_index_id=$1 WHERE id=$2 AND spent_index_id IS NULL RETURNING id`)
 	if err != nil {
@@ -822,7 +904,7 @@ func spendSiafundElements(tx *txn, elements []types.SiafundElement, indexID int6
 
 	balanceChanges := make(map[int64]wallet.Balance)
 	for _, se := range elements {
-		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiafundOutput.Address), encode(types.ZeroCurrency), 0))
+		addrRef, err := addressRefStmt(se.SiafundOutput.Address)
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
 		} else if _, ok := balanceChanges[addrRef.ID]; !ok {
@@ -873,11 +955,11 @@ func revertSpentSiafundElements(tx *txn, elements []types.SiafundElement) error 
 		return nil
 	}
 
-	addrStmt, err := insertAddressStatement(tx)
+	addressRefStmt, done, err := addressRefStmt(tx)
 	if err != nil {
 		return fmt.Errorf("failed to prepare address statement: %w", err)
 	}
-	defer addrStmt.Close()
+	defer done()
 
 	stmt, err := tx.Prepare(`UPDATE siafund_elements SET spent_index_id=NULL WHERE id=$1 AND spent_index_id IS NOT NULL RETURNING id`)
 	if err != nil {
@@ -887,7 +969,7 @@ func revertSpentSiafundElements(tx *txn, elements []types.SiafundElement) error 
 
 	balanceChanges := make(map[int64]wallet.Balance)
 	for _, se := range elements {
-		addrRef, err := scanAddress(addrStmt.QueryRow(encode(se.SiafundOutput.Address), encode(types.ZeroCurrency), 0))
+		addrRef, err := addressRefStmt(se.SiafundOutput.Address)
 		if err != nil {
 			return fmt.Errorf("failed to query address: %w", err)
 		} else if _, ok := balanceChanges[addrRef.ID]; !ok {
@@ -940,7 +1022,7 @@ func addEvents(tx *txn, events []wallet.Event, indexID int64) error {
 	}
 	defer insertEventStmt.Close()
 
-	addrStmt, err := tx.Prepare(`INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) VALUES ($1, $2, $3, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address RETURNING id`)
+	addrStmt, err := tx.Prepare(`INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) VALUES ($1, $2, $2, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare address statement: %w", err)
 	}
@@ -975,7 +1057,7 @@ func addEvents(tx *txn, events []wallet.Event, indexID int64) error {
 			}
 
 			var addressID int64
-			err = addrStmt.QueryRow(encode(addr), encode(types.ZeroCurrency), 0).Scan(&addressID)
+			err = addrStmt.QueryRow(encode(addr), encode(types.ZeroCurrency)).Scan(&addressID)
 			if err != nil {
 				return fmt.Errorf("failed to get address: %w", err)
 			}
@@ -1206,48 +1288,40 @@ func revertOrphans(tx *txn, index types.ChainIndex, log *zap.Logger) error {
 	return err
 }
 
-func pruneSpentSiacoinElements(tx *txn, height uint64) (removed []types.SiacoinOutputID, err error) {
-	const query = `DELETE FROM siacoin_elements WHERE spent_index_id IN (SELECT id FROM chain_indices WHERE height <= $1) RETURNING id`
-	rows, err := tx.Query(query, height)
+func pruneSpentSiacoinElements(tx *txn, height uint64) (removed int64, err error) {
+	const query = `DELETE FROM siacoin_elements WHERE spent_index_id IN (SELECT id FROM chain_indices WHERE height <= $1)`
+	res, err := tx.Exec(query, height)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
+		return 0, fmt.Errorf("failed to query siacoin elements: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id types.SiacoinOutputID
-		if err := rows.Scan(decode(&id)); err != nil {
-			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
-		}
-		removed = append(removed, id)
-	}
-	return removed, rows.Err()
+	return res.RowsAffected()
 }
 
-func pruneSpentSiafundElements(tx *txn, height uint64) (removed []types.SiafundOutputID, err error) {
-	const query = `DELETE FROM siafund_elements WHERE spent_index_id IN (SELECT id FROM chain_indices WHERE height <= $1) RETURNING id`
-	rows, err := tx.Query(query, height)
+func pruneSpentSiafundElements(tx *txn, height uint64) (removed int64, err error) {
+	const query = `DELETE FROM siafund_elements WHERE spent_index_id IN (SELECT id FROM chain_indices WHERE height <= $1)`
+	res, err := tx.Exec(query, height)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query siafund elements: %w", err)
+		return 0, fmt.Errorf("failed to query siacoin elements: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id types.SiafundOutputID
-		if err := rows.Scan(decode(&id)); err != nil {
-			return nil, fmt.Errorf("failed to scan siafund element: %w", err)
-		}
-		removed = append(removed, id)
-	}
-	return removed, rows.Err()
+	return res.RowsAffected()
 }
 
-func setLastCommittedIndex(tx *txn, index types.ChainIndex) error {
-	_, err := tx.Exec(`UPDATE global_settings SET last_indexed_tip=$1`, encode(index))
+func setGlobalState(tx *txn, index types.ChainIndex, numLeaves uint64) error {
+	_, err := tx.Exec(`UPDATE global_settings SET last_indexed_tip=$1, element_num_leaves=$2`, encode(index), numLeaves)
 	return err
 }
 
-func insertAddressStatement(tx *txn) (*stmt, error) {
+func addressRefStmt(tx *txn) (func(types.Address) (addressRef, error), func() error, error) {
+	stmt, err := tx.Prepare(`INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) VALUES ($1, $2, $3, $4) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address RETURNING id, siacoin_balance, immature_siacoin_balance, siafund_balance`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to prepare address statement: %w", err)
+	}
 	// the on conflict is effectively a no-op, but enables us to return the id of the existing address
-	return tx.Prepare(`INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) VALUES ($1, $2, $2, $3) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address RETURNING id, siacoin_balance, immature_siacoin_balance, siafund_balance`)
+	return func(addr types.Address) (addressRef, error) {
+		ref, err := scanAddress(stmt.QueryRow(encode(addr), encode(types.ZeroCurrency), encode(types.ZeroCurrency), 0))
+		if err != nil {
+			return addressRef{}, fmt.Errorf("failed to get address %q: %w", addr, err)
+		}
+		return ref, nil
+	}, stmt.Close, nil
 }
