@@ -84,7 +84,7 @@ func main() {
 	rootCmd.BoolVar(&upnp, "upnp", true, "attempt to forward ports and discover IP with UPnP")
 	rootCmd.BoolVar(&bootstrap, "bootstrap", true, "attempt to bootstrap the network")
 	rootCmd.StringVar(&seed, "seed", "", "testnet seed")
-	rootCmd.StringVar(&indexModeStr, "index", "full", "address index mode (full, partial, off)")
+	rootCmd.StringVar(&indexModeStr, "index", "partial", "address index mode (full, partial, off)")
 	versionCmd := flagg.New("version", versionUsage)
 	seedCmd := flagg.New("seed", seedUsage)
 	mineCmd := flagg.New("mine", mineUsage)
