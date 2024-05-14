@@ -15,7 +15,7 @@ type (
 		GatewayAddress string   `yaml:"gatewayAddress,omitempty"`
 		Bootstrap      bool     `yaml:"bootstrap,omitempty"`
 		Peers          []string `yaml:"peers,omitempty"`
-		EnableUPNP     bool     `yaml:"enableUPNP,omitempty"`
+		EnableUPNP     bool     `yaml:"enableUPnP,omitempty"`
 	}
 
 	// Index contains the configuration for the blockchain indexer
