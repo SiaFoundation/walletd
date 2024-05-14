@@ -15,6 +15,7 @@ import (
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
+	"go.sia.tech/walletd/config"
 	"go.sia.tech/walletd/persist/sqlite"
 	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
@@ -100,11 +101,11 @@ func (n *node) Close() error {
 	return n.store.Close()
 }
 
-func newNode(addr, dir string, chainNetwork string, useUPNP, useBootstrap bool, indexMode wallet.IndexMode, log *zap.Logger) (*node, error) {
+func newNode(cfg config.Config, log *zap.Logger) (*node, error) {
 	var network *consensus.Network
 	var genesisBlock types.Block
 	var bootstrapPeers []string
-	switch chainNetwork {
+	switch cfg.Consensus.Network {
 	case "mainnet":
 		network, genesisBlock = chain.Mainnet()
 		bootstrapPeers = mainnetBootstrap
@@ -118,7 +119,7 @@ func newNode(addr, dir string, chainNetwork string, useUPNP, useBootstrap bool, 
 		return nil, errors.New("invalid network: must be one of 'mainnet', 'zen', or 'anagami'")
 	}
 
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open consensus database: %w", err)
 	}
@@ -128,18 +129,18 @@ func newNode(addr, dir string, chainNetwork string, useUPNP, useBootstrap bool, 
 	}
 	cm := chain.NewManager(dbstore, tipState)
 
-	l, err := net.Listen("tcp", addr)
+	l, err := net.Listen("tcp", cfg.Consensus.GatewayAddress)
 	if err != nil {
 		return nil, err
 	}
 	syncerAddr := l.Addr().String()
-	if useUPNP {
+	if cfg.Consensus.EnableUPNP {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if d, err := upnp.Discover(ctx); err != nil {
 			log.Debug("couldn't discover UPnP router", zap.Error(err))
 		} else {
-			_, portStr, _ := net.SplitHostPort(addr)
+			_, portStr, _ := net.SplitHostPort(cfg.Consensus.GatewayAddress)
 			port, _ := strconv.Atoi(portStr)
 			if !d.IsForwarded(uint16(port), "TCP") {
 				if err := d.Forward(uint16(port), "TCP", "walletd"); err != nil {
@@ -162,15 +163,20 @@ func newNode(addr, dir string, chainNetwork string, useUPNP, useBootstrap bool, 
 		syncerAddr = net.JoinHostPort("127.0.0.1", port)
 	}
 
-	store, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	store, err := sqlite.OpenDatabase(filepath.Join(cfg.Directory, "walletd.sqlite3"), log.Named("sqlite3"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open wallet database: %w", err)
 	}
 
-	if useBootstrap {
+	if cfg.Consensus.Bootstrap {
 		for _, peer := range bootstrapPeers {
 			if err := store.AddPeer(peer); err != nil {
 				return nil, fmt.Errorf("failed to add bootstrap peer '%s': %w", peer, err)
+			}
+		}
+		for _, peer := range cfg.Consensus.Peers {
+			if err := store.AddPeer(peer); err != nil {
+				return nil, fmt.Errorf("failed to add peer '%s': %w", peer, err)
 			}
 		}
 	}
@@ -187,7 +193,7 @@ func newNode(addr, dir string, chainNetwork string, useUPNP, useBootstrap bool, 
 	}
 
 	s := syncer.New(l, cm, ps, header, syncer.WithLogger(log.Named("syncer")))
-	wm, err := wallet.NewManager(cm, store, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(indexMode))
+	wm, err := wallet.NewManager(cm, store, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(cfg.Index.Mode), wallet.WithSyncBatchSize(cfg.Index.BatchSize))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wallet manager: %w", err)
 	}
