@@ -225,7 +225,7 @@ func main() {
 	rootCmd.BoolVar(&cfg.Consensus.Bootstrap, "bootstrap", cfg.Consensus.Bootstrap, "attempt to bootstrap the network")
 
 	rootCmd.StringVar(&indexModeStr, "index.mode", indexModeStr, "address index mode (full, partial, none)")
-	rootCmd.IntVar(&cfg.Index.BatchSize, "batch-size", cfg.Index.BatchSize, "max number of blocks to index at a time. Increasing this will increase scan speed, but also increase memory and cpu usage.")
+	rootCmd.IntVar(&cfg.Index.BatchSize, "index.batch", cfg.Index.BatchSize, "max number of blocks to index at a time. Increasing this will increase scan speed, but also increase memory and cpu usage.")
 
 	versionCmd := flagg.New("version", versionUsage)
 	seedCmd := flagg.New("seed", seedUsage)
