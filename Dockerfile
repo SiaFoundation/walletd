@@ -38,4 +38,5 @@ EXPOSE 9981/tcp
 
 USER ${PUID}:${PGID}
 
+ENV WALLETD_CONFIG_FILE=/data/walletd.yml
 ENTRYPOINT [ "walletd", "--dir", "/data", "--http", ":9980" ]

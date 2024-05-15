@@ -125,7 +125,7 @@ func stdoutError(msg string) {
 	}
 }
 
-// tryLoadConfig loads the config file specified by the WALLETD_CONFIG_PATH. If
+// tryLoadConfig loads the config file specified by the WALLETD_CONFIG_FILE. If
 // the config file does not exist, it will not be loaded.
 func tryLoadConfig() {
 	configPath := "walletd.yml"
