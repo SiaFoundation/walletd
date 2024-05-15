@@ -18,3 +18,12 @@ func WithIndexMode(mode IndexMode) Option {
 		m.indexMode = mode
 	}
 }
+
+// WithSyncBatchSize sets the number of blocks to batch when scanning
+// the blockchain. The default is 64. Increasing this value can
+// improve performance at the cost of memory usage.
+func WithSyncBatchSize(size int) Option {
+	return func(m *Manager) {
+		m.syncBatchSize = size
+	}
+}

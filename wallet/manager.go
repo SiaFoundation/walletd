@@ -33,7 +33,7 @@ const (
 	IndexModeNone
 )
 
-const syncBatchSize = 250
+const defaultSyncBatchSize = 64
 
 type (
 	// An IndexMode determines the chain state that the wallet manager stores.
@@ -78,14 +78,15 @@ type (
 
 	// A Manager manages wallets.
 	Manager struct {
-		indexMode IndexMode
+		indexMode     IndexMode
+		syncBatchSize int
 
 		chain ChainManager
 		store Store
 		log   *zap.Logger
 		tg    *threadgroup.ThreadGroup
 
-		mu   sync.Mutex
+		mu   sync.Mutex // protects the fields below
 		used map[types.Hash256]bool
 	}
 )
@@ -102,6 +103,21 @@ func (i IndexMode) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface.
+func (i *IndexMode) UnmarshalText(buf []byte) error {
+	switch string(buf) {
+	case "partial":
+		*i = IndexModePartial
+	case "full":
+		*i = IndexModeFull
+	case "none":
+		*i = IndexModeNone
+	default:
+		return fmt.Errorf("unknown index mode %q", buf)
+	}
+	return nil
 }
 
 // MarshalText implements the encoding.TextMarshaler interface.
@@ -219,7 +235,7 @@ func (m *Manager) Scan(ctx context.Context, index types.ChainIndex) error {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return syncStore(ctx, m.store, m.chain, index)
+	return syncStore(ctx, m.store, m.chain, index, m.syncBatchSize)
 }
 
 // IndexMode returns the index mode of the wallet manager.
@@ -233,14 +249,14 @@ func (m *Manager) Close() error {
 	return nil
 }
 
-func syncStore(ctx context.Context, store Store, cm ChainManager, index types.ChainIndex) error {
+func syncStore(ctx context.Context, store Store, cm ChainManager, index types.ChainIndex, batchSize int) error {
 	for index != cm.Tip() {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		crus, caus, err := cm.UpdatesSince(index, syncBatchSize)
+		crus, caus, err := cm.UpdatesSince(index, batchSize)
 		if err != nil {
 			return fmt.Errorf("failed to subscribe to chain manager: %w", err)
 		} else if err := store.UpdateChainState(crus, caus); err != nil {
@@ -254,7 +270,8 @@ func syncStore(ctx context.Context, store Store, cm ChainManager, index types.Ch
 // NewManager creates a new wallet manager.
 func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) {
 	m := &Manager{
-		indexMode: IndexModePartial,
+		indexMode:     IndexModePartial,
+		syncBatchSize: defaultSyncBatchSize,
 
 		chain: cm,
 		store: store,
@@ -306,7 +323,7 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 			lastTip, err := store.LastCommittedIndex()
 			if err != nil {
 				log.Panic("failed to get last committed index", zap.Error(err))
-			} else if err := syncStore(ctx, store, cm, lastTip); err != nil && !errors.Is(err, context.Canceled) {
+			} else if err := syncStore(ctx, store, cm, lastTip, m.syncBatchSize); err != nil && !errors.Is(err, context.Canceled) {
 				log.Panic("failed to sync store", zap.Error(err))
 			}
 			m.mu.Unlock()
