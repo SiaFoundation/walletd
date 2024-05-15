@@ -121,7 +121,7 @@ func (ut *updateTx) UpdateSiafundStateElements(elements []types.StateElement) er
 
 func (ut *updateTx) UpdateStateTree(changes []wallet.TreeNodeUpdate) error {
 	if ut.indexMode != wallet.IndexModeFull {
-		panic("UpdateStateTree called in partial index mode")
+		panic("UpdateStateTree called in personal index mode")
 	}
 
 	stmt, err := ut.tx.Prepare(`INSERT INTO state_tree (row, column, value) VALUES ($1, $2, $3) ON CONFLICT (row, column) DO UPDATE SET value=EXCLUDED.value`)

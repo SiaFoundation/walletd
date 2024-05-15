@@ -303,8 +303,8 @@ func TestReorg(t *testing.T) {
 		}
 	}
 
-	t.Run("IndexModePartial", func(t *testing.T) {
-		state, db, cm, w := setupNode(t, wallet.IndexModePartial)
+	t.Run("IndexModePersonal", func(t *testing.T) {
+		state, db, cm, w := setupNode(t, wallet.IndexModePersonal)
 		testReorg(t, state, db, cm, w)
 	})
 

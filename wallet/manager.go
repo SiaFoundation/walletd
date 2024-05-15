@@ -16,7 +16,7 @@ import (
 // IndexMode represents the index mode of the wallet manager. The index mode
 // determines how the wallet manager stores the consensus state.
 //
-// IndexModePartial - The wallet manager scans the blockchain starting at
+// IndexModePersonal - The wallet manager scans the blockchain starting at
 // genesis. Only state from addresses that are registered with a
 // wallet will be stored. If an address is added to a wallet after the
 // scan completes, the manager will need to rescan.
@@ -28,7 +28,7 @@ import (
 // useful for multiple nodes sharing the same database. None should only be used
 // when connecting to a database that is in "Full" mode.
 const (
-	IndexModePartial IndexMode = iota
+	IndexModePersonal IndexMode = iota
 	IndexModeFull
 	IndexModeNone
 )
@@ -94,8 +94,8 @@ type (
 // String returns the string representation of the index mode.
 func (i IndexMode) String() string {
 	switch i {
-	case IndexModePartial:
-		return "partial"
+	case IndexModePersonal:
+		return "personal"
 	case IndexModeFull:
 		return "full"
 	case IndexModeNone:
@@ -108,8 +108,8 @@ func (i IndexMode) String() string {
 // UnmarshalText implements the encoding.TextUnmarshaler interface.
 func (i *IndexMode) UnmarshalText(buf []byte) error {
 	switch string(buf) {
-	case "partial":
-		*i = IndexModePartial
+	case "personal":
+		*i = IndexModePersonal
 	case "full":
 		*i = IndexModeFull
 	case "none":
@@ -223,7 +223,7 @@ func (m *Manager) Reserve(ids []types.Hash256, duration time.Duration) error {
 // Scan rescans the chain starting from the given index. The scan will complete
 // when the chain manager reaches the current tip or the context is canceled.
 func (m *Manager) Scan(ctx context.Context, index types.ChainIndex) error {
-	if m.indexMode != IndexModePartial {
+	if m.indexMode != IndexModePersonal {
 		return fmt.Errorf("scans are disabled in index mode %s", m.indexMode)
 	}
 
@@ -270,7 +270,7 @@ func syncStore(ctx context.Context, store Store, cm ChainManager, index types.Ch
 // NewManager creates a new wallet manager.
 func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) {
 	m := &Manager{
-		indexMode:     IndexModePartial,
+		indexMode:     IndexModePersonal,
 		syncBatchSize: defaultSyncBatchSize,
 
 		chain: cm,

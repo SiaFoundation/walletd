@@ -19,19 +19,21 @@ Setup guides are available at https://docs.sia.tech
 ### Index Mode
 `walletd` supports three different index modes for different use cases.
 
-**Partial**
+**Personal**
 
-In partial index mode, `walletd` will only index addresses that are registered in the
+In "personal" index mode, `walletd` will only index addresses that are registered in the
 wallet. This mode is recommended for most users, as it provides a good balance between
-comprehensiveness and resource usage. This is the default mode for `walletd`.
+comprehensiveness and resource usage for personal wallets. This is the default 
+mode for `walletd`.
 
-When adding existing addresses with history on chain, users will need to manually 
+When adding addresses with existing history on chain, users will need to manually 
 initiate a rescan to index the new transactions. This can take some to complete,
-depending on the number of blocks that need to be scanned.
+depending on the number of blocks that need to be scanned. When adding addresses 
+with no existing history, a rescan is not necessary.
 
 **Full**
 
-In full index mode, `walletd` will index the entire blockchain including all addresses
+In "full" index mode, `walletd` will index the entire blockchain including all addresses
 and UTXOs. This is the most comprehensive mode, but it also requires the most 
 resources. This mode is recommended for exchanges or wallet builders that need 
 to support a large or unknown number of addresses.
@@ -74,7 +76,7 @@ The priority of configuration settings is as follows:
 -index.batch int
 	max number of blocks to index at a time. Increasing this will increase scan speed, but also increase memory and cpu usage. (default 64)
 -index.mode string
-	address index mode (full, partial, none) (default "full")
+	address index mode (personal, full, none) (default "full")
 -network string
 	network to connect to (default "mainnet")
 -upnp
@@ -96,7 +98,7 @@ consensus:
   bootstrap: false
   enableUPnP: false
 index:
-  mode: partial # full, partial, none (full index will index the entire blockchain, partial will only index addresses that are registered in the wallet, none will treat the database as read-only and not index any new data)
+  mode: personal # personal, full, none ("full" will index the entire blockchain, "personal" will only index addresses that are registered in the wallet, "none" will treat the database as read-only and not index any new data)
   batchSize: 64 # max number of blocks to index at a time (increasing this will increase scan speed, but also increase memory and cpu usage)
 log:
   level: info # global log level
