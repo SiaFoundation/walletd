@@ -66,7 +66,7 @@ var cfg = config.Config{
 		Bootstrap:      true,
 	},
 	Index: config.Index{
-		Mode:      wallet.IndexModePartial,
+		Mode:      wallet.IndexModePersonal,
 		BatchSize: 64,
 	},
 	Log: config.Log{
@@ -220,7 +220,7 @@ func main() {
 	rootCmd.BoolVar(&cfg.Consensus.EnableUPNP, "upnp", cfg.Consensus.EnableUPNP, "attempt to forward ports and discover IP with UPnP")
 	rootCmd.BoolVar(&cfg.Consensus.Bootstrap, "bootstrap", cfg.Consensus.Bootstrap, "attempt to bootstrap the network")
 
-	rootCmd.StringVar(&indexModeStr, "index.mode", indexModeStr, "address index mode (full, partial, none)")
+	rootCmd.StringVar(&indexModeStr, "index.mode", indexModeStr, "address index mode (personal, full, none)")
 	rootCmd.IntVar(&cfg.Index.BatchSize, "index.batch", cfg.Index.BatchSize, "max number of blocks to index at a time. Increasing this will increase scan speed, but also increase memory and cpu usage.")
 
 	versionCmd := flagg.New("version", versionUsage)
