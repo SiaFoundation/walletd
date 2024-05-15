@@ -6,14 +6,25 @@ on:
   push:
     branches:
       - master
-      - its-happening
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-**'
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - name: Test
+        uses: ./.github/actions/test
   docker:
     runs-on: ubuntu-latest
+    needs: [ test ]
     permissions:
       packages: write
       contents: read
@@ -30,7 +41,7 @@ jobs:
         name: generate tags
         id: meta
         with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=branch
             type=sha,prefix=
@@ -41,52 +52,53 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
   build-linux:
     runs-on: ubuntu-latest
+    needs: [ test ]
+    strategy:
+      matrix:
+        go-arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: '1.21'
       - name: Setup
         run: |
           sudo apt update
-          sudo apt install -y gcc-aarch64-linux-gnu
           go generate ./...
-      - name: Build amd64
+          if [ ${{ matrix.go-arch }} == "arm64" ]; then
+            sudo apt install -y gcc-aarch64-linux-gnu
+            echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          fi
+      - name: Build ${{ matrix.go-arch }}
         env:
           CGO_ENABLED: 1
           GOOS: linux
-          GOARCH: amd64
+          GOARCH: ${{ matrix.go-arch }}
         run: |
           mkdir -p release
           ZIP_OUTPUT=release/walletd_${GOOS}_${GOARCH}.zip
-          go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/walletd
+          go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w -linkmode external -extldflags "-static"' ./cmd/walletd
           cp README.md LICENSE bin/
           zip -qj $ZIP_OUTPUT bin/*
-      - name: Build arm64
-        env:
-          CGO_ENABLED: 1
-          GOOS: linux
-          GOARCH: arm64
-          CC: aarch64-linux-gnu-gcc
-        run: |
-          mkdir -p release
-          ZIP_OUTPUT=release/walletd_${GOOS}_${GOARCH}.zip
-          go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/walletd
-          cp README.md LICENSE bin/
-          zip -qj $ZIP_OUTPUT bin/*
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: walletd
-          path: release/
+          name: walletd-linux-${{ matrix.go-arch }}
+          path: release/*
   build-mac:
     runs-on: macos-latest
+    needs: [ test ]
+    strategy:
+      matrix:
+        go-arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: '1.21'
       - name: Setup
         env:
           APPLE_CERT_ID: ${{ secrets.APPLE_CERT_ID }}
@@ -120,7 +132,10 @@ jobs:
 
           # generate
           go generate ./...
-      - name: Build amd64
+
+          # resync system clock https://github.com/actions/runner/issues/2996#issuecomment-1833103110
+          sudo sntp -sS time.windows.com
+      - name: Build ${{ matrix.go-arch }}
         env:
           APPLE_CERT_ID: ${{ secrets.APPLE_CERT_ID }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
@@ -131,7 +146,7 @@ jobs:
           APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
           CGO_ENABLED: 1
           GOOS: darwin
-          GOARCH: amd64
+          GOARCH: ${{ matrix.go-arch }}
         run: |
           ZIP_OUTPUT=release/walletd_${GOOS}_${GOARCH}.zip
           mkdir -p release
@@ -140,37 +155,18 @@ jobs:
           /usr/bin/codesign --deep -f -v --timestamp -o runtime,library -s $APPLE_CERT_ID bin/walletd
           ditto -ck bin $ZIP_OUTPUT
           xcrun notarytool submit -k ~/private_keys/AuthKey_$APPLE_API_KEY.p8 -d $APPLE_API_KEY -i $APPLE_API_ISSUER --wait --timeout 10m $ZIP_OUTPUT
-      - name: Build arm64
-        env:
-          APPLE_CERT_ID: ${{ secrets.APPLE_CERT_ID }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_KEY_B64: ${{ secrets.APPLE_KEY_B64 }}
-          APPLE_CERT_B64: ${{ secrets.APPLE_CERT_B64 }}
-          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
-          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
-          CGO_ENABLED: 1
-          GOOS: darwin
-          GOARCH: arm64
-        run: |
-          ZIP_OUTPUT=release/walletd_${GOOS}_${GOARCH}.zip
-          mkdir -p release
-          go build -tags='netgo' -trimpath -o bin/ -a -ldflags '-s -w' ./cmd/walletd
-          cp README.md LICENSE bin/
-          /usr/bin/codesign --deep -f -v --timestamp -o runtime,library -s $APPLE_CERT_ID bin/walletd
-          ditto -ck bin $ZIP_OUTPUT
-          xcrun notarytool submit -k ~/private_keys/AuthKey_$APPLE_API_KEY.p8 -d $APPLE_API_KEY -i $APPLE_API_ISSUER --wait --timeout 10m $ZIP_OUTPUT
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: walletd
-          path: release/
+          name: walletd-darwin-${{ matrix.go-arch }}
+          path: release/*
   build-windows:
     runs-on: windows-latest
+    needs: [ test ]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: '1.21'
       - name: Setup
         shell: bash
         run: |
@@ -189,7 +185,73 @@ jobs:
           azuresigntool sign -kvu "${{ secrets.AZURE_KEY_VAULT_URI }}" -kvi "${{ secrets.AZURE_CLIENT_ID }}" -kvt "${{ secrets.AZURE_TENANT_ID }}" -kvs "${{ secrets.AZURE_CLIENT_SECRET }}" -kvc ${{ secrets.AZURE_CERT_NAME }} -tr http://timestamp.digicert.com -v bin/walletd.exe
           cp README.md LICENSE bin/
           7z a $ZIP_OUTPUT ./bin/*
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
-          name: walletd
-          path: release/
+          name: walletd-windows-amd64
+          path: release/*
+  combine-release-assets:
+    runs-on: ubuntu-latest
+    needs: [ build-linux, build-mac, build-windows ]
+    steps:
+      - name: Merge Artifacts
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: walletd-release-assets-combined
+
+  dispatch-homebrew: # only runs on full releases
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
+    needs: [ build-mac ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract Tag Name
+        id: get_tag
+        run: echo "::set-output name=tag_name::${GITHUB_REF#refs/tags/}"
+
+      - name: Dispatch
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PAT_REPOSITORY_DISPATCH }}
+          repository: siafoundation/homebrew-sia
+          event-type: release-tagged
+          client-payload: >
+            {
+              "description": "walletd: The Next-Gen Sia Wallet",
+              "tag": "${{ steps.get_tag.outputs.tag_name }}",
+              "project": "walletd",
+              "workflow_id": "${{ github.run_id }}"
+            }
+  dispatch-linux: # always runs
+    needs: [ build-linux ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build Dispatch Payload
+        id: get_payload
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const isRelease = context.ref.startsWith('refs/tags/v'),
+              isBeta = isRelease && context.ref.includes('-beta'),
+              tag = isRelease ? context.ref.replace('refs/tags/', '') : 'master';
+
+            let component = 'nightly';
+            if (isBeta) {
+              component = 'beta';
+            } else if (isRelease) {
+              component = 'main';
+            }
+
+            return {
+              description: "walletd: The Next-Gen Sia Wallet",
+              tag: tag,
+              project: "walletd",
+              workflow_id: context.runId,
+              component: component
+            };
+
+      - name: Dispatch
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.PAT_REPOSITORY_DISPATCH }}
+          repository: siafoundation/linux
+          event-type: release-tagged
+          client-payload: ${{ steps.get_payload.outputs.result }}
