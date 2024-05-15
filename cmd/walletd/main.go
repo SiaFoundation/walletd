@@ -9,9 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"runtime/pprof"
 	"syscall"
-	"time"
 
 	"go.sia.tech/core/types"
 	cwallet "go.sia.tech/coreutils/wallet"
@@ -24,8 +22,6 @@ import (
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 	"lukechampine.com/flagg"
-
-	_ "net/http/pprof"
 )
 
 const (
@@ -252,43 +248,6 @@ func main() {
 
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGKILL)
 		defer cancel()
-
-		go func() {
-			t := time.NewTicker(time.Minute)
-			defer t.Stop()
-
-			dir := filepath.Join(cfg.Directory, "profiles")
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				stdoutFatalError("failed to create profiles directory: " + err.Error())
-			}
-
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-t.C:
-					err := func() error {
-						f, err := os.Create(filepath.Join(dir, "heap-"+time.Now().Format("2006-01-02T150405")+".pprof"))
-						if err != nil {
-							return fmt.Errorf("failed to create heap profile: %w", err)
-						}
-						defer f.Close()
-
-						if err := pprof.WriteHeapProfile(f); err != nil {
-							return fmt.Errorf("failed to write heap profile: %w", err)
-						} else if err := f.Sync(); err != nil {
-							return fmt.Errorf("failed to sync heap profile: %w", err)
-						} else if err := f.Close(); err != nil {
-							return fmt.Errorf("failed to close heap profile: %w", err)
-						}
-						return nil
-					}()
-					if err != nil {
-						stdoutError(err.Error())
-					}
-				}
-			}
-		}()
 
 		if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
 			stdoutFatalError("failed to create directory: " + err.Error())
