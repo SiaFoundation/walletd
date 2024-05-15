@@ -225,7 +225,7 @@ func (ut *updateTx) RevertIndex(index types.ChainIndex, state wallet.RevertedSta
 
 // UpdateChainState implements chain.Subscriber
 func (s *Store) UpdateChainState(reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error {
-	log := s.log.Named("UpdateChainState").With(zap.Int("reverted", len(reverted)), zap.Int("applied", len(applied)))
+	log := s.log.Named("UpdateChainState").With(zap.Int("revertedUpdates", len(reverted)), zap.Int("appliedUpdates", len(applied)))
 	return s.transaction(func(tx *txn) error {
 		utx := &updateTx{
 			indexMode: s.indexMode,
