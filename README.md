@@ -21,17 +21,19 @@ Setup guides are available at https://docs.sia.tech
 
 **Personal**
 
-In personal index mode, `walletd` will only index addresses that are registered in the
+In "personal" index mode, `walletd` will only index addresses that are registered in the
 wallet. This mode is recommended for most users, as it provides a good balance between
-comprehensiveness and resource usage. This is the default mode for `walletd`.
+comprehensiveness and resource usage for personal wallets. This is the default 
+mode for `walletd`.
 
-When adding existing addresses with history on chain, users will need to manually 
+When adding addresses with existing history on chain, users will need to manually 
 initiate a rescan to index the new transactions. This can take some to complete,
-depending on the number of blocks that need to be scanned.
+depending on the number of blocks that need to be scanned. When adding addresses 
+with no existing history, a rescan is not necessary.
 
 **Full**
 
-In full index mode, `walletd` will index the entire blockchain including all addresses
+In "full" index mode, `walletd` will index the entire blockchain including all addresses
 and UTXOs. This is the most comprehensive mode, but it also requires the most 
 resources. This mode is recommended for exchanges or wallet builders that need 
 to support a large or unknown number of addresses.
