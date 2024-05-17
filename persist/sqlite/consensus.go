@@ -1043,7 +1043,7 @@ func addEvents(tx *txn, events []wallet.Event, indexID int64) error {
 		}
 
 		var eventID int64
-		err = insertEventStmt.QueryRow(encode(event.ID), event.MaturityHeight, encode(event.Timestamp), event.Data.EventType(), buf.String(), indexID).Scan(&eventID)
+		err = insertEventStmt.QueryRow(encode(event.ID), event.MaturityHeight, encode(event.Timestamp), event.Type, buf.String(), indexID).Scan(&eventID)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue // skip if the event already exists
 		} else if err != nil {

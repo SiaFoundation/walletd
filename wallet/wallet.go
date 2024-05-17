@@ -3,7 +3,6 @@ package wallet
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -197,10 +196,6 @@ func Annotate(txn types.Transaction, ownsAddress func(types.Address) bool) PoolT
 	return ptxn
 }
 
-type eventData interface {
-	EventType() string
-}
-
 // An Event is something interesting that happened on the Sia blockchain.
 type Event struct {
 	ID             types.Hash256    `json:"id"`
@@ -208,74 +203,8 @@ type Event struct {
 	Timestamp      time.Time        `json:"timestamp"`
 	MaturityHeight uint64           `json:"maturityHeight"`
 	Relevant       []types.Address  `json:"relevant"`
-	Data           eventData        `json:"data"`
-}
-
-// EventType implements Event.
-func (*EventTransaction) EventType() string { return EventTypeTransaction }
-
-// EventType implements Event.
-func (*EventMinerPayout) EventType() string { return EventTypeMinerPayout }
-
-// EventType implements Event.
-func (*EventFoundationSubsidy) EventType() string { return EventTypeFoundationSubsidy }
-
-// EventType implements Event.
-func (*EventContractPayout) EventType() string { return EventTypeContractPayout }
-
-// MarshalJSON implements json.Marshaler.
-func (e Event) MarshalJSON() ([]byte, error) {
-	val, _ := json.Marshal(e.Data)
-	return json.Marshal(struct {
-		ID             types.Hash256    `json:"id"`
-		Timestamp      time.Time        `json:"timestamp"`
-		Index          types.ChainIndex `json:"index"`
-		MaturityHeight uint64           `json:"maturityHeight"`
-		Relevant       []types.Address  `json:"relevant"`
-		Type           string           `json:"type"`
-		Data           json.RawMessage  `json:"data"`
-	}{
-		ID:             e.ID,
-		Timestamp:      e.Timestamp,
-		Index:          e.Index,
-		MaturityHeight: e.MaturityHeight,
-		Relevant:       e.Relevant,
-		Type:           e.Data.EventType(),
-		Data:           val,
-	})
-}
-
-// UnmarshalJSON implements json.Unarshaler.
-func (e *Event) UnmarshalJSON(data []byte) error {
-	var s struct {
-		ID             types.Hash256    `json:"id"`
-		Timestamp      time.Time        `json:"timestamp"`
-		Index          types.ChainIndex `json:"index"`
-		MaturityHeight uint64           `json:"maturityHeight"`
-		Relevant       []types.Address  `json:"relevant"`
-		Type           string           `json:"type"`
-		Data           json.RawMessage  `json:"data"`
-	}
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	e.ID = s.ID
-	e.Timestamp = s.Timestamp
-	e.Index = s.Index
-	e.MaturityHeight = s.MaturityHeight
-	e.Relevant = s.Relevant
-	switch s.Type {
-	case (*EventTransaction)(nil).EventType():
-		e.Data = new(EventTransaction)
-	case (*EventMinerPayout)(nil).EventType():
-		e.Data = new(EventMinerPayout)
-	case (*EventContractPayout)(nil).EventType():
-		e.Data = new(EventContractPayout)
-	}
-	if e.Data == nil {
-		return fmt.Errorf("unknown event type %q", s.Type)
-	}
-	return json.Unmarshal(s.Data, e.Data)
+	Type           string           `json:"type"`
+	Data           any              `json:"data"`
 }
 
 // A HostAnnouncement represents a host announcement within an EventTransaction.
@@ -349,7 +278,7 @@ type ChainUpdate interface {
 // AppliedEvents extracts a list of relevant events from a chain update.
 func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant func(types.Address) bool) []Event {
 	var events []Event
-	addEvent := func(id types.Hash256, maturityHeight uint64, v eventData, relevant []types.Address) {
+	addEvent := func(id types.Hash256, maturityHeight uint64, eventType string, v any, relevant []types.Address) {
 		// dedup relevant addresses
 		seen := make(map[types.Address]bool)
 		unique := relevant[:0]
@@ -366,6 +295,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			Index:          cs.Index,
 			MaturityHeight: maturityHeight,
 			Relevant:       unique,
+			Type:           eventType,
 			Data:           v,
 		})
 	}
@@ -529,7 +459,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			e.Fee = e.Fee.Add(txn.MinerFees[i])
 		}
 
-		addEvent(types.Hash256(txn.ID()), cs.Index.Height, e, relevant) // transaction maturity height is the current block height
+		addEvent(types.Hash256(txn.ID()), cs.Index.Height, EventTypeTransaction, e, relevant) // transaction maturity height is the current block height
 	}
 
 	// handle v2 transactions
@@ -599,7 +529,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		}
 
 		e.Fee = txn.MinerFee
-		addEvent(types.Hash256(txid), cs.Index.Height, e, relevant) // transaction maturity height is the current block height
+		addEvent(types.Hash256(txid), cs.Index.Height, EventTypeTransaction, e, relevant) // transaction maturity height is the current block height
 	}
 
 	// handle missed contracts
@@ -615,7 +545,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 				}
 
 				outputID := types.FileContractID(fce.ID).ValidOutputID(i)
-				addEvent(types.Hash256(outputID), cs.MaturityHeight(), &EventContractPayout{
+				addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeContractPayout, &EventContractPayout{
 					FileContract:  fce,
 					SiacoinOutput: sces[outputID],
 					Missed:        false,
@@ -628,7 +558,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 				}
 
 				outputID := types.FileContractID(fce.ID).MissedOutputID(i)
-				addEvent(types.Hash256(outputID), cs.MaturityHeight(), &EventContractPayout{
+				addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeContractPayout, &EventContractPayout{
 					FileContract:  fce,
 					SiacoinOutput: sces[outputID],
 					Missed:        true,
@@ -641,7 +571,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 	for i := range b.MinerPayouts {
 		if relevant(b.MinerPayouts[i].Address) {
 			outputID := cs.Index.ID.MinerOutputID(i)
-			addEvent(types.Hash256(outputID), cs.MaturityHeight(), &EventMinerPayout{
+			addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeMinerPayout, &EventMinerPayout{
 				SiacoinOutput: sces[outputID],
 			}, []types.Address{b.MinerPayouts[i].Address})
 		}
@@ -652,7 +582,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		outputID := cs.Index.ID.FoundationOutputID()
 		sce, ok := sces[outputID]
 		if ok {
-			addEvent(types.Hash256(outputID), cs.MaturityHeight(), &EventFoundationSubsidy{
+			addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeFoundationSubsidy, &EventFoundationSubsidy{
 				SiacoinOutput: sce,
 			}, []types.Address{cs.FoundationPrimaryAddress})
 		}
