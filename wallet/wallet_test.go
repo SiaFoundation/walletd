@@ -169,8 +169,8 @@ func TestReorg(t *testing.T) {
 			t.Fatal(err)
 		} else if len(events) != 1 {
 			t.Fatalf("expected 1 event, got %v", len(events))
-		} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-			t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+		} else if events[0].Type != wallet.EventTypeMinerPayout {
+			t.Fatalf("expected payout event, got %v", events[0].Type)
 		}
 
 		// check that the utxo was created
@@ -239,8 +239,8 @@ func TestReorg(t *testing.T) {
 			t.Fatal(err)
 		} else if len(events) != 1 {
 			t.Fatalf("expected 1 event, got %v", len(events))
-		} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-			t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+		} else if events[0].Type != wallet.EventTypeMinerPayout {
+			t.Fatalf("expected payout event, got %v", events[0].Type)
 		}
 
 		// check that the utxo was created
@@ -377,8 +377,8 @@ func TestEphemeralBalance(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Type)
 	} else if events[0].ID != types.Hash256(minerPayoutID) {
 		t.Fatalf("expected %v, got %v", minerPayoutID, events[0].ID)
 	}
@@ -469,12 +469,12 @@ func TestEphemeralBalance(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 3 { // 1 payout, 2 transactions
 		t.Fatalf("expected 3 events, got %v", len(events))
-	} else if events[2].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected miner payout event, got %v", events[2].Data.EventType())
-	} else if events[1].Data.EventType() != wallet.EventTypeTransaction {
-		t.Fatalf("expected transaction event, got %v", events[1].Data.EventType())
-	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
-		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if events[2].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected miner payout event, got %v", events[2].Type)
+	} else if events[1].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[1].Type)
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	} else if events[1].ID != types.Hash256(parentTxn.ID()) { // parent txn first
 		t.Fatalf("expected %v, got %v", parentTxn.ID(), events[1].ID)
 	} else if events[0].ID != types.Hash256(txn.ID()) { // child txn second
@@ -508,8 +508,8 @@ func TestEphemeralBalance(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 1 {
 		t.Fatalf("expected 1 events, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Type)
 	}
 }
 
@@ -1013,8 +1013,8 @@ func TestOrphans(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Type)
 	}
 
 	// check that the utxo was created
@@ -1194,8 +1194,8 @@ func TestFullIndex(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
-		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	}
 
 	// mine a block and send the payout to the first address
@@ -1211,8 +1211,8 @@ func TestFullIndex(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 1 {
 		t.Fatalf("expected 1 events, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected miner payout event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected miner payout event, got %v", events[0].Type)
 	}
 
 	assertBalance(t, addr, types.ZeroCurrency, expectedBalance1, 0)
@@ -1230,8 +1230,8 @@ func TestFullIndex(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 1 {
 		t.Fatalf("expected 1 events, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected miner payout event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected miner payout event, got %v", events[0].Type)
 	}
 
 	assertBalance(t, addr, expectedBalance1, types.ZeroCurrency, 0)
@@ -1275,8 +1275,8 @@ func TestFullIndex(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 2 {
 		t.Fatalf("expected 2 events, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
-		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	}
 
 	// check the events for the second address
@@ -1284,8 +1284,8 @@ func TestFullIndex(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 2 {
 		t.Fatalf("expected 2 event, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
-		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	}
 
 	sf, err := wm.AddressSiafundOutputs(addr2, 0, 100)
@@ -1326,8 +1326,8 @@ func TestFullIndex(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 3 {
 		t.Fatalf("expected 3 events, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
-		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	}
 
 	// check the events for the first address
@@ -1335,8 +1335,8 @@ func TestFullIndex(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 3 {
 		t.Fatalf("expected 3 events, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
-		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	}
 }
 
@@ -1400,8 +1400,8 @@ func TestV2(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Type)
 	}
 
 	// mine until the payout matures
@@ -1454,8 +1454,8 @@ func TestV2(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 2 {
 		t.Fatalf("expected 2 events, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeTransaction {
-		t.Fatalf("expected transaction event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	} else if events[0].Relevant[0] != addr {
 		t.Fatalf("expected address %v, got %v", addr, events[0].Relevant[0])
 	}
@@ -1712,8 +1712,8 @@ func TestReorgV2(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Type)
 	}
 
 	// check that the utxo was created
@@ -1782,8 +1782,8 @@ func TestReorgV2(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Type)
 	}
 
 	// check that the utxo was created
@@ -1955,8 +1955,8 @@ func TestOrphansV2(t *testing.T) {
 		t.Fatal(err)
 	} else if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %v", len(events))
-	} else if events[0].Data.EventType() != wallet.EventTypeMinerPayout {
-		t.Fatalf("expected payout event, got %v", events[0].Data.EventType())
+	} else if events[0].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected payout event, got %v", events[0].Type)
 	}
 
 	// check that the utxo was created

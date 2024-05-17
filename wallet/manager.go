@@ -33,7 +33,7 @@ const (
 	IndexModeNone
 )
 
-const defaultSyncBatchSize = 64
+const defaultSyncBatchSize = 1
 
 type (
 	// An IndexMode determines the chain state that the wallet manager stores.

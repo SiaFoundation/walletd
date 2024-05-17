@@ -448,15 +448,14 @@ func fillElementProofs(tx *txn, indices []uint64) (proofs [][]types.Hash256, _ e
 }
 
 func scanEvent(s scanner) (ev wallet.Event, eventID int64, err error) {
-	var eventType string
 	var eventBuf []byte
 
-	err = s.Scan(&eventID, decode(&ev.ID), &ev.MaturityHeight, decode(&ev.Timestamp), &ev.Index.Height, decode(&ev.Index.ID), &eventType, &eventBuf)
+	err = s.Scan(&eventID, decode(&ev.ID), &ev.MaturityHeight, decode(&ev.Timestamp), &ev.Index.Height, decode(&ev.Index.ID), &ev.Type, &eventBuf)
 	if err != nil {
 		return
 	}
 
-	switch eventType {
+	switch ev.Type {
 	case wallet.EventTypeTransaction:
 		var tx wallet.EventTransaction
 		if err = json.Unmarshal(eventBuf, &tx); err != nil {
@@ -482,7 +481,7 @@ func scanEvent(s scanner) (ev wallet.Event, eventID int64, err error) {
 		}
 		ev.Data = &m
 	default:
-		return wallet.Event{}, 0, fmt.Errorf("unknown event type: %s", eventType)
+		return wallet.Event{}, 0, fmt.Errorf("unknown event type: %q", ev.Type)
 	}
 	return
 }
