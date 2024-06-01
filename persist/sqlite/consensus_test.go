@@ -38,7 +38,13 @@ func syncDB(tb testing.TB, store *Store, cm *chain.Manager) {
 		} else if err := store.UpdateChainState(crus, caus); err != nil {
 			tb.Fatalf("failed to update chain state: %v", err)
 		}
-		index = caus[len(caus)-1].State.Index
+
+		switch {
+		case len(caus) > 0:
+			index = caus[len(caus)-1].State.Index
+		case len(crus) > 0:
+			index = crus[len(crus)-1].State.Index
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/walletd/wallet"
@@ -225,6 +226,10 @@ func (ut *updateTx) RevertIndex(index types.ChainIndex, state wallet.RevertedSta
 
 // UpdateChainState implements chain.Subscriber
 func (s *Store) UpdateChainState(reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error {
+	if len(applied) == 0 && len(reverted) == 0 {
+		return nil
+	}
+
 	log := s.log.Named("UpdateChainState").With(zap.Int("revertedUpdates", len(reverted)), zap.Int("appliedUpdates", len(applied)))
 	return s.transaction(func(tx *txn) error {
 		utx := &updateTx{
@@ -234,12 +239,25 @@ func (s *Store) UpdateChainState(reverted []chain.RevertUpdate, applied []chain.
 			relevantAddresses: make(map[types.Address]bool),
 		}
 
-		state := applied[len(applied)-1].State
-
 		if err := wallet.UpdateChainState(utx, reverted, applied, s.indexMode, log); err != nil {
 			return err
-		} else if err := setGlobalState(tx, state.Index, state.Elements.NumLeaves); err != nil {
+		}
+
+		var state consensus.State
+		switch {
+		case len(applied) > 0:
+			state = applied[len(applied)-1].State
+		case len(reverted) > 0:
+			state = reverted[len(reverted)-1].State
+		}
+
+		if err := setGlobalState(tx, state.Index, state.Elements.NumLeaves); err != nil {
 			return fmt.Errorf("failed to set last committed index: %w", err)
+		}
+
+		// skip pruning if there are no applied updates
+		if len(applied) == 0 {
+			return nil
 		}
 
 		if state.Index.Height > spentElementRetentionBlocks {
