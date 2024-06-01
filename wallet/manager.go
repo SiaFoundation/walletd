@@ -262,7 +262,13 @@ func syncStore(ctx context.Context, store Store, cm ChainManager, index types.Ch
 		} else if err := store.UpdateChainState(crus, caus); err != nil {
 			return fmt.Errorf("failed to update chain state: %w", err)
 		}
-		index = caus[len(caus)-1].State.Index
+
+		switch {
+		case len(caus) > 0:
+			index = caus[len(caus)-1].State.Index
+		case len(crus) > 0:
+			index = crus[len(crus)-1].State.Index
+		}
 	}
 	return nil
 }

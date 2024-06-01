@@ -719,14 +719,22 @@ func TestScan(t *testing.T) {
 	}
 
 	expectedBalance1 := cm.TipState().BlockReward()
+
 	// mine a block to fund the first address
-	if err := cm.AddBlocks([]types.Block{testutil.MineBlock(cm, addr)}); err != nil {
+	b, ok := coreutils.MineBlock(cm, addr, 5*time.Second)
+	if !ok {
+		t.Fatal("failed to mine block")
+	} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
 
-	// mine a block to fund the second address
 	expectedBalance2 := cm.TipState().BlockReward()
-	if err := cm.AddBlocks([]types.Block{testutil.MineBlock(cm, addr2)}); err != nil {
+
+	// mine a block to fund the second address
+	b, ok = coreutils.MineBlock(cm, addr2, 5*time.Second)
+	if !ok {
+		t.Fatal("failed to mine block")
+	} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -737,7 +745,9 @@ func TestScan(t *testing.T) {
 
 	// mine until the first payout matures
 	for i := cm.Tip().Height; i < genesisState.MaturityHeight(); i++ {
-		if err := cm.AddBlocks([]types.Block{testutil.MineBlock(cm, types.VoidAddress)}); err != nil {
+		if b, ok := coreutils.MineBlock(cm, types.VoidAddress, 5*time.Second); !ok {
+			t.Fatal("failed to mine block")
+		} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -774,7 +784,10 @@ func TestScan(t *testing.T) {
 	}
 
 	// mine a block to mature the second payout
-	if err := cm.AddBlocks([]types.Block{testutil.MineBlock(cm, types.VoidAddress)}); err != nil {
+	b, ok = coreutils.MineBlock(cm, types.VoidAddress, 5*time.Second)
+	if !ok {
+		t.Fatal("failed to mine block")
+	} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -890,7 +903,11 @@ func TestSiafunds(t *testing.T) {
 
 	if _, err := cm.AddPoolTransactions([]types.Transaction{txn}); err != nil {
 		t.Fatal(err)
-	} else if err := cm.AddBlocks([]types.Block{testutil.MineBlock(cm, types.VoidAddress)}); err != nil {
+	}
+
+	if b, ok := coreutils.MineBlock(cm, types.VoidAddress, 5*time.Second); !ok {
+		t.Fatal("failed to mine block")
+	} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	} else if err := checkBalance(w1.ID, sendAmount); err != nil {
 		t.Fatal(err)
@@ -1538,13 +1555,17 @@ func TestScanV2(t *testing.T) {
 
 	expectedBalance1 := cm.TipState().BlockReward()
 	// mine a block to fund the first address
-	if err := cm.AddBlocks([]types.Block{testutil.MineBlock(cm, addr)}); err != nil {
+	if b, ok := coreutils.MineBlock(cm, addr, 5*time.Second); !ok {
+		t.Fatal("failed to mine block")
+	} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
 
 	// mine a block to fund the second address
 	expectedBalance2 := cm.TipState().BlockReward()
-	if err := cm.AddBlocks([]types.Block{testutil.MineBlock(cm, addr2)}); err != nil {
+	if b, ok := coreutils.MineBlock(cm, addr2, 5*time.Second); !ok {
+		t.Fatal("failed to mine block")
+	} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1555,7 +1576,9 @@ func TestScanV2(t *testing.T) {
 
 	// mine until the first payout matures
 	for i := cm.Tip().Height; i < genesisState.MaturityHeight(); i++ {
-		if err := cm.AddBlocks([]types.Block{testutil.MineBlock(cm, types.VoidAddress)}); err != nil {
+		if b, ok := coreutils.MineBlock(cm, types.VoidAddress, 5*time.Second); !ok {
+			t.Fatal("failed to mine block")
+		} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1592,7 +1615,9 @@ func TestScanV2(t *testing.T) {
 	}
 
 	// mine a block to mature the second payout
-	if err := cm.AddBlocks([]types.Block{testutil.MineBlock(cm, types.VoidAddress)}); err != nil {
+	if b, ok := coreutils.MineBlock(cm, types.VoidAddress, 5*time.Second); !ok {
+		t.Fatal("failed to mine block")
+	} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
 		t.Fatal(err)
 	}
 
