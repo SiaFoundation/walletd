@@ -67,7 +67,7 @@ var cfg = config.Config{
 	},
 	Index: config.Index{
 		Mode:      wallet.IndexModePersonal,
-		BatchSize: 64,
+		BatchSize: 1000,
 	},
 	Log: config.Log{
 		Level: "info",
