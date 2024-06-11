@@ -102,29 +102,6 @@ func getAPIPassword() string {
 	return apiPassword
 }
 
-// stdoutFatalError prints an error message to stdout and exits with a 1 exit code.
-func stdoutFatalError(msg string) {
-	stdoutError(msg)
-	os.Exit(1)
-}
-
-// wrapANSI wraps the output in ANSI escape codes if enabled.
-func wrapANSI(prefix, output, suffix string) string {
-	if cfg.Log.StdOut.EnableANSI {
-		return prefix + output + suffix
-	}
-	return output
-}
-
-// stdoutError prints an error message to stdout
-func stdoutError(msg string) {
-	if cfg.Log.StdOut.EnableANSI {
-		fmt.Println(wrapANSI("\033[31m", msg, "\033[0m"))
-	} else {
-		fmt.Println(msg)
-	}
-}
-
 // tryLoadConfig loads the config file specified by the WALLETD_CONFIG_FILE. If
 // the config file does not exist, it will not be loaded.
 func tryLoadConfig() {
@@ -225,6 +202,7 @@ func main() {
 
 	versionCmd := flagg.New("version", versionUsage)
 	seedCmd := flagg.New("seed", seedUsage)
+	configCmd := flagg.New("config", "interactively configure walletd")
 
 	mineCmd := flagg.New("mine", mineUsage)
 	mineCmd.IntVar(&minerBlocks, "n", -1, "mine this many blocks. If negative, mine indefinitely")
@@ -233,6 +211,7 @@ func main() {
 	cmd := flagg.Parse(flagg.Tree{
 		Cmd: rootCmd,
 		Sub: []flagg.Tree{
+			{Cmd: configCmd},
 			{Cmd: versionCmd},
 			{Cmd: seedCmd},
 			{Cmd: mineCmd},
@@ -360,6 +339,13 @@ func main() {
 
 		fmt.Println("Recovery Phrase:", recoveryPhrase)
 		fmt.Println("Address", addr)
+	case configCmd:
+		if len(cmd.Args()) != 0 {
+			cmd.Usage()
+			return
+		}
+
+		buildConfig()
 	case mineCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
