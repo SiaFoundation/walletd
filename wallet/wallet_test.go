@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -164,7 +165,7 @@ func TestReorg(t *testing.T) {
 		}
 
 		// check that a payout event was recorded
-		events, err := wm.Events(w.ID, 0, 100)
+		events, err := wm.WalletEvents(w.ID, 0, 100)
 		if err != nil {
 			t.Fatal(err)
 		} else if len(events) != 1 {
@@ -205,7 +206,7 @@ func TestReorg(t *testing.T) {
 		}
 
 		// check that the payout event was reverted
-		events, err = wm.Events(w.ID, 0, 100)
+		events, err = wm.WalletEvents(w.ID, 0, 100)
 		if err != nil {
 			t.Fatal(err)
 		} else if len(events) != 0 {
@@ -234,7 +235,7 @@ func TestReorg(t *testing.T) {
 		}
 
 		// check that a payout event was recorded
-		events, err = wm.Events(w.ID, 0, 100)
+		events, err = wm.WalletEvents(w.ID, 0, 100)
 		if err != nil {
 			t.Fatal(err)
 		} else if len(events) != 1 {
@@ -372,7 +373,7 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 
 	// check that a payout event was recorded
-	events, err := wm.Events(w.ID, 0, 100)
+	events, err := wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -464,7 +465,7 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 
 	// check that both transactions were added
-	events, err = wm.Events(w.ID, 0, 100)
+	events, err = wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 3 { // 1 payout, 2 transactions
@@ -503,7 +504,7 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 
 	// check that only the payout event remains
-	events, err = wm.Events(w.ID, 0, 100)
+	events, err = wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -1025,7 +1026,7 @@ func TestOrphans(t *testing.T) {
 	}
 
 	// check that a payout event was recorded
-	events, err := wm.Events(w.ID, 0, 100)
+	events, err := wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -1085,7 +1086,7 @@ func TestOrphans(t *testing.T) {
 	}
 
 	// check that the transaction event was recorded
-	events, err = wm.Events(w.ID, 0, 100)
+	events, err = wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 2 {
@@ -1128,7 +1129,7 @@ func TestOrphans(t *testing.T) {
 	}
 
 	// check that the transaction event was reverted
-	events, err = wm.Events(w.ID, 0, 100)
+	events, err = wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -1357,6 +1358,237 @@ func TestFullIndex(t *testing.T) {
 	}
 }
 
+func TestEvents(t *testing.T) {
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
+	pk2 := types.GeneratePrivateKey()
+	addr2 := types.StandardUnlockHash(pk2.PublicKey())
+
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	network, genesisBlock := testV2Network(addr2)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(store, genesisState)
+
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	waitForBlock(t, cm, db)
+
+	assertBalance := func(t *testing.T, address types.Address, siacoin, immature types.Currency, siafund uint64) {
+		t.Helper()
+
+		b, err := wm.AddressBalance(address)
+		if err != nil {
+			t.Fatal(err)
+		} else if !b.ImmatureSiacoins.Equals(immature) {
+			t.Fatalf("expected immature siacoin balance %v, got %v", immature, b.ImmatureSiacoins)
+		} else if !b.Siacoins.Equals(siacoin) {
+			t.Fatalf("expected siacoin balance %v, got %v", siacoin, b.Siacoins)
+		} else if b.Siafunds != siafund {
+			t.Fatalf("expected siafund balance %v, got %v", siafund, b.Siafunds)
+		}
+	}
+
+	// check the events are empty for the first address
+	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 0 {
+		t.Fatalf("expected 0 events, got %v", len(events))
+	}
+
+	// assert that the airdropped siafunds are on the second address
+	assertBalance(t, addr2, types.ZeroCurrency, types.ZeroCurrency, cm.TipState().SiafundCount())
+	// check the events for the air dropped siafunds
+	if events, err := wm.AddressEvents(addr2, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %v", len(events))
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
+	}
+
+	// mine a block and send the payout to the first address
+	expectedBalance1 := cm.TipState().BlockReward()
+	maturityHeight := cm.TipState().MaturityHeight()
+	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
+		t.Fatal(err)
+	}
+	waitForBlock(t, cm, db)
+
+	// check the payout was received
+	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 events, got %v", len(events))
+	} else if events[0].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected miner payout event, got %v", events[0].Type)
+	} else if events2, err := wm.Events([]types.Hash256{events[0].ID}); err != nil {
+		t.Fatalf("expected to get event: %v", err)
+	} else if !reflect.DeepEqual(events2[0], events[0]) {
+		t.Fatalf("expected event %v to match %v", events[0], events2)
+	}
+
+	assertBalance(t, addr, types.ZeroCurrency, expectedBalance1, 0)
+
+	// mine until the payout matures
+	for i := cm.TipState().Index.Height; i < maturityHeight; i++ {
+		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitForBlock(t, cm, db)
+
+	// check that the events did not change
+	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 events, got %v", len(events))
+	} else if events[0].Type != wallet.EventTypeMinerPayout {
+		t.Fatalf("expected miner payout event, got %v", events[0].Type)
+	}
+
+	assertBalance(t, addr, expectedBalance1, types.ZeroCurrency, 0)
+	assertBalance(t, addr2, types.ZeroCurrency, types.ZeroCurrency, cm.TipState().SiafundCount())
+
+	// send half siacoins to the second address
+	utxos, err := wm.AddressSiacoinOutputs(addr, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	policy := types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey()))
+	txn := types.V2Transaction{
+		SiacoinInputs: []types.V2SiacoinInput{
+			{
+				Parent: utxos[0],
+				SatisfiedPolicy: types.SatisfiedPolicy{
+					Policy: types.SpendPolicy{
+						Type: policy,
+					},
+				},
+			},
+		},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: addr2, Value: utxos[0].SiacoinOutput.Value.Div64(2)},
+			{Address: addr, Value: utxos[0].SiacoinOutput.Value.Div64(2)},
+		},
+	}
+	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(cm.TipState().InputSigHash(txn))}
+
+	if err := cm.AddBlocks([]types.Block{mineV2Block(cm.TipState(), []types.V2Transaction{txn}, types.VoidAddress)}); err != nil {
+		t.Fatal(err)
+	}
+	waitForBlock(t, cm, db)
+
+	assertBalance(t, addr, expectedBalance1.Div64(2), types.ZeroCurrency, 0)
+	assertBalance(t, addr2, expectedBalance1.Div64(2), types.ZeroCurrency, cm.TipState().SiafundCount())
+
+	// check the events for the transaction
+	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %v", len(events))
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
+	} else if events2, err := wm.Events([]types.Hash256{events[0].ID}); err != nil {
+		t.Fatalf("expected to get event: %v", err)
+	} else if !reflect.DeepEqual(events2[0], events[0]) {
+		t.Fatalf("expected event %v to match %v", events[0], events2)
+	}
+
+	// check the events for the second address
+	if events, err := wm.AddressEvents(addr2, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 2 {
+		t.Fatalf("expected 2 event, got %v", len(events))
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
+	} else if events2, err := wm.Events([]types.Hash256{events[0].ID}); err != nil {
+		t.Fatalf("expected to get event: %v", err)
+	} else if !reflect.DeepEqual(events2[0], events[0]) {
+		t.Fatalf("expected event %v to match %v", events[0], events2)
+	}
+
+	sf, err := wm.AddressSiafundOutputs(addr2, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// send the siafunds to the first address
+	policy = types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk2.PublicKey()))
+	txn = types.V2Transaction{
+		SiafundInputs: []types.V2SiafundInput{
+			{
+				Parent: sf[0],
+				SatisfiedPolicy: types.SatisfiedPolicy{
+					Policy: types.SpendPolicy{
+						Type: policy,
+					},
+				},
+				ClaimAddress: addr2, // claim address shouldn't create an event since the value is 0
+			},
+		},
+		SiafundOutputs: []types.SiafundOutput{
+			{Address: addr, Value: sf[0].SiafundOutput.Value},
+		},
+	}
+	txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk2.SignHash(cm.TipState().InputSigHash(txn))}
+
+	if err := cm.AddBlocks([]types.Block{mineV2Block(cm.TipState(), []types.V2Transaction{txn}, types.VoidAddress)}); err != nil {
+		t.Fatal(err)
+	}
+	waitForBlock(t, cm, db)
+
+	assertBalance(t, addr, expectedBalance1.Div64(2), types.ZeroCurrency, cm.TipState().SiafundCount())
+	assertBalance(t, addr2, expectedBalance1.Div64(2), types.ZeroCurrency, 0)
+
+	// check the events for the transaction
+	if events, err := wm.AddressEvents(addr2, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %v", len(events))
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
+	} else if events2, err := wm.Events([]types.Hash256{events[0].ID}); err != nil {
+		t.Fatalf("expected to get event: %v", err)
+	} else if !reflect.DeepEqual(events2[0], events[0]) {
+		t.Fatalf("expected event %v to match %v", events[0], events2)
+	}
+
+	// check the events for the first address
+	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+		t.Fatal(err)
+	} else if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %v", len(events))
+	} else if events[0].Type != wallet.EventTypeTransaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
+	} else if events2, err := wm.Events([]types.Hash256{events[0].ID}); err != nil {
+		t.Fatalf("expected to get event: %v", err)
+	} else if !reflect.DeepEqual(events2[0], events[0]) {
+		t.Fatalf("expected event %v to match %v", events[0], events2)
+	}
+}
+
 func TestV2(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
@@ -1412,7 +1644,7 @@ func TestV2(t *testing.T) {
 	}
 
 	// check that a payout event was recorded
-	events, err := wm.Events(w.ID, 0, 100)
+	events, err := wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -1466,7 +1698,7 @@ func TestV2(t *testing.T) {
 	}
 
 	// check that a transaction event was recorded
-	events, err = wm.Events(w.ID, 0, 100)
+	events, err = wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 2 {
@@ -1732,7 +1964,7 @@ func TestReorgV2(t *testing.T) {
 	}
 
 	// check that a payout event was recorded
-	events, err := wm.Events(w.ID, 0, 100)
+	events, err := wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -1773,7 +2005,7 @@ func TestReorgV2(t *testing.T) {
 	}
 
 	// check that the payout event was reverted
-	events, err = wm.Events(w.ID, 0, 100)
+	events, err = wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 0 {
@@ -1802,7 +2034,7 @@ func TestReorgV2(t *testing.T) {
 	}
 
 	// check that a payout event was recorded
-	events, err = wm.Events(w.ID, 0, 100)
+	events, err = wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -1975,7 +2207,7 @@ func TestOrphansV2(t *testing.T) {
 	}
 
 	// check that a payout event was recorded
-	events, err := wm.Events(w.ID, 0, 100)
+	events, err := wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
@@ -2026,7 +2258,7 @@ func TestOrphansV2(t *testing.T) {
 	}
 
 	// check that the transaction event was recorded
-	events, err = wm.Events(w.ID, 0, 100)
+	events, err = wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 2 {
@@ -2069,7 +2301,7 @@ func TestOrphansV2(t *testing.T) {
 	}
 
 	// check that the transaction event was reverted
-	events, err = wm.Events(w.ID, 0, 100)
+	events, err = wm.WalletEvents(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {

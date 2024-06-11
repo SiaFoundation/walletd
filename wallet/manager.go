@@ -72,6 +72,8 @@ type (
 		AddressSiacoinOutputs(address types.Address, offset, limit int) (siacoins []types.SiacoinElement, err error)
 		AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, err error)
 
+		Events(eventIDs []types.Hash256) ([]Event, error)
+
 		SetIndexMode(IndexMode) error
 		LastCommittedIndex() (types.ChainIndex, error)
 	}
@@ -165,8 +167,8 @@ func (m *Manager) Addresses(walletID ID) ([]Address, error) {
 	return m.store.WalletAddresses(walletID)
 }
 
-// Events returns the events of the given wallet.
-func (m *Manager) Events(walletID ID, offset, limit int) ([]Event, error) {
+// WalletEvents returns the events of the given wallet.
+func (m *Manager) WalletEvents(walletID ID, offset, limit int) ([]Event, error) {
 	return m.store.WalletEvents(walletID, offset, limit)
 }
 
@@ -189,6 +191,11 @@ func (m *Manager) Annotate(walletID ID, pool []types.Transaction) ([]PoolTransac
 // WalletBalance returns the balance of the given wallet.
 func (m *Manager) WalletBalance(walletID ID) (Balance, error) {
 	return m.store.WalletBalance(walletID)
+}
+
+// Events returns the events with the given IDs.
+func (m *Manager) Events(eventIDs []types.Hash256) ([]Event, error) {
+	return m.store.Events(eventIDs)
 }
 
 // Reserve reserves the given ids for the given duration.
