@@ -60,7 +60,7 @@ type (
 		AddAddress(id wallet.ID, addr wallet.Address) error
 		RemoveAddress(id wallet.ID, addr types.Address) error
 		Addresses(id wallet.ID) ([]wallet.Address, error)
-		Events(id wallet.ID, offset, limit int) ([]wallet.Event, error)
+		WalletEvents(id wallet.ID, offset, limit int) ([]wallet.Event, error)
 		UnspentSiacoinOutputs(id wallet.ID, offset, limit int) ([]types.SiacoinElement, error)
 		UnspentSiafundOutputs(id wallet.ID, offset, limit int) ([]types.SiafundElement, error)
 		WalletBalance(id wallet.ID) (wallet.Balance, error)
@@ -70,6 +70,8 @@ type (
 		AddressEvents(address types.Address, offset, limit int) (events []wallet.Event, err error)
 		AddressSiacoinOutputs(address types.Address, offset, limit int) (siacoins []types.SiacoinElement, err error)
 		AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, err error)
+
+		Events(eventIDs []types.Hash256) ([]wallet.Event, error)
 
 		Reserve(ids []types.Hash256, duration time.Duration) error
 	}
@@ -382,7 +384,7 @@ func (s *server) walletsEventsHandler(jc jape.Context) {
 	if jc.DecodeParam("id", &id) != nil || jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
 		return
 	}
-	events, err := s.wm.Events(id, offset, limit)
+	events, err := s.wm.WalletEvents(id, offset, limit)
 	if errors.Is(err, wallet.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return
@@ -693,6 +695,21 @@ func (s *server) addressesAddrOutputsSFHandler(jc jape.Context) {
 	jc.Encode(utxos)
 }
 
+func (s *server) eventsHandlerGET(jc jape.Context) {
+	var eventID types.Hash256
+	if jc.DecodeParam("id", &eventID) != nil {
+		return
+	}
+	events, err := s.wm.Events([]types.Hash256{eventID})
+	if jc.Check("couldn't load events", err) != nil {
+		return
+	} else if len(events) == 0 {
+		jc.Error(errors.New("event not found"), http.StatusNotFound)
+		return
+	}
+	jc.Encode(events[0])
+}
+
 // NewServer returns an HTTP handler that serves the walletd API.
 func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 	srv := server{
@@ -742,5 +759,7 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"GET /addresses/:addr/events":          srv.addressesAddrEventsHandler,
 		"GET /addresses/:addr/outputs/siacoin": srv.addressesAddrOutputsSCHandler,
 		"GET /addresses/:addr/outputs/siafund": srv.addressesAddrOutputsSFHandler,
+
+		"GET /events/:id": srv.eventsHandlerGET,
 	})
 }
