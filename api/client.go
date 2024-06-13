@@ -190,12 +190,6 @@ func (c *WalletClient) Events(offset, limit int) (resp []wallet.Event, err error
 	return
 }
 
-// PoolTransactions returns all txpool transactions relevant to the wallet.
-func (c *WalletClient) PoolTransactions() (resp []wallet.PoolTransaction, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/txpool", c.id), &resp)
-	return
-}
-
 // SiacoinOutputs returns the set of unspent outputs controlled by the wallet.
 func (c *WalletClient) SiacoinOutputs(offset, limit int) (sc []types.SiacoinElement, err error) {
 	err = c.c.GET(fmt.Sprintf("/wallets/%v/outputs/siacoin?offset=%d&limit=%d", c.id, offset, limit), &sc)

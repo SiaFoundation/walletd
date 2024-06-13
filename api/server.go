@@ -61,15 +61,16 @@ type (
 		RemoveAddress(id wallet.ID, addr types.Address) error
 		Addresses(id wallet.ID) ([]wallet.Address, error)
 		WalletEvents(id wallet.ID, offset, limit int) ([]wallet.Event, error)
+		WalletUnconfirmedEvents(id wallet.ID) ([]wallet.Event, error)
 		UnspentSiacoinOutputs(id wallet.ID, offset, limit int) ([]types.SiacoinElement, error)
 		UnspentSiafundOutputs(id wallet.ID, offset, limit int) ([]types.SiafundElement, error)
 		WalletBalance(id wallet.ID) (wallet.Balance, error)
-		Annotate(id wallet.ID, pool []types.Transaction) ([]wallet.PoolTransaction, error)
 
-		AddressBalance(address types.Address) (balance wallet.Balance, err error)
-		AddressEvents(address types.Address, offset, limit int) (events []wallet.Event, err error)
-		AddressSiacoinOutputs(address types.Address, offset, limit int) (siacoins []types.SiacoinElement, err error)
-		AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, err error)
+		AddressBalance(address types.Address) (wallet.Balance, error)
+		AddressEvents(address types.Address, offset, limit int) ([]wallet.Event, error)
+		AddressUnconfirmedEvents(address types.Address) ([]wallet.Event, error)
+		AddressSiacoinOutputs(address types.Address, offset, limit int) ([]types.SiacoinElement, error)
+		AddressSiafundOutputs(address types.Address, offset, limit int) ([]types.SiafundElement, error)
 
 		Events(eventIDs []types.Hash256) ([]wallet.Event, error)
 
@@ -394,19 +395,21 @@ func (s *server) walletsEventsHandler(jc jape.Context) {
 	jc.Encode(events)
 }
 
-func (s *server) walletsTxpoolHandler(jc jape.Context) {
+func (s *server) walletsEventsUnconfirmedHandlerGET(jc jape.Context) {
 	var id wallet.ID
 	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
-	pool, err := s.wm.Annotate(id, s.cm.PoolTransactions())
+
+	events, err := s.wm.WalletUnconfirmedEvents(id)
 	if errors.Is(err, wallet.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
 		return
-	} else if jc.Check("couldn't annotate pool", err) != nil {
+	} else if err != nil {
+		jc.Error(err, http.StatusInternalServerError)
 		return
 	}
-	jc.Encode(pool)
+	jc.Encode(events)
 }
 
 func (s *server) walletsOutputsSiacoinHandler(jc jape.Context) {
@@ -641,7 +644,7 @@ func (s *server) addressesAddrBalanceHandler(jc jape.Context) {
 	jc.Encode(BalanceResponse(b))
 }
 
-func (s *server) addressesAddrEventsHandler(jc jape.Context) {
+func (s *server) addressesAddrEventsHandlerGET(jc jape.Context) {
 	var addr types.Address
 	if jc.DecodeParam("addr", &addr) != nil {
 		return
@@ -653,6 +656,19 @@ func (s *server) addressesAddrEventsHandler(jc jape.Context) {
 	}
 
 	events, err := s.wm.AddressEvents(addr, offset, limit)
+	if jc.Check("couldn't load events", err) != nil {
+		return
+	}
+	jc.Encode(events)
+}
+
+func (s *server) addressesAddrEventsUnconfirmedHandlerGET(jc jape.Context) {
+	var addr types.Address
+	if jc.DecodeParam("addr", &addr) != nil {
+		return
+	}
+
+	events, err := s.wm.AddressUnconfirmedEvents(addr)
 	if jc.Check("couldn't load events", err) != nil {
 		return
 	}
@@ -747,7 +763,7 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"GET /wallets/:id/addresses":          srv.walletsAddressesHandlerGET,
 		"GET /wallets/:id/balance":            srv.walletsBalanceHandler,
 		"GET /wallets/:id/events":             srv.walletsEventsHandler,
-		"GET /wallets/:id/txpool":             srv.walletsTxpoolHandler,
+		"GET /wallets/:id/events/unconfirmed": srv.walletsEventsUnconfirmedHandlerGET,
 		"GET /wallets/:id/outputs/siacoin":    srv.walletsOutputsSiacoinHandler,
 		"GET /wallets/:id/outputs/siafund":    srv.walletsOutputsSiafundHandler,
 		"POST /wallets/:id/reserve":           srv.walletsReserveHandler,
@@ -755,10 +771,11 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"POST /wallets/:id/fund":              srv.walletsFundHandler,
 		"POST /wallets/:id/fundsf":            srv.walletsFundSFHandler,
 
-		"GET /addresses/:addr/balance":         srv.addressesAddrBalanceHandler,
-		"GET /addresses/:addr/events":          srv.addressesAddrEventsHandler,
-		"GET /addresses/:addr/outputs/siacoin": srv.addressesAddrOutputsSCHandler,
-		"GET /addresses/:addr/outputs/siafund": srv.addressesAddrOutputsSFHandler,
+		"GET /addresses/:addr/balance":            srv.addressesAddrBalanceHandler,
+		"GET /addresses/:addr/events":             srv.addressesAddrEventsHandlerGET,
+		"GET /addresses/:addr/events/unconfirmed": srv.addressesAddrEventsUnconfirmedHandlerGET,
+		"GET /addresses/:addr/outputs/siacoin":    srv.addressesAddrOutputsSCHandler,
+		"GET /addresses/:addr/outputs/siafund":    srv.addressesAddrOutputsSFHandler,
 
 		"GET /events/:id": srv.eventsHandlerGET,
 	})

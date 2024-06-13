@@ -41,6 +41,9 @@ type (
 
 	// A ChainManager manages the consensus state
 	ChainManager interface {
+		PoolTransactions() []types.Transaction
+		V2PoolTransactions() []types.V2Transaction
+
 		Tip() types.ChainIndex
 		BestIndex(height uint64) (types.ChainIndex, bool)
 
@@ -52,6 +55,7 @@ type (
 	Store interface {
 		UpdateChainState(reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error
 
+		WalletUnconfirmedEvents(id ID, index types.ChainIndex, timestamp time.Time, v1 []types.Transaction, v2 []types.V2Transaction) (annotated []Event, err error)
 		WalletEvents(walletID ID, offset, limit int) ([]Event, error)
 		AddWallet(Wallet) (Wallet, error)
 		UpdateWallet(Wallet) (Wallet, error)
@@ -65,14 +69,13 @@ type (
 		AddWalletAddress(walletID ID, address Address) error
 		RemoveWalletAddress(walletID ID, address types.Address) error
 
-		Annotate(walletID ID, txns []types.Transaction) ([]PoolTransaction, error)
-
 		AddressBalance(address types.Address) (balance Balance, err error)
 		AddressEvents(address types.Address, offset, limit int) (events []Event, err error)
 		AddressSiacoinOutputs(address types.Address, offset, limit int) (siacoins []types.SiacoinElement, err error)
 		AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, err error)
 
 		Events(eventIDs []types.Hash256) ([]Event, error)
+		AnnotateV1Events(index types.ChainIndex, timestamp time.Time, v1 []types.Transaction) (annotated []Event, err error)
 
 		SetIndexMode(IndexMode) error
 		LastCommittedIndex() (types.ChainIndex, error)
@@ -183,9 +186,12 @@ func (m *Manager) UnspentSiafundOutputs(walletID ID, offset, limit int) ([]types
 	return m.store.WalletSiafundOutputs(walletID, offset, limit)
 }
 
-// Annotate annotates the given transactions with the wallet they belong to.
-func (m *Manager) Annotate(walletID ID, pool []types.Transaction) ([]PoolTransaction, error) {
-	return m.store.Annotate(walletID, pool)
+// WalletUnconfirmedEvents returns the unconfirmed events of the given wallet.
+func (m *Manager) WalletUnconfirmedEvents(walletID ID) ([]Event, error) {
+	index := m.chain.Tip()
+	index.Height++
+	index.ID = types.BlockID{}
+	return m.store.WalletUnconfirmedEvents(walletID, index, time.Now(), m.chain.PoolTransactions(), m.chain.V2PoolTransactions())
 }
 
 // WalletBalance returns the balance of the given wallet.
@@ -196,6 +202,32 @@ func (m *Manager) WalletBalance(walletID ID) (Balance, error) {
 // Events returns the events with the given IDs.
 func (m *Manager) Events(eventIDs []types.Hash256) ([]Event, error) {
 	return m.store.Events(eventIDs)
+}
+
+// UnconfirmedEvents returns all unconfirmed events in the transaction pool.
+func (m *Manager) UnconfirmedEvents() ([]Event, error) {
+	v1, v2 := m.chain.PoolTransactions(), m.chain.V2PoolTransactions()
+
+	unconfirmedIndex := m.chain.Tip()
+	unconfirmedIndex.Height++
+	unconfirmedIndex.ID = types.BlockID{}
+	timestamp := time.Now()
+
+	events, err := m.store.AnnotateV1Events(unconfirmedIndex, timestamp, v1)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, txn := range v2 {
+		events = append(events, Event{
+			ID:        types.Hash256(txn.ID()),
+			Index:     unconfirmedIndex,
+			Timestamp: timestamp,
+			Type:      EventTypeV2Transaction,
+			Data:      EventV2Transaction(txn),
+		})
+	}
+	return events, nil
 }
 
 // Reserve reserves the given ids for the given duration.

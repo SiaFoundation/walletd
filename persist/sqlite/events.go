@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -41,5 +42,50 @@ func (s *Store) Events(eventIDs []types.Hash256) (events []wallet.Event, err err
 		}
 		return nil
 	})
+	return
+}
+
+func scanEvent(s scanner) (ev wallet.Event, eventID int64, err error) {
+	var eventBuf []byte
+
+	err = s.Scan(&eventID, decode(&ev.ID), &ev.MaturityHeight, decode(&ev.Timestamp), &ev.Index.Height, decode(&ev.Index.ID), &ev.Type, &eventBuf)
+	if err != nil {
+		return
+	}
+
+	switch ev.Type {
+	case wallet.EventTypeV1Transaction:
+		var tx wallet.EventV1Transaction
+		if err = json.Unmarshal(eventBuf, &tx); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal transaction event: %w", err)
+		}
+		ev.Data = tx
+	case wallet.EventTypeV2Transaction:
+		var tx wallet.EventV2Transaction
+		if err = json.Unmarshal(eventBuf, &tx); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal transaction event: %w", err)
+		}
+		ev.Data = tx
+	case wallet.EventTypeV1ContractResolution:
+		var r wallet.EventV1ContractResolution
+		if err = json.Unmarshal(eventBuf, &r); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal missed file contract event: %w", err)
+		}
+		ev.Data = r
+	case wallet.EventTypeV2ContractResolution:
+		var r wallet.EventV2ContractResolution
+		if err = json.Unmarshal(eventBuf, &r); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal file contract event: %w", err)
+		}
+		ev.Data = r
+	case wallet.EventTypeSiafundClaim, wallet.EventTypeMinerPayout, wallet.EventTypeFoundationSubsidy:
+		var p wallet.EventPayout
+		if err = json.Unmarshal(eventBuf, &p); err != nil {
+			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal event %q (%q): %w", ev.ID, ev.Type, err)
+		}
+		ev.Data = p
+	default:
+		return wallet.Event{}, 0, fmt.Errorf("unknown event type: %q", ev.Type)
+	}
 	return
 }
