@@ -23,6 +23,7 @@ const (
 )
 
 type (
+	// EventData provides type safety for the Data field of an Event.
 	EventData interface {
 		isEvent() bool
 	}
@@ -38,6 +39,8 @@ type (
 		Relevant       []types.Address  `json:"relevant,omitempty"`
 	}
 
+	// An EventV1Transaction pairs a v1 transaction with its spent siacoin and
+	// siafund elements.
 	EventV1Transaction struct {
 		Transaction types.Transaction `json:"transaction"`
 		// v1 siacoin inputs do not describe the value of the spent utxo
@@ -46,6 +49,7 @@ type (
 		SpentSiafundElements []types.SiafundElement `json:"spentSiafundElements"`
 	}
 
+	// An EventV2Transaction is a v2 transaction.
 	EventV2Transaction types.V2Transaction
 
 	// An EventPayout represents a payout from a siafund claim, a miner, or the
