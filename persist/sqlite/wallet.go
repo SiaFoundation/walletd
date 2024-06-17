@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/bits"
@@ -342,21 +341,21 @@ func (s *Store) WalletBalance(id wallet.ID) (balance wallet.Balance, err error) 
 	return
 }
 
-// Annotate annotates a list of transactions using the wallet's addresses.
-func (s *Store) Annotate(id wallet.ID, txns []types.Transaction) (annotated []wallet.PoolTransaction, err error) {
+// WalletUnconfirmedEvents annotates a list of unconfirmed transactions with
+// relevant addresses and siacoin/siafund elements.
+func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, timestamp time.Time, v1 []types.Transaction, v2 []types.V2Transaction) (annotated []wallet.Event, err error) {
 	err = s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
 		}
 
-		const query = `SELECT sa.id FROM sia_addresses sa
-INNER JOIN wallet_addresses wa ON (sa.id = wa.address_id)
-WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`
-		stmt, err := tx.Prepare(query)
+		addrStmt, err := tx.Prepare(`SELECT sa.id FROM sia_addresses sa
+	INNER JOIN wallet_addresses wa ON (sa.id = wa.address_id)
+	WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`)
 		if err != nil {
-			return fmt.Errorf("failed to prepare statement: %w", err)
+			return fmt.Errorf("failed to prepare address statement: %w", err)
 		}
-		defer stmt.Close()
+		defer addrStmt.Close()
 
 		// note: this would be more performant for small wallets to load all
 		// addresses into memory. However, for larger wallets (> 10K addresses),
@@ -364,20 +363,214 @@ WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`
 		// address. Monitor performance and consider changing this in the
 		// future. From a memory perspective, it would be fine to lazy load all
 		// addresses into memory.
+		checkedAddresses := make(map[types.Address]bool)
 		ownsAddress := func(address types.Address) bool {
+			if relevant, ok := checkedAddresses[address]; ok {
+				return relevant
+			}
+
 			var dbID int64
-			err := stmt.QueryRow(id, encode(address)).Scan(&dbID)
+			err := addrStmt.QueryRow(id, encode(address)).Scan(&dbID)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				panic(err) // database error
 			}
-			return err == nil
+			relevant := err == nil
+			checkedAddresses[address] = relevant
+			return relevant
 		}
 
-		for _, txn := range txns {
-			ptxn := wallet.Annotate(txn, ownsAddress)
-			if ptxn.Type != "unrelated" {
-				annotated = append(annotated, ptxn)
+		siacoinElementStmt, err := tx.Prepare(`SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address
+		FROM siacoin_elements se
+		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
+		WHERE se.id=$1`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare siacoin statement: %w", err)
+		}
+		defer siacoinElementStmt.Close()
+
+		siacoinElementCache := make(map[types.SiacoinOutputID]types.SiacoinElement)
+		fetchSiacoinElement := func(id types.SiacoinOutputID) (types.SiacoinElement, error) {
+			if se, ok := siacoinElementCache[id]; ok {
+				return se, nil
 			}
+
+			se, err := scanSiacoinElement(siacoinElementStmt.QueryRow(encode(id)))
+			if err != nil {
+				return types.SiacoinElement{}, fmt.Errorf("failed to fetch siacoin element: %w", err)
+			}
+			siacoinElementCache[id] = se
+			return se, nil
+		}
+
+		siafundElementStmt, err := tx.Prepare(`SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
+		FROM siafund_elements se
+		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
+		WHERE se.id=$1`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare siafund statement: %w", err)
+		}
+		defer siafundElementStmt.Close()
+
+		siafundElementCache := make(map[types.SiafundOutputID]types.SiafundElement)
+		fetchSiafundElement := func(id types.SiafundOutputID) (types.SiafundElement, error) {
+			if se, ok := siafundElementCache[id]; ok {
+				return se, nil
+			}
+
+			se, err := scanSiafundElement(siafundElementStmt.QueryRow(encode(id)))
+			if err != nil {
+				return types.SiafundElement{}, fmt.Errorf("failed to fetch siafund element: %w", err)
+			}
+			siafundElementCache[id] = se
+			return se, nil
+		}
+
+		addEvent := func(id types.Hash256, eventType string, data wallet.EventData, relevant []types.Address) {
+			annotated = append(annotated, wallet.Event{
+				ID:             id,
+				Index:          index,
+				Timestamp:      timestamp,
+				MaturityHeight: index.Height + 1,
+				Type:           eventType,
+				Data:           data,
+				Relevant:       relevant,
+			})
+		}
+
+		for _, txn := range v1 {
+			var relevant []types.Address
+			seen := make(map[types.Address]bool)
+			ev := wallet.EventV1Transaction{
+				Transaction: txn,
+			}
+
+			for _, input := range txn.SiacoinInputs {
+				address := input.UnlockConditions.UnlockHash()
+				if !ownsAddress(address) {
+					continue
+				}
+
+				if !seen[address] {
+					seen[address] = true
+					relevant = append(relevant, address)
+				}
+
+				// fetch the siacoin element
+				sce, err := fetchSiacoinElement(input.ParentID)
+				if err != nil {
+					return fmt.Errorf("failed to fetch siacoin element %q: %w", input.ParentID, err)
+				}
+				ev.SpentSiacoinElements = append(ev.SpentSiacoinElements, sce)
+			}
+
+			for i, output := range txn.SiacoinOutputs {
+				if !ownsAddress(output.Address) {
+					continue
+				}
+
+				if !seen[output.Address] {
+					seen[output.Address] = true
+					relevant = append(relevant, output.Address)
+				}
+
+				sce := types.SiacoinElement{
+					StateElement: types.StateElement{
+						ID:        types.Hash256(txn.SiacoinOutputID(i)),
+						LeafIndex: types.EphemeralLeafIndex,
+					},
+					SiacoinOutput: output,
+				}
+				siacoinElementCache[types.SiacoinOutputID(sce.StateElement.ID)] = sce
+			}
+
+			for _, input := range txn.SiafundInputs {
+				address := input.UnlockConditions.UnlockHash()
+				if !ownsAddress(address) {
+					continue
+				}
+
+				if !seen[address] {
+					seen[address] = true
+					relevant = append(relevant, address)
+				}
+
+				// fetch the siafund element
+				sfe, err := fetchSiafundElement(input.ParentID)
+				if err != nil {
+					return fmt.Errorf("failed to fetch siafund element %q: %w", input.ParentID, err)
+				}
+				ev.SpentSiafundElements = append(ev.SpentSiafundElements, sfe)
+			}
+
+			for i, output := range txn.SiafundOutputs {
+				if !ownsAddress(output.Address) {
+					continue
+				}
+
+				if !seen[output.Address] {
+					seen[output.Address] = true
+					relevant = append(relevant, output.Address)
+				}
+
+				sfe := types.SiafundElement{
+					StateElement: types.StateElement{
+						ID:        types.Hash256(txn.SiafundOutputID(i)),
+						LeafIndex: types.EphemeralLeafIndex,
+					},
+					SiafundOutput: output,
+				}
+				siafundElementCache[types.SiafundOutputID(sfe.StateElement.ID)] = sfe
+			}
+
+			if len(relevant) == 0 {
+				continue
+			}
+			addEvent(types.Hash256(txn.ID()), wallet.EventTypeV1Transaction, ev, relevant)
+		}
+
+		// only need to check if the address is relevant for v2 transactions
+		// the inputs contain the necessary metadata for calculating value
+		for _, txn := range v2 {
+			var relevant []types.Address
+			seen := make(map[types.Address]bool)
+
+			for _, sci := range txn.SiacoinInputs {
+				if !ownsAddress(sci.Parent.SiacoinOutput.Address) || seen[sci.Parent.SiacoinOutput.Address] {
+					continue
+				}
+				seen[sci.Parent.SiacoinOutput.Address] = true
+				relevant = append(relevant, sci.Parent.SiacoinOutput.Address)
+			}
+
+			for _, sco := range txn.SiacoinOutputs {
+				if !ownsAddress(sco.Address) || seen[sco.Address] {
+					continue
+				}
+				seen[sco.Address] = true
+				relevant = append(relevant, sco.Address)
+			}
+
+			for _, sfi := range txn.SiafundInputs {
+				if !ownsAddress(sfi.Parent.SiafundOutput.Address) || seen[sfi.Parent.SiafundOutput.Address] {
+					continue
+				}
+				seen[sfi.Parent.SiafundOutput.Address] = true
+				relevant = append(relevant, sfi.Parent.SiafundOutput.Address)
+			}
+
+			for _, sfo := range txn.SiafundOutputs {
+				if !ownsAddress(sfo.Address) || seen[sfo.Address] {
+					continue
+				}
+				seen[sfo.Address] = true
+				relevant = append(relevant, sfo.Address)
+			}
+
+			if len(relevant) == 0 {
+				continue
+			}
+
+			addEvent(types.Hash256(txn.ID()), wallet.EventTypeV2Transaction, wallet.EventV2Transaction(txn), relevant)
 		}
 		return nil
 	})
@@ -443,45 +636,6 @@ func fillElementProofs(tx *txn, indices []uint64) (proofs [][]types.Hash256, _ e
 			data[row][col] = proof[j]
 		}
 		proofs = append(proofs, proof)
-	}
-	return
-}
-
-func scanEvent(s scanner) (ev wallet.Event, eventID int64, err error) {
-	var eventBuf []byte
-
-	err = s.Scan(&eventID, decode(&ev.ID), &ev.MaturityHeight, decode(&ev.Timestamp), &ev.Index.Height, decode(&ev.Index.ID), &ev.Type, &eventBuf)
-	if err != nil {
-		return
-	}
-
-	switch ev.Type {
-	case wallet.EventTypeTransaction:
-		var tx wallet.EventTransaction
-		if err = json.Unmarshal(eventBuf, &tx); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal transaction event: %w", err)
-		}
-		ev.Data = &tx
-	case wallet.EventTypeContractPayout:
-		var m wallet.EventContractPayout
-		if err = json.Unmarshal(eventBuf, &m); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal missed file contract event: %w", err)
-		}
-		ev.Data = &m
-	case wallet.EventTypeMinerPayout:
-		var m wallet.EventMinerPayout
-		if err = json.Unmarshal(eventBuf, &m); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal payout event: %w", err)
-		}
-		ev.Data = &m
-	case wallet.EventTypeFoundationSubsidy:
-		var m wallet.EventFoundationSubsidy
-		if err = json.Unmarshal(eventBuf, &m); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal foundation subsidy event: %w", err)
-		}
-		ev.Data = &m
-	default:
-		return wallet.Event{}, 0, fmt.Errorf("unknown event type: %q", ev.Type)
 	}
 	return
 }

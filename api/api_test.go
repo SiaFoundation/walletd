@@ -371,10 +371,10 @@ func TestWallet(t *testing.T) {
 		t.Fatal("event history should be empty")
 	}
 
-	tpool, err := wc.PoolTransactions()
+	unconfirmed, err := wc.UnconfirmedEvents()
 	if err != nil {
 		t.Fatal(err)
-	} else if len(tpool) != 1 {
+	} else if len(unconfirmed) != 1 {
 		t.Fatal("txpool should have one transaction")
 	}
 

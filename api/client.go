@@ -140,6 +140,12 @@ func (c *Client) AddressEvents(addr types.Address, offset, limit int) (resp []wa
 	return
 }
 
+// AddressUnconfirmedEvents returns the unconfirmed events for a single address.
+func (c *Client) AddressUnconfirmedEvents(addr types.Address) (resp []wallet.Event, err error) {
+	err = c.c.GET(fmt.Sprintf("/addresses/%v/events/unconfirmed", addr), &resp)
+	return
+}
+
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
 func (c *Client) AddressSiacoinOutputs(addr types.Address, offset, limit int) (resp []types.SiacoinElement, err error) {
 	err = c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siacoin?offset=%d&limit=%d", addr, offset, limit), &resp)
@@ -149,6 +155,12 @@ func (c *Client) AddressSiacoinOutputs(addr types.Address, offset, limit int) (r
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.
 func (c *Client) AddressSiafundOutputs(addr types.Address, offset, limit int) (resp []types.SiafundElement, err error) {
 	err = c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siafund?offset=%d&limit=%d", addr, offset, limit), &resp)
+	return
+}
+
+// Event returns the event with the specified ID.
+func (c *Client) Event(id types.Hash256) (resp wallet.Event, err error) {
+	err = c.c.GET(fmt.Sprintf("/events/%v", id), &resp)
 	return
 }
 
@@ -190,9 +202,9 @@ func (c *WalletClient) Events(offset, limit int) (resp []wallet.Event, err error
 	return
 }
 
-// PoolTransactions returns all txpool transactions relevant to the wallet.
-func (c *WalletClient) PoolTransactions() (resp []wallet.PoolTransaction, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/txpool", c.id), &resp)
+// UnconfirmedEvents returns all unconfirmed events relevant to the wallet.
+func (c *WalletClient) UnconfirmedEvents() (resp []wallet.Event, err error) {
+	err = c.c.GET(fmt.Sprintf("/wallets/%v/events/unconfirmed", c.id), &resp)
 	return
 }
 
