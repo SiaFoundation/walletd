@@ -19,6 +19,12 @@ func encode(obj any) any {
 		binary.BigEndian.PutUint64(buf, obj.Hi)
 		binary.BigEndian.PutUint64(buf[8:], obj.Lo)
 		return buf
+	case []types.Hash256:
+		var buf bytes.Buffer
+		e := types.NewEncoder(&buf)
+		types.EncodeSlice(e, obj)
+		e.Flush()
+		return buf.Bytes()
 	case types.EncoderTo:
 		var buf bytes.Buffer
 		e := types.NewEncoder(&buf)
@@ -61,6 +67,9 @@ func (d *decodable) Scan(src any) error {
 			return dec.Err()
 		case *uint64:
 			*v = binary.LittleEndian.Uint64(src)
+		case *[]types.Hash256:
+			dec := types.NewBufDecoder(src)
+			types.DecodeSlice(dec, v)
 		default:
 			return fmt.Errorf("cannot scan %T to %T", src, d.v)
 		}
@@ -82,47 +91,4 @@ func (d *decodable) Scan(src any) error {
 
 func decode(obj any) sql.Scanner {
 	return &decodable{obj}
-}
-
-type decodableSlice[T any] struct {
-	v *[]T
-}
-
-func (d *decodableSlice[T]) Scan(src any) error {
-	switch src := src.(type) {
-	case []byte:
-		dec := types.NewBufDecoder(src)
-		s := make([]T, dec.ReadPrefix())
-		for i := range s {
-			dv, ok := any(&s[i]).(types.DecoderFrom)
-			if !ok {
-				panic(fmt.Errorf("cannot decode %T", s[i]))
-			}
-			dv.DecodeFrom(dec)
-		}
-		if err := dec.Err(); err != nil {
-			return err
-		}
-		*d.v = s
-		return nil
-	default:
-		return fmt.Errorf("cannot scan %T to []byte", src)
-	}
-}
-
-func decodeSlice[T any](v *[]T) sql.Scanner {
-	return &decodableSlice[T]{v: v}
-}
-
-func encodeSlice[T types.EncoderTo](v []T) []byte {
-	var buf bytes.Buffer
-	enc := types.NewEncoder(&buf)
-	enc.WritePrefix(len(v))
-	for _, e := range v {
-		e.EncodeTo(enc)
-	}
-	if err := enc.Flush(); err != nil {
-		panic(err)
-	}
-	return buf.Bytes()
 }

@@ -66,7 +66,7 @@ func (ut *updateTx) UpdateSiacoinStateElements(elements []types.StateElement) er
 
 	for _, se := range elements {
 		var dummy types.Hash256
-		err := stmt.QueryRow(encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ID)).Scan(decode(&dummy))
+		err := stmt.QueryRow(encode(se.MerkleProof), se.LeafIndex, encode(se.ID)).Scan(decode(&dummy))
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
@@ -112,7 +112,7 @@ func (ut *updateTx) UpdateSiafundStateElements(elements []types.StateElement) er
 
 	for _, se := range elements {
 		var dummy types.Hash256
-		err := stmt.QueryRow(encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ID)).Scan(decode(&dummy))
+		err := stmt.QueryRow(encode(se.MerkleProof), se.LeafIndex, encode(se.ID)).Scan(decode(&dummy))
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
@@ -320,7 +320,7 @@ func (s *Store) SetIndexMode(mode wallet.IndexMode) error {
 }
 
 func scanStateElement(s scanner) (se types.StateElement, err error) {
-	err = s.Scan(decode(&se.ID), &se.LeafIndex, decodeSlice(&se.MerkleProof))
+	err = s.Scan(decode(&se.ID), &se.LeafIndex, decode(&se.MerkleProof))
 	return
 }
 
@@ -534,7 +534,7 @@ func addSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64,
 			se.MerkleProof = nil
 		}
 
-		_, err = insertStmt.Exec(encode(se.ID), encode(se.SiacoinOutput.Value), encodeSlice(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0, indexID)
+		_, err = insertStmt.Exec(encode(se.ID), encode(se.SiacoinOutput.Value), encode(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0, indexID)
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
@@ -808,7 +808,7 @@ func addSiafundElements(tx *txn, elements []types.SiafundElement, indexID int64,
 			se.MerkleProof = nil
 		}
 
-		_, err = insertStmt.Exec(encode(se.ID), se.SiafundOutput.Value, encodeSlice(se.MerkleProof), se.LeafIndex, encode(se.ClaimStart), addrRef.ID, indexID)
+		_, err = insertStmt.Exec(encode(se.ID), se.SiafundOutput.Value, encode(se.MerkleProof), se.LeafIndex, encode(se.ClaimStart), addrRef.ID, indexID)
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		} else if exists {
