@@ -63,7 +63,7 @@ type (
 	// An EventV1ContractResolution represents a file contract payout from a v1
 	// contract.
 	EventV1ContractResolution struct {
-		FileContract   types.FileContractElement `json:"fileContract"`
+		Parent         types.FileContractElement `json:"parent"`
 		SiacoinElement types.SiacoinElement      `json:"siacoinElement"`
 		Missed         bool                      `json:"missed"`
 	}
@@ -71,10 +71,9 @@ type (
 	// An EventV2ContractResolution represents a file contract payout from a v2
 	// contract.
 	EventV2ContractResolution struct {
-		FileContract   types.V2FileContractElement        `json:"fileContract"`
-		Resolution     types.V2FileContractResolutionType `json:"resolution"`
-		SiacoinElement types.SiacoinElement               `json:"siacoinElement"`
-		Missed         bool                               `json:"missed"`
+		types.V2FileContractResolution
+		SiacoinElement types.SiacoinElement `json:"siacoinElement"`
+		Missed         bool                 `json:"missed"`
 	}
 )
 
