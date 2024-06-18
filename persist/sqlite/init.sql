@@ -28,6 +28,7 @@ CREATE INDEX siacoin_elements_address_id ON siacoin_elements (address_id);
 CREATE INDEX siacoin_elements_maturity_height_matured ON siacoin_elements (maturity_height, matured);
 CREATE INDEX siacoin_elements_chain_index_id ON siacoin_elements (chain_index_id);
 CREATE INDEX siacoin_elements_spent_index_id ON siacoin_elements (spent_index_id);
+CREATE INDEX siacoin_elements_address_id_spent_index_id ON siacoin_elements(address_id, spent_index_id);
 
 CREATE TABLE siafund_elements (
 	id BLOB PRIMARY KEY,
@@ -42,6 +43,7 @@ CREATE TABLE siafund_elements (
 CREATE INDEX siafund_elements_address_id ON siafund_elements (address_id);
 CREATE INDEX siafund_elements_chain_index_id ON siafund_elements (chain_index_id);
 CREATE INDEX siafund_elements_spent_index_id ON siafund_elements (spent_index_id);
+CREATE INDEX siafund_elements_address_id_spent_index_id ON siafund_elements(address_id, spent_index_id);
 
 CREATE TABLE state_tree (
 	row INTEGER,
