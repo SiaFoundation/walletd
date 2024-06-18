@@ -578,12 +578,12 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 }
 
 func scanSiacoinElement(s scanner) (se types.SiacoinElement, err error) {
-	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decodeSlice(&se.MerkleProof), &se.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address))
+	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decode(&se.MerkleProof), &se.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address))
 	return
 }
 
 func scanSiafundElement(s scanner) (se types.SiafundElement, err error) {
-	err = s.Scan(decode(&se.ID), &se.LeafIndex, decodeSlice(&se.MerkleProof), &se.SiafundOutput.Value, decode(&se.ClaimStart), decode(&se.SiafundOutput.Address))
+	err = s.Scan(decode(&se.ID), &se.LeafIndex, decode(&se.MerkleProof), &se.SiafundOutput.Value, decode(&se.ClaimStart), decode(&se.SiafundOutput.Address))
 	return
 }
 
