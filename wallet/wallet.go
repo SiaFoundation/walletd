@@ -280,7 +280,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 				outputID := types.FileContractID(fce.ID).ValidOutputID(i)
 				addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeV1ContractResolution, EventV1ContractResolution{
-					FileContract:   fce,
+					Parent:         fce,
 					SiacoinElement: sces[outputID],
 					Missed:         false,
 				}, []types.Address{address})
@@ -294,7 +294,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 				outputID := types.FileContractID(fce.ID).MissedOutputID(i)
 				addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeV1ContractResolution, EventV1ContractResolution{
-					FileContract:   fce,
+					Parent:         fce,
 					SiacoinElement: sces[outputID],
 					Missed:         true,
 				}, []types.Address{address})
@@ -315,8 +315,10 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		if relevant(fce.V2FileContract.HostOutput.Address) {
 			outputID := types.FileContractID(fce.ID).V2HostOutputID()
 			addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeV2ContractResolution, EventV2ContractResolution{
-				FileContract:   fce,
-				Resolution:     res,
+				V2FileContractResolution: types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: res,
+				},
 				SiacoinElement: sces[outputID],
 				Missed:         missed,
 			}, []types.Address{fce.V2FileContract.HostOutput.Address})
@@ -325,8 +327,10 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		if relevant(fce.V2FileContract.RenterOutput.Address) {
 			outputID := types.FileContractID(fce.ID).V2RenterOutputID()
 			addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeV2ContractResolution, EventV2ContractResolution{
-				FileContract:   fce,
-				Resolution:     res,
+				V2FileContractResolution: types.V2FileContractResolution{
+					Parent:     fce,
+					Resolution: res,
+				},
 				SiacoinElement: sces[outputID],
 				Missed:         missed,
 			}, []types.Address{fce.V2FileContract.RenterOutput.Address})
