@@ -238,7 +238,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			}
 			addresses[sfi.Parent.SiafundOutput.Address] = true
 
-			outputID := types.SiafundOutputID(sfi.Parent.ID).ClaimOutputID()
+			outputID := types.SiafundOutputID(sfi.Parent.ID).V2ClaimOutputID()
 			if sfo, ok := sces[outputID]; ok && relevant(sfi.ClaimAddress) {
 				addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeSiafundClaim, EventPayout{
 					SiacoinElement: sfo,
