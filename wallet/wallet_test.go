@@ -1355,9 +1355,9 @@ func TestFullIndex(t *testing.T) {
 	// check the events for the transaction
 	if events, err := wm.AddressEvents(addr2, 0, 100); err != nil {
 		t.Fatal(err)
-	} else if len(events) != 3 {
-		t.Fatalf("expected 3 events, got %v", len(events))
-	} else if events[0].Type != wallet.EventTypeV2Transaction {
+	} else if len(events) != 4 {
+		t.Fatalf("expected 4 events, got %v", len(events))
+	} else if events[0].Type != wallet.EventTypeSiafundClaim {
 		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	}
 
@@ -1578,9 +1578,9 @@ func TestEvents(t *testing.T) {
 	// check the events for the transaction
 	if events, err := wm.AddressEvents(addr2, 0, 100); err != nil {
 		t.Fatal(err)
-	} else if len(events) != 3 {
-		t.Fatalf("expected 3 events, got %v", len(events))
-	} else if events[0].Type != wallet.EventTypeV2Transaction {
+	} else if len(events) != 4 {
+		t.Fatalf("expected 4 events, got %v", len(events))
+	} else if events[0].Type != wallet.EventTypeSiafundClaim {
 		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	} else if events2, err := wm.Events([]types.Hash256{events[0].ID}); err != nil {
 		t.Fatalf("expected to get event: %v", err)
