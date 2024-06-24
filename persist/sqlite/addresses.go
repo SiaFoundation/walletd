@@ -28,7 +28,7 @@ func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, e
 func (s *Store) AddressEvents(address types.Address, offset, limit int) (events []wallet.Event, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
-	FROM events ev
+	FROM events ev INDEXED BY events_maturity_height_id_idx -- force the index to prevent temp-btree sorts
 	INNER JOIN event_addresses ea ON (ev.id = ea.event_id)
 	INNER JOIN sia_addresses sa ON (ea.address_id = sa.id)
 	INNER JOIN chain_indices ci ON (ev.chain_index_id = ci.id)
