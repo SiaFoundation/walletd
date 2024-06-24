@@ -3,7 +3,7 @@ CREATE TABLE chain_indices (
 	block_id BLOB UNIQUE NOT NULL,
 	height INTEGER UNIQUE NOT NULL
 );
-CREATE INDEX chain_indices_height ON chain_indices (block_id, height);
+CREATE INDEX chain_indices_height_idx ON chain_indices (block_id, height);
 
 CREATE TABLE sia_addresses (
 	id INTEGER PRIMARY KEY,
@@ -24,11 +24,11 @@ CREATE TABLE siacoin_elements (
 	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
 	spent_index_id INTEGER REFERENCES chain_indices (id) /* soft delete */
 );
-CREATE INDEX siacoin_elements_address_id ON siacoin_elements (address_id);
-CREATE INDEX siacoin_elements_maturity_height_matured ON siacoin_elements (maturity_height, matured);
-CREATE INDEX siacoin_elements_chain_index_id ON siacoin_elements (chain_index_id);
-CREATE INDEX siacoin_elements_spent_index_id ON siacoin_elements (spent_index_id);
-CREATE INDEX siacoin_elements_address_id_spent_index_id ON siacoin_elements(address_id, spent_index_id);
+CREATE INDEX siacoin_elements_address_id_idx ON siacoin_elements (address_id);
+CREATE INDEX siacoin_elements_maturity_height_matured_idx ON siacoin_elements (maturity_height, matured);
+CREATE INDEX siacoin_elements_chain_index_id_idx ON siacoin_elements (chain_index_id);
+CREATE INDEX siacoin_elements_spent_index_id_idx ON siacoin_elements (spent_index_id);
+CREATE INDEX siacoin_elements_address_id_spent_index_id_idx ON siacoin_elements(address_id, spent_index_id);
 
 CREATE TABLE siafund_elements (
 	id BLOB PRIMARY KEY,
@@ -40,10 +40,10 @@ CREATE TABLE siafund_elements (
 	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
 	spent_index_id INTEGER REFERENCES chain_indices (id) /* soft delete */	
 );
-CREATE INDEX siafund_elements_address_id ON siafund_elements (address_id);
-CREATE INDEX siafund_elements_chain_index_id ON siafund_elements (chain_index_id);
-CREATE INDEX siafund_elements_spent_index_id ON siafund_elements (spent_index_id);
-CREATE INDEX siafund_elements_address_id_spent_index_id ON siafund_elements(address_id, spent_index_id);
+CREATE INDEX siafund_elements_address_id_idx ON siafund_elements (address_id);
+CREATE INDEX siafund_elements_chain_index_id_idx ON siafund_elements (chain_index_id);
+CREATE INDEX siafund_elements_spent_index_id_idx ON siafund_elements (spent_index_id);
+CREATE INDEX siafund_elements_address_id_spent_index_id_idx ON siafund_elements(address_id, spent_index_id);
 
 CREATE TABLE state_tree (
 	row INTEGER,
@@ -61,7 +61,8 @@ CREATE TABLE events (
 	event_type TEXT NOT NULL,
 	event_data BLOB NOT NULL
 );
-CREATE INDEX events_chain_index_id ON events (chain_index_id);
+CREATE INDEX events_chain_index_id_idx ON events (chain_index_id);
+CREATE INDEX events_maturity_height_id_idx ON events (maturity_height DESC, id DESC);
 
 CREATE TABLE event_addresses (
 	event_id INTEGER NOT NULL REFERENCES events (id) ON DELETE CASCADE,
@@ -88,8 +89,8 @@ CREATE TABLE wallet_addresses (
 	extra_data BLOB,
 	UNIQUE (wallet_id, address_id)
 );
-CREATE INDEX wallet_addresses_wallet_id ON wallet_addresses (wallet_id);
-CREATE INDEX wallet_addresses_address_id ON wallet_addresses (address_id);
+CREATE INDEX wallet_addresses_wallet_id_idx ON wallet_addresses (wallet_id);
+CREATE INDEX wallet_addresses_address_id_idx ON wallet_addresses (address_id);
 
 CREATE TABLE syncer_peers (
 	peer_address TEXT PRIMARY KEY NOT NULL,
@@ -101,7 +102,7 @@ CREATE TABLE syncer_bans (
 	expiration INTEGER NOT NULL,
 	reason TEXT NOT NULL
 );
-CREATE INDEX syncer_bans_expiration_index ON syncer_bans (expiration);
+CREATE INDEX syncer_bans_expiration_index_idx ON syncer_bans (expiration);
 
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
