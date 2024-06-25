@@ -273,9 +273,6 @@ func (s *server) rescanHandlerGET(jc jape.Context) {
 
 	s.scanMu.Lock()
 	defer s.scanMu.Unlock()
-	if s.scanInfo.StartTime.IsZero() {
-		s.scanInfo.StartTime = s.startTime
-	}
 	s.scanInfo.Index = index
 	jc.Encode(s.scanInfo)
 }
