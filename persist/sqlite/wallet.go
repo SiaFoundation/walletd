@@ -208,7 +208,7 @@ WHERE wa.wallet_id=$1`
 }
 
 // WalletSiacoinOutputs returns the unspent siacoin outputs for a wallet.
-func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins []types.SiacoinElement, err error) {
+func (s *Store) WalletSiacoinOutputs(id wallet.ID, index types.ChainIndex, offset, limit int) (siacoins []types.SiacoinElement, err error) {
 	err = s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
@@ -217,10 +217,10 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address
 		FROM siacoin_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
-		WHERE se.spent_index_id IS NULL AND se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)
-		LIMIT $2 OFFSET $3`
+		WHERE se.spent_index_id IS NULL AND se.maturity_height <= $1 AND se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$2)
+		LIMIT $3 OFFSET $4`
 
-		rows, err := tx.Query(query, id, limit, offset)
+		rows, err := tx.Query(query, index.Height, id, limit, offset)
 		if err != nil {
 			return err
 		}

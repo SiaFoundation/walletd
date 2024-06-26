@@ -56,15 +56,15 @@ func (s *Store) AddressEvents(address types.Address, offset, limit int) (events 
 }
 
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
-func (s *Store) AddressSiacoinOutputs(address types.Address, offset, limit int) (siacoins []types.SiacoinElement, err error) {
+func (s *Store) AddressSiacoinOutputs(address types.Address, index types.ChainIndex, offset, limit int) (siacoins []types.SiacoinElement, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address 
 		FROM siacoin_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
-		WHERE sa.sia_address=$1 AND se.spent_index_id IS NULL
-		LIMIT $2 OFFSET $3`
+		WHERE sa.sia_address=$1 AND se.maturity_height <= $2 AND se.spent_index_id IS NULL
+		LIMIT $3 OFFSET $4`
 
-		rows, err := tx.Query(query, encode(address), limit, offset)
+		rows, err := tx.Query(query, encode(address), index.Height, limit, offset)
 		if err != nil {
 			return err
 		}

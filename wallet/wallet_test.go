@@ -141,7 +141,6 @@ func TestReorg(t *testing.T) {
 		}
 
 		expectedPayout := cm.TipState().BlockReward()
-		maturityHeight := cm.TipState().MaturityHeight()
 		// mine a block sending the payout to the wallet
 		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
 			t.Fatal(err)
@@ -174,16 +173,12 @@ func TestReorg(t *testing.T) {
 			t.Fatalf("expected payout event, got %v", events[0].Type)
 		}
 
-		// check that the utxo was created
+		// check that the utxo has not matured
 		utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 		if err != nil {
 			t.Fatal(err)
-		} else if len(utxos) != 1 {
-			t.Fatalf("expected 1 output, got %v", len(utxos))
-		} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
-			t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
-		} else if utxos[0].MaturityHeight != maturityHeight {
-			t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
+		} else if len(utxos) != 0 {
+			t.Fatalf("expected no outputs, got %v", len(utxos))
 		}
 
 		// mine to trigger a reorg
@@ -223,7 +218,7 @@ func TestReorg(t *testing.T) {
 
 		// mine a new payout
 		expectedPayout = cm.TipState().BlockReward()
-		maturityHeight = cm.TipState().MaturityHeight()
+		maturityHeight := cm.TipState().MaturityHeight()
 		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
 			t.Fatal(err)
 		}
@@ -244,16 +239,12 @@ func TestReorg(t *testing.T) {
 			t.Fatalf("expected payout event, got %v", events[0].Type)
 		}
 
-		// check that the utxo was created
+		// check that the utxo has not matured
 		utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 		if err != nil {
 			t.Fatal(err)
-		} else if len(utxos) != 1 {
-			t.Fatalf("expected 1 output, got %v", len(utxos))
-		} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
-			t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
-		} else if utxos[0].MaturityHeight != maturityHeight {
-			t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
+		} else if len(utxos) != 0 {
+			t.Fatalf("expected no outputs, got %v", len(utxos))
 		}
 
 		// mine until the payout matures
@@ -2385,7 +2376,6 @@ func TestReorgV2(t *testing.T) {
 	}
 
 	expectedPayout := cm.TipState().BlockReward()
-	maturityHeight := cm.TipState().MaturityHeight()
 	// mine a block sending the payout to the wallet
 	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
 		t.Fatal(err)
@@ -2418,16 +2408,12 @@ func TestReorgV2(t *testing.T) {
 		t.Fatalf("expected payout event, got %v", events[0].Type)
 	}
 
-	// check that the utxo was created
+	// check that the utxo has not matured
 	utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
-	} else if len(utxos) != 1 {
-		t.Fatalf("expected 1 output, got %v", len(utxos))
-	} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
-		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
-	} else if utxos[0].MaturityHeight != maturityHeight {
-		t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
+	} else if len(utxos) != 0 {
+		t.Fatalf("expected no outputs, got %v", len(utxos))
 	}
 
 	// mine to trigger a reorg
@@ -2467,7 +2453,7 @@ func TestReorgV2(t *testing.T) {
 
 	// mine a new payout
 	expectedPayout = cm.TipState().BlockReward()
-	maturityHeight = cm.TipState().MaturityHeight()
+	maturityHeight := cm.TipState().MaturityHeight()
 	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
 		t.Fatal(err)
 	}
@@ -2488,16 +2474,12 @@ func TestReorgV2(t *testing.T) {
 		t.Fatalf("expected payout event, got %v", events[0].Type)
 	}
 
-	// check that the utxo was created
+	// check that the utxo has not matured
 	utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
-	} else if len(utxos) != 1 {
-		t.Fatalf("expected 1 output, got %v", len(utxos))
-	} else if utxos[0].SiacoinOutput.Value.Cmp(expectedPayout) != 0 {
-		t.Fatalf("expected %v, got %v", expectedPayout, utxos[0].SiacoinOutput.Value)
-	} else if utxos[0].MaturityHeight != maturityHeight {
-		t.Fatalf("expected %v, got %v", maturityHeight, utxos[0].MaturityHeight)
+	} else if len(utxos) != 0 {
+		t.Fatalf("expected no outputs, got %v", len(utxos))
 	}
 
 	// mine until the payout matures
