@@ -13,7 +13,7 @@ func (m *Manager) AddressBalance(address types.Address) (balance Balance, err er
 
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
 func (m *Manager) AddressSiacoinOutputs(address types.Address, offset, limit int) (siacoins []types.SiacoinElement, err error) {
-	return m.store.AddressSiacoinOutputs(address, offset, limit)
+	return m.store.AddressSiacoinOutputs(address, m.chain.Tip(), offset, limit)
 }
 
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.

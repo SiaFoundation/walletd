@@ -61,7 +61,7 @@ type (
 		UpdateWallet(Wallet) (Wallet, error)
 		DeleteWallet(walletID ID) error
 		WalletBalance(walletID ID) (Balance, error)
-		WalletSiacoinOutputs(walletID ID, offset, limit int) ([]types.SiacoinElement, error)
+		WalletSiacoinOutputs(walletID ID, index types.ChainIndex, offset, limit int) ([]types.SiacoinElement, error)
 		WalletSiafundOutputs(walletID ID, offset, limit int) ([]types.SiafundElement, error)
 		WalletAddresses(walletID ID) ([]Address, error)
 		Wallets() ([]Wallet, error)
@@ -71,7 +71,7 @@ type (
 
 		AddressBalance(address types.Address) (balance Balance, err error)
 		AddressEvents(address types.Address, offset, limit int) (events []Event, err error)
-		AddressSiacoinOutputs(address types.Address, offset, limit int) (siacoins []types.SiacoinElement, err error)
+		AddressSiacoinOutputs(address types.Address, index types.ChainIndex, offset, limit int) (siacoins []types.SiacoinElement, err error)
 		AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, err error)
 
 		Events(eventIDs []types.Hash256) ([]Event, error)
@@ -175,13 +175,14 @@ func (m *Manager) WalletEvents(walletID ID, offset, limit int) ([]Event, error) 
 	return m.store.WalletEvents(walletID, offset, limit)
 }
 
-// UnspentSiacoinOutputs returns a paginated list of unspent siacoin outputs of
-// the given wallet and the total number of unspent siacoin outputs.
+// UnspentSiacoinOutputs returns a paginated list of matured siacoin outputs
+// relevant to the wallet
 func (m *Manager) UnspentSiacoinOutputs(walletID ID, offset, limit int) ([]types.SiacoinElement, error) {
-	return m.store.WalletSiacoinOutputs(walletID, offset, limit)
+	return m.store.WalletSiacoinOutputs(walletID, m.chain.Tip(), offset, limit)
 }
 
-// UnspentSiafundOutputs returns the unspent siafund outputs of the given wallet
+// UnspentSiafundOutputs returns a paginated list of siafund outputs relevant to
+// the wallet
 func (m *Manager) UnspentSiafundOutputs(walletID ID, offset, limit int) ([]types.SiafundElement, error) {
 	return m.store.WalletSiafundOutputs(walletID, offset, limit)
 }
