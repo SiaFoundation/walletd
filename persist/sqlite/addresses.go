@@ -229,7 +229,7 @@ func (s *Store) AnnotateV1Events(index types.ChainIndex, timestamp time.Time, v1
 				sce := types.SiacoinElement{
 					StateElement: types.StateElement{
 						ID:        types.Hash256(txn.SiacoinOutputID(i)),
-						LeafIndex: types.EphemeralLeafIndex,
+						LeafIndex: types.UnassignedLeafIndex,
 					},
 					SiacoinOutput: output,
 				}
@@ -253,7 +253,7 @@ func (s *Store) AnnotateV1Events(index types.ChainIndex, timestamp time.Time, v1
 				sfe := types.SiafundElement{
 					StateElement: types.StateElement{
 						ID:        types.Hash256(txn.SiafundOutputID(i)),
-						LeafIndex: types.EphemeralLeafIndex,
+						LeafIndex: types.UnassignedLeafIndex,
 					},
 					SiafundOutput: output,
 				}
