@@ -476,7 +476,7 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 				sce := types.SiacoinElement{
 					StateElement: types.StateElement{
 						ID:        types.Hash256(txn.SiacoinOutputID(i)),
-						LeafIndex: types.EphemeralLeafIndex,
+						LeafIndex: types.UnassignedLeafIndex,
 					},
 					SiacoinOutput: output,
 				}
@@ -515,7 +515,7 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 				sfe := types.SiafundElement{
 					StateElement: types.StateElement{
 						ID:        types.Hash256(txn.SiafundOutputID(i)),
-						LeafIndex: types.EphemeralLeafIndex,
+						LeafIndex: types.UnassignedLeafIndex,
 					},
 					SiafundOutput: output,
 				}

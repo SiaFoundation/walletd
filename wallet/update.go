@@ -116,30 +116,9 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 		NumLeaves: cau.State.Elements.NumLeaves,
 	}
 
-	// determine which siacoin and siafund elements are ephemeral
-	//
-	// note: I thought we could use LeafIndex == EphemeralLeafIndex, but
-	// it seems to be set before the subscriber is called.
-	created := make(map[types.Hash256]bool)
-	ephemeral := make(map[types.Hash256]bool)
-	for _, txn := range cau.Block.Transactions {
-		for i := range txn.SiacoinOutputs {
-			created[types.Hash256(txn.SiacoinOutputID(i))] = true
-		}
-		for _, input := range txn.SiacoinInputs {
-			ephemeral[types.Hash256(input.ParentID)] = created[types.Hash256(input.ParentID)]
-		}
-		for i := range txn.SiafundOutputs {
-			created[types.Hash256(txn.SiafundOutputID(i))] = true
-		}
-		for _, input := range txn.SiafundInputs {
-			ephemeral[types.Hash256(input.ParentID)] = created[types.Hash256(input.ParentID)]
-		}
-	}
-
 	// add new siacoin elements to the store
-	cau.ForEachSiacoinElement(func(se types.SiacoinElement, spent bool) {
-		if ephemeral[se.ID] {
+	cau.ForEachSiacoinElement(func(se types.SiacoinElement, created, spent bool) {
+		if created && spent {
 			return
 		}
 
@@ -157,8 +136,8 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 		}
 	})
 
-	cau.ForEachSiafundElement(func(se types.SiafundElement, spent bool) {
-		if ephemeral[se.ID] {
+	cau.ForEachSiafundElement(func(se types.SiafundElement, created, spent bool) {
+		if created && spent {
 			return
 		}
 
@@ -221,8 +200,8 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 		}
 	}
 
-	cru.ForEachSiacoinElement(func(se types.SiacoinElement, spent bool) {
-		if ephemeral[se.ID] {
+	cru.ForEachSiacoinElement(func(se types.SiacoinElement, created, spent bool) {
+		if created && spent {
 			return
 		}
 
@@ -242,8 +221,8 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 		}
 	})
 
-	cru.ForEachSiafundElement(func(se types.SiafundElement, spent bool) {
-		if ephemeral[se.ID] {
+	cru.ForEachSiafundElement(func(se types.SiafundElement, created, spent bool) {
+		if created && spent {
 			return
 		}
 
