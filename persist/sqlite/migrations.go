@@ -4,7 +4,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// recreates indices and speeds up event queries
+// migrateVersion3 adds additional indices to event_addresses and wallet_addresses
+// to improve query performance.
+func migrateVersion3(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`CREATE INDEX event_addresses_event_id_address_id_idx ON event_addresses (event_id, address_id);
+CREATE INDEX wallet_addresses_wallet_id_address_id_idx ON wallet_addresses (wallet_id, address_id);`)
+	return err
+}
+
+// migrateVersion2 recreates indices and speeds up event queries
 func migrateVersion2(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`DROP INDEX IF EXISTS chain_indices_height;
 DROP INDEX IF EXISTS siacoin_elements_address_id;
@@ -48,4 +56,5 @@ CREATE INDEX IF NOT EXISTS syncer_bans_expiration_index_idx ON syncer_bans (expi
 // match the schema in init.sql.
 var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion2,
+	migrateVersion3,
 }

@@ -641,14 +641,31 @@ func fillElementProofs(tx *txn, indices []uint64) (proofs [][]types.Hash256, _ e
 }
 
 func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.Event, eventIDs []int64, err error) {
-	const query = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
+	// the events query can be slow in full index mode for wallets with no
+	// events. Check if the wallet has events first.
+	const hasEventsQuery = `SELECT EXISTS (
+  SELECT 1
+  FROM event_addresses ea
+  INNER JOIN wallet_addresses wa ON ea.address_id = wa.address_id
+  WHERE wa.wallet_id=$1
+) AS has_events;`
+	var hasEvents bool
+	if err := tx.QueryRow(hasEventsQuery, id).Scan(&hasEvents); err != nil {
+		return nil, nil, err
+	} else if !hasEvents {
+		return nil, nil, nil
+	}
+
+	const eventsQuery = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
 	FROM events ev INDEXED BY events_maturity_height_id_idx -- force the index to prevent temp-btree sorts
+	INNER JOIN event_addresses ea ON (ev.id = ea.event_id)
+	INNER JOIN wallet_addresses wa ON (ea.address_id = wa.address_id)
 	INNER JOIN chain_indices ci ON (ev.chain_index_id = ci.id)
-	WHERE ev.id IN (SELECT event_id FROM event_addresses WHERE address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1))
+	WHERE wa.wallet_id=$1
 	ORDER BY ev.maturity_height DESC, ev.id DESC
 	LIMIT $2 OFFSET $3`
 
-	rows, err := tx.Query(query, id, limit, offset)
+	rows, err := tx.Query(eventsQuery, id, limit, offset)
 	if err != nil {
 		return nil, nil, err
 	}
