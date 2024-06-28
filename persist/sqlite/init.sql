@@ -71,6 +71,7 @@ CREATE TABLE event_addresses (
 );
 CREATE INDEX event_addresses_event_id_idx ON event_addresses (event_id);
 CREATE INDEX event_addresses_address_id_idx ON event_addresses (address_id);
+CREATE INDEX event_addresses_event_id_address_id_idx ON event_addresses (event_id, address_id);
 
 CREATE TABLE wallets (
 	id INTEGER PRIMARY KEY,
@@ -91,6 +92,7 @@ CREATE TABLE wallet_addresses (
 );
 CREATE INDEX wallet_addresses_wallet_id_idx ON wallet_addresses (wallet_id);
 CREATE INDEX wallet_addresses_address_id_idx ON wallet_addresses (address_id);
+CREATE INDEX wallet_addresses_wallet_id_address_id_idx ON wallet_addresses (wallet_id, address_id);
 
 CREATE TABLE syncer_peers (
 	peer_address TEXT PRIMARY KEY NOT NULL,
