@@ -3152,7 +3152,7 @@ func TestEventTypes(t *testing.T) {
 
 		// get the confirmed file contract element
 		var fce types.V2FileContractElement
-		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
+		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ bool, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
 			fce = ele
 		})
 		for _, cau := range applied {
@@ -3243,7 +3243,7 @@ func TestEventTypes(t *testing.T) {
 
 		// get the confirmed file contract element
 		var fce types.V2FileContractElement
-		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
+		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ bool, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
 			fce = ele
 		})
 		// update its proof
@@ -3340,7 +3340,7 @@ func TestEventTypes(t *testing.T) {
 
 		// get the confirmed file contract element
 		var fce types.V2FileContractElement
-		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
+		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ bool, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
 			fce = ele
 		})
 		for _, cau := range applied {
@@ -3486,7 +3486,7 @@ func TestEventTypes(t *testing.T) {
 
 		// get the confirmed file contract element
 		var fce types.V2FileContractElement
-		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
+		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ bool, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
 			fce = ele
 		})
 		for _, cau := range applied {
