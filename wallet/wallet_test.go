@@ -3418,6 +3418,106 @@ func TestEventTypes(t *testing.T) {
 		mineBlock(1, types.VoidAddress)
 	}
 
+	// v2 contract resolution - finalization
+	{
+		sces := spendableSiacoinUTXOs()
+
+		// using the UnlockConditions policy for brevity
+		policy := types.SpendPolicy{
+			Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey())),
+		}
+
+		// create a storage contract
+		renterPayout := types.Siacoins(10000)
+		fc := types.V2FileContract{
+			RenterOutput: types.SiacoinOutput{
+				Address: addr,
+				Value:   renterPayout,
+			},
+			HostOutput: types.SiacoinOutput{
+				Address: types.VoidAddress,
+				Value:   types.ZeroCurrency,
+			},
+			ProofHeight:      cm.TipState().Index.Height + 10,
+			ExpirationHeight: cm.TipState().Index.Height + 20,
+
+			RenterPublicKey: pk.PublicKey(),
+			HostPublicKey:   pk.PublicKey(),
+		}
+		contractValue := renterPayout.Add(cm.TipState().V2FileContractTax(fc))
+		sigHash := cm.TipState().ContractSigHash(fc)
+		sig := pk.SignHash(sigHash)
+		fc.RenterSignature = sig
+		fc.HostSignature = sig
+
+		// create a transaction with the contract
+		txn := types.V2Transaction{
+			FileContracts: []types.V2FileContract{fc},
+			SiacoinInputs: []types.V2SiacoinInput{
+				{
+					Parent: sces[0],
+					SatisfiedPolicy: types.SatisfiedPolicy{
+						Policy: policy,
+					},
+				},
+			},
+			SiacoinOutputs: []types.SiacoinOutput{
+				{Address: addr, Value: sces[0].SiacoinOutput.Value.Sub(contractValue)},
+			},
+		}
+		sigHash = cm.TipState().InputSigHash(txn)
+		txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
+
+		// broadcast the transaction
+		if _, err := cm.AddV2PoolTransactions(cm.Tip(), []types.V2Transaction{txn}); err != nil {
+			t.Fatal(err)
+		}
+		// current tip
+		tip := cm.Tip()
+		// mine until the contract proof window
+		mineBlock(1, types.VoidAddress)
+
+		// this is even more annoying because we have to keep the file contract
+		// proof and the chain index proof up to date.
+		_, applied, err := cm.UpdatesSince(tip, 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// get the confirmed file contract element
+		var fce types.V2FileContractElement
+		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
+			fce = ele
+		})
+		for _, cau := range applied {
+			cau.UpdateElementProof(&fce.StateElement)
+		}
+
+		// finalize the contract
+		fc = fce.V2FileContract
+		fc.RevisionNumber = types.MaxRevisionNumber
+		finalizationSigHash := cm.TipState().ContractSigHash(fc)
+		fc.RenterSignature = pk.SignHash(finalizationSigHash)
+		fc.HostSignature = pk.SignHash(finalizationSigHash)
+		finalization := types.V2FileContractFinalization(fc)
+
+		// create the resolution transaction
+		finalizationTxn := types.V2Transaction{
+			FileContractResolutions: []types.V2FileContractResolution{
+				{
+					Parent:     fce,
+					Resolution: &finalization,
+				},
+			},
+		}
+
+		// broadcast the resolution
+		if _, err := cm.AddV2PoolTransactions(cm.Tip(), []types.V2Transaction{finalizationTxn}); err != nil {
+			t.Fatal(err)
+		}
+		mineBlock(1, types.VoidAddress)
+	}
+
 	// siafund claim
 	{
 		sfe, err := wm.AddressSiafundOutputs(addr, 0, 100)
