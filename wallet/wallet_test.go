@@ -3497,7 +3497,7 @@ func TestEventTypes(t *testing.T) {
 	}
 
 	// v2 contract resolution - finalization
-	/*{
+	{
 		sces := spendableSiacoinUTXOs()
 
 		// using the UnlockConditions policy for brevity
@@ -3595,7 +3595,7 @@ func TestEventTypes(t *testing.T) {
 		}
 		mineBlock(1, types.VoidAddress)
 		assertEvent(types.Hash256(types.FileContractID(fce.ID).V2RenterOutputID()), wallet.EventTypeV2ContractResolution, renterPayout, types.ZeroCurrency, cm.Tip().Height+144)
-	}*/
+	}
 
 	// siafund claim
 	{
