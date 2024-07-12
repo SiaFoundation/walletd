@@ -3,7 +3,6 @@ package wallet
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"strconv"
 	"time"
 
@@ -315,7 +314,6 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 		if relevant(fce.V2FileContract.HostOutput.Address) {
 			element := sces[types.FileContractID(fce.ID).V2HostOutputID()]
-			log.Println("HOST", element.ID, fce.V2FileContract.HostOutput.Address)
 			addEvent(element.ID, element.MaturityHeight, EventTypeV2ContractResolution, EventV2ContractResolution{
 				Resolution: types.V2FileContractResolution{
 					Parent:     fce,
@@ -328,7 +326,6 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 		if relevant(fce.V2FileContract.RenterOutput.Address) {
 			element := sces[types.FileContractID(fce.ID).V2RenterOutputID()]
-			log.Println("RENTER", element.ID, fce.V2FileContract.RenterOutput.Address)
 			addEvent(element.ID, element.MaturityHeight, EventTypeV2ContractResolution, EventV2ContractResolution{
 				Resolution: types.V2FileContractResolution{
 					Parent:     fce,

@@ -2959,7 +2959,6 @@ func TestEventTypes(t *testing.T) {
 
 		for _, event := range events {
 			if event.ID == id {
-				t.Log(id, eventType)
 				if event.Type != eventType {
 					t.Fatalf("expected %v event, got %v", eventType, event.Type)
 				} else if event.MaturityHeight != maturityHeight {
