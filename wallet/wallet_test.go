@@ -3018,10 +3018,8 @@ func TestEventTypes(t *testing.T) {
 	}
 
 	// miner payout event
-	{
-		mineBlock(1, addr)
-		assertEvent(types.Hash256(cm.Tip().ID.MinerOutputID(0)), wallet.EventTypeMinerPayout, genesisState.BlockReward(), types.ZeroCurrency, genesisState.MaturityHeight())
-	}
+	mineBlock(1, addr)
+	assertEvent(types.Hash256(cm.Tip().ID.MinerOutputID(0)), wallet.EventTypeMinerPayout, genesisState.BlockReward(), types.ZeroCurrency, genesisState.MaturityHeight())
 
 	// mine until the payout matures
 	mineBlock(int(cm.TipState().MaturityHeight()), types.VoidAddress)
