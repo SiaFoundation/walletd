@@ -77,6 +77,9 @@ type (
 		Events(eventIDs []types.Hash256) ([]Event, error)
 		AnnotateV1Events(index types.ChainIndex, timestamp time.Time, v1 []types.Transaction) (annotated []Event, err error)
 
+		SiacoinElement(types.SiacoinOutputID) (types.SiacoinElement, error)
+		SiafundElement(types.SiafundOutputID) (types.SiafundElement, error)
+
 		SetIndexMode(IndexMode) error
 		LastCommittedIndex() (types.ChainIndex, error)
 	}
@@ -281,6 +284,16 @@ func (m *Manager) Scan(ctx context.Context, index types.ChainIndex) error {
 // IndexMode returns the index mode of the wallet manager.
 func (m *Manager) IndexMode() IndexMode {
 	return m.indexMode
+}
+
+// SiacoinElement returns the unspent siacoin element with the given id.
+func (m *Manager) SiacoinElement(id types.SiacoinOutputID) (types.SiacoinElement, error) {
+	return m.store.SiacoinElement(id)
+}
+
+// SiafundElement returns the unspent siafund element with the given id.
+func (m *Manager) SiafundElement(id types.SiafundOutputID) (types.SiafundElement, error) {
+	return m.store.SiafundElement(id)
 }
 
 // Close closes the wallet manager.

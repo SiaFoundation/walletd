@@ -1268,6 +1268,13 @@ func TestFullIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, se := range utxos {
+		if sce, err := wm.SiacoinElement(types.SiacoinOutputID(se.ID)); err != nil {
+			t.Fatal(err)
+		} else if !reflect.DeepEqual(sce, se) {
+			t.Fatalf("expected %v, got %v", se, sce)
+		}
+	}
 
 	policy := types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey()))
 	txn := types.V2Transaction{
@@ -1317,6 +1324,14 @@ func TestFullIndex(t *testing.T) {
 	sf, err := wm.AddressSiafundOutputs(addr2, 0, 100)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	for _, se := range sf {
+		if sfe, err := wm.SiafundElement(types.SiafundOutputID(se.ID)); err != nil {
+			t.Fatal(err)
+		} else if !reflect.DeepEqual(sfe, se) {
+			t.Fatalf("expected %v, got %v", se, sfe)
+		}
 	}
 
 	// send the siafunds to the first address
