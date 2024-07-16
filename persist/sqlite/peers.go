@@ -207,16 +207,25 @@ func (s *Store) Banned(peer string) (banned bool, _ error) {
 	}
 
 	err = s.transaction(func(tx *txn) error {
-		query := `SELECT net_cidr, expiration FROM syncer_bans WHERE net_cidr IN (` + queryPlaceHolders(len(checkSubnets)) + `) ORDER BY expiration DESC LIMIT 1`
-
-		var subnet string
-		var expiration time.Time
-		err := tx.QueryRow(query, queryArgs(checkSubnets)...).Scan(&subnet, decode(&expiration))
-		banned = time.Now().Before(expiration) // will return false for any sql errors, including ErrNoRows
-		if err == nil && banned {
-			s.log.Debug("found ban", zap.String("subnet", subnet), zap.Time("expiration", expiration))
+		checkSubnetStmt, err := tx.Prepare(`SELECT expiration FROM syncer_bans WHERE net_cidr = $1 ORDER BY expiration DESC LIMIT 1`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare statement: %w", err)
 		}
-		return err
+		defer checkSubnetStmt.Close()
+
+		for _, subnet := range checkSubnets {
+			var expiration time.Time
+
+			err := checkSubnetStmt.QueryRow(subnet).Scan(decode(&expiration))
+			banned = time.Now().Before(expiration) // will return false for any sql errors, including ErrNoRows
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("failed to check ban status: %w", err)
+			} else if banned {
+				s.log.Debug("found ban", zap.String("subnet", subnet), zap.Time("expiration", expiration))
+				return nil
+			}
+		}
+		return nil
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("failed to check ban status: %w", err)
