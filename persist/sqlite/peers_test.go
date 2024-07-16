@@ -95,14 +95,14 @@ func TestBanPeer(t *testing.T) {
 	}
 
 	// ban the peer
-	ps.Ban(peer, time.Second, "test")
+	ps.Ban(peer, 5*time.Second, "test")
 
 	if banned, err := ps.Banned(peer); err != nil || !banned {
 		t.Fatal("expected peer to be banned", err)
 	}
 
 	// wait for the ban to expire
-	time.Sleep(time.Second)
+	time.Sleep(5 * time.Second)
 
 	if banned, err := ps.Banned(peer); err != nil || banned {
 		t.Fatal("expected peer to not be banned", err)
