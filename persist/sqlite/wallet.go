@@ -12,27 +12,42 @@ import (
 )
 
 func (s *Store) getWalletEventRelevantAddresses(tx *txn, id wallet.ID, eventIDs []int64) (map[int64][]types.Address, error) {
-	query := `SELECT ea.event_id, sa.sia_address
+	stmt, err := tx.Prepare(`SELECT sa.sia_address
 FROM event_addresses ea
 INNER JOIN sia_addresses sa ON (ea.address_id = sa.id)
-WHERE event_id IN (` + queryPlaceHolders(len(eventIDs)) + `) AND address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=?)`
-
-	rows, err := tx.Query(query, append(queryArgs(eventIDs), id)...)
+INNER JOIN wallet_addresses wa ON (ea.address_id = wa.address_id)
+WHERE wa.wallet_id=? AND ea.event_id=?`)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer rows.Close()
+	defer stmt.Close()
+
+	relevant := func(walletID wallet.ID, eventID int64) (addresses []types.Address, err error) {
+		rows, err := stmt.Query(walletID, eventID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query relevant addresses: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var address types.Address
+			if err := rows.Scan(decode(&address)); err != nil {
+				return nil, fmt.Errorf("failed to scan relevant address: %w", err)
+			}
+			addresses = append(addresses, address)
+		}
+		return addresses, rows.Err()
+	}
 
 	relevantAddresses := make(map[int64][]types.Address)
-	for rows.Next() {
-		var eventID int64
-		var address types.Address
-		if err := rows.Scan(&eventID, decode(&address)); err != nil {
-			return nil, fmt.Errorf("failed to scan relevant address: %w", err)
+	for _, eventID := range eventIDs {
+		addresses, err := relevant(id, eventID)
+		if err != nil {
+			return nil, err
 		}
-		relevantAddresses[eventID] = append(relevantAddresses[eventID], address)
+		relevantAddresses[eventID] = addresses
 	}
-	return relevantAddresses, rows.Err()
+	return relevantAddresses, nil
 }
 
 // WalletEvents returns the events relevant to a wallet, sorted by height descending.
@@ -657,7 +672,7 @@ func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.
 	}
 
 	const eventsQuery = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
-	FROM events ev INDEXED BY events_maturity_height_id_idx -- force the index to prevent temp-btree sorts
+	FROM events ev
 	INNER JOIN event_addresses ea ON (ev.id = ea.event_id)
 	INNER JOIN wallet_addresses wa ON (ea.address_id = wa.address_id)
 	INNER JOIN chain_indices ci ON (ev.chain_index_id = ci.id)

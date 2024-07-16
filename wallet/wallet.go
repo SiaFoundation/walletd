@@ -191,10 +191,10 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 				addresses[sfe.SiafundOutput.Address] = true
 			}
 
-			outputID := sfi.ParentID.ClaimOutputID()
-			if sfo, ok := sces[outputID]; ok && relevant(sfi.ClaimAddress) {
-				addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeSiafundClaim, EventPayout{
-					SiacoinElement: sfo,
+			sce, ok := sces[sfi.ParentID.ClaimOutputID()]
+			if ok && relevant(sce.SiacoinOutput.Address) {
+				addEvent(sce.ID, sce.MaturityHeight, EventTypeSiafundClaim, EventPayout{
+					SiacoinElement: sce,
 				}, []types.Address{sfi.ClaimAddress})
 			}
 		}
@@ -238,10 +238,10 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			}
 			addresses[sfi.Parent.SiafundOutput.Address] = true
 
-			outputID := types.SiafundOutputID(sfi.Parent.ID).V2ClaimOutputID()
-			if sfo, ok := sces[outputID]; ok && relevant(sfi.ClaimAddress) {
-				addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeSiafundClaim, EventPayout{
-					SiacoinElement: sfo,
+			sce, ok := sces[types.SiafundOutputID(sfi.Parent.ID).V2ClaimOutputID()]
+			if ok && relevant(sfi.ClaimAddress) {
+				addEvent(sce.ID, sce.MaturityHeight, EventTypeSiafundClaim, EventPayout{
+					SiacoinElement: sce,
 				}, []types.Address{sfi.ClaimAddress})
 			}
 		}
@@ -265,7 +265,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		addEvent(types.Hash256(txn.ID()), cs.Index.Height, EventTypeV2Transaction, ev, relevant) // transaction maturity height is the current block height
 	}
 
-	// handle missed contracts
+	// handle contracts
 	cu.ForEachFileContractElement(func(fce types.FileContractElement, _ bool, rev *types.FileContractElement, resolved, valid bool) {
 		if !resolved {
 			return
@@ -278,10 +278,10 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 					continue
 				}
 
-				outputID := types.FileContractID(fce.ID).ValidOutputID(i)
-				addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeV1ContractResolution, EventV1ContractResolution{
+				element := sces[types.FileContractID(fce.ID).ValidOutputID(i)]
+				addEvent(element.ID, element.MaturityHeight, EventTypeV1ContractResolution, EventV1ContractResolution{
 					Parent:         fce,
-					SiacoinElement: sces[outputID],
+					SiacoinElement: element,
 					Missed:         false,
 				}, []types.Address{address})
 			}
@@ -292,10 +292,10 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 					continue
 				}
 
-				outputID := types.FileContractID(fce.ID).MissedOutputID(i)
-				addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeV1ContractResolution, EventV1ContractResolution{
+				element := sces[types.FileContractID(fce.ID).MissedOutputID(i)]
+				addEvent(element.ID, element.MaturityHeight, EventTypeV1ContractResolution, EventV1ContractResolution{
 					Parent:         fce,
-					SiacoinElement: sces[outputID],
+					SiacoinElement: element,
 					Missed:         true,
 				}, []types.Address{address})
 			}
@@ -313,25 +313,25 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		}
 
 		if relevant(fce.V2FileContract.HostOutput.Address) {
-			outputID := types.FileContractID(fce.ID).V2HostOutputID()
-			addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeV2ContractResolution, EventV2ContractResolution{
-				V2FileContractResolution: types.V2FileContractResolution{
+			element := sces[types.FileContractID(fce.ID).V2HostOutputID()]
+			addEvent(element.ID, element.MaturityHeight, EventTypeV2ContractResolution, EventV2ContractResolution{
+				Resolution: types.V2FileContractResolution{
 					Parent:     fce,
 					Resolution: res,
 				},
-				SiacoinElement: sces[outputID],
+				SiacoinElement: element,
 				Missed:         missed,
 			}, []types.Address{fce.V2FileContract.HostOutput.Address})
 		}
 
 		if relevant(fce.V2FileContract.RenterOutput.Address) {
-			outputID := types.FileContractID(fce.ID).V2RenterOutputID()
-			addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeV2ContractResolution, EventV2ContractResolution{
-				V2FileContractResolution: types.V2FileContractResolution{
+			element := sces[types.FileContractID(fce.ID).V2RenterOutputID()]
+			addEvent(element.ID, element.MaturityHeight, EventTypeV2ContractResolution, EventV2ContractResolution{
+				Resolution: types.V2FileContractResolution{
 					Parent:     fce,
 					Resolution: res,
 				},
-				SiacoinElement: sces[outputID],
+				SiacoinElement: element,
 				Missed:         missed,
 			}, []types.Address{fce.V2FileContract.RenterOutput.Address})
 		}
@@ -340,21 +340,20 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 	// handle block rewards
 	for i := range b.MinerPayouts {
 		if relevant(b.MinerPayouts[i].Address) {
-			outputID := cs.Index.ID.MinerOutputID(i)
-			addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeMinerPayout, EventPayout{
-				SiacoinElement: sces[outputID],
+			element := sces[cs.Index.ID.MinerOutputID(i)]
+			addEvent(element.ID, element.MaturityHeight, EventTypeMinerPayout, EventPayout{
+				SiacoinElement: element,
 			}, []types.Address{b.MinerPayouts[i].Address})
 		}
 	}
 
 	// handle foundation subsidy
 	if relevant(cs.FoundationPrimaryAddress) {
-		outputID := cs.Index.ID.FoundationOutputID()
-		sce, ok := sces[outputID]
+		element, ok := sces[cs.Index.ID.FoundationOutputID()]
 		if ok {
-			addEvent(types.Hash256(outputID), cs.MaturityHeight(), EventTypeFoundationSubsidy, EventPayout{
-				SiacoinElement: sce,
-			}, []types.Address{sce.SiacoinOutput.Address})
+			addEvent(element.ID, element.MaturityHeight, EventTypeFoundationSubsidy, EventPayout{
+				SiacoinElement: element,
+			}, []types.Address{element.SiacoinOutput.Address})
 		}
 	}
 

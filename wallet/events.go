@@ -71,9 +71,9 @@ type (
 	// An EventV2ContractResolution represents a file contract payout from a v2
 	// contract.
 	EventV2ContractResolution struct {
-		types.V2FileContractResolution
-		SiacoinElement types.SiacoinElement `json:"siacoinElement"`
-		Missed         bool                 `json:"missed"`
+		Resolution     types.V2FileContractResolution `json:"resolution"`
+		SiacoinElement types.SiacoinElement           `json:"siacoinElement"`
+		Missed         bool                           `json:"missed"`
 	}
 )
 
