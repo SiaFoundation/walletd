@@ -74,6 +74,9 @@ type (
 
 		Events(eventIDs []types.Hash256) ([]wallet.Event, error)
 
+		SiacoinElement(types.SiacoinOutputID) (types.SiacoinElement, error)
+		SiafundElement(types.SiafundOutputID) (types.SiafundElement, error)
+
 		Reserve(ids []types.Hash256, duration time.Duration) error
 	}
 )
@@ -723,6 +726,32 @@ func (s *server) eventsHandlerGET(jc jape.Context) {
 	jc.Encode(events[0])
 }
 
+func (s *server) outputsSiacoinHandlerGET(jc jape.Context) {
+	var outputID types.SiacoinOutputID
+	if jc.DecodeParam("id", &outputID) != nil {
+		return
+	}
+
+	output, err := s.wm.SiacoinElement(outputID)
+	if jc.Check("couldn't load output", err) != nil {
+		return
+	}
+	jc.Encode(output)
+}
+
+func (s *server) outputsSiafundHandlerGET(jc jape.Context) {
+	var outputID types.SiafundOutputID
+	if jc.DecodeParam("id", &outputID) != nil {
+		return
+	}
+
+	output, err := s.wm.SiafundElement(outputID)
+	if jc.Check("couldn't load output", err) != nil {
+		return
+	}
+	jc.Encode(output)
+}
+
 // NewServer returns an HTTP handler that serves the walletd API.
 func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 	srv := server{
@@ -773,6 +802,9 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"GET /addresses/:addr/events/unconfirmed": srv.addressesAddrEventsUnconfirmedHandlerGET,
 		"GET /addresses/:addr/outputs/siacoin":    srv.addressesAddrOutputsSCHandler,
 		"GET /addresses/:addr/outputs/siafund":    srv.addressesAddrOutputsSFHandler,
+
+		"GET /outputs/siacoin/:id": srv.outputsSiacoinHandlerGET,
+		"GET /outputs/siafund/:id": srv.outputsSiafundHandlerGET,
 
 		"GET /events/:id": srv.eventsHandlerGET,
 	})
