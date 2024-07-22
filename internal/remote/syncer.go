@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// A Syncer is a syncer.Syncer that uses a remote API to broadcast transactions.
 type Syncer struct {
 	client *api.Client
 	log    *zap.Logger
@@ -41,6 +42,8 @@ func (s *Syncer) BroadcastTransactionSet(txns []types.Transaction) {
 	}
 }
 
+// BroadcastV2TransactionSet broadcasts a set of v2 transactions using the remote
+// API
 func (s *Syncer) BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction) {
 	if err := s.client.TxpoolBroadcast(nil, txns); err != nil {
 		s.log.Error("failed to broadcast v2 transaction set", zap.Error(err))

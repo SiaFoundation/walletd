@@ -27,8 +27,8 @@ type (
 
 // UpdatesSince returns any consensus updates since the given index, up to a
 // maximum of max updates.
-func (cm *ChainManager) UpdatesSince(index types.ChainIndex, max int) ([]chain.RevertUpdate, []chain.ApplyUpdate, error) {
-	return cm.client.ConsensusUpdates(index, max)
+func (cm *ChainManager) UpdatesSince(index types.ChainIndex, limit int) ([]chain.RevertUpdate, []chain.ApplyUpdate, error) {
+	return cm.client.ConsensusUpdates(index, limit)
 }
 
 // BestIndex returns the chain index for the given height, or false if the height
@@ -51,7 +51,6 @@ func (cm *ChainManager) Tip() types.ChainIndex {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 	return cm.state.Index
-
 }
 
 // TipState returns the current state of the consensus set.
@@ -123,7 +122,6 @@ func (cm *ChainManager) updateState() error {
 	cm.fee = fee
 	cm.mu.Unlock()
 	return nil
-
 }
 
 // OnReorg registers a callback to be called when a reorganization occurs.
@@ -147,6 +145,7 @@ func (cm *ChainManager) OnReorg(fn func(types.ChainIndex)) (cancel func()) {
 	}
 }
 
+// NewChainManager creates a new ChainManager.
 func NewChainManager(client *api.Client, log *zap.Logger, opts ...ChainManagerOption) (*ChainManager, error) {
 	cm := &ChainManager{
 		client:          client,

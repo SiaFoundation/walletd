@@ -17,6 +17,17 @@ type Client struct {
 	n *consensus.Network // for ConsensusTipState
 }
 
+func (c *Client) getNetwork() (*consensus.Network, error) {
+	if c.n == nil {
+		var err error
+		c.n, err = c.ConsensusNetwork()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return c.n, nil
+}
+
 // State returns information about the current state of the walletd daemon.
 func (c *Client) State() (resp StateResponse, err error) {
 	err = c.c.GET("/state", &resp)
@@ -36,6 +47,8 @@ func (c *Client) TxpoolTransactions() (txns []types.Transaction, v2txns []types.
 	return resp.Transactions, resp.V2Transactions, err
 }
 
+// TxpoolParents returns the parents of a transaction that are currently in the
+// transaction pool.
 func (c *Client) TxpoolParents(txn types.Transaction) (resp []types.Transaction, err error) {
 	err = c.c.POST("/txpool/parents", txn, &resp)
 	return
@@ -61,22 +74,14 @@ func (c *Client) ConsensusTip() (resp types.ChainIndex, err error) {
 	return
 }
 
+// ConsensusIndex returns the consensus index at the specified height.
 func (c *Client) ConsensusIndex(height uint64) (resp types.ChainIndex, err error) {
 	err = c.c.GET(fmt.Sprintf("/consensus/index/%d", height), &resp)
 	return
 }
 
-func (c *Client) getNetwork() (*consensus.Network, error) {
-	if c.n == nil {
-		var err error
-		c.n, err = c.ConsensusNetwork()
-		if err != nil {
-			return nil, err
-		}
-	}
-	return c.n, nil
-}
-
+// ConsensusUpdates returns at most n consensus updates that have occurred since
+// the specified index
 func (c *Client) ConsensusUpdates(index types.ChainIndex, limit int) ([]chain.RevertUpdate, []chain.ApplyUpdate, error) {
 	// index.String() is a short-hand representation. We need the full text
 	indexBuf, err := index.MarshalText()
@@ -85,7 +90,7 @@ func (c *Client) ConsensusUpdates(index types.ChainIndex, limit int) ([]chain.Re
 	}
 
 	var resp ConsensusUpdatesResponse
-	if err = c.c.GET(fmt.Sprintf("/consensus/updates/%s?limit=%d", indexBuf, limit), &resp); err != nil {
+	if err := c.c.GET(fmt.Sprintf("/consensus/updates/%s?limit=%d", indexBuf, limit), &resp); err != nil {
 		return nil, nil, err
 	}
 

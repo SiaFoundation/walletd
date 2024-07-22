@@ -1,5 +1,6 @@
 package api
 
+// A ServerOption is a functional option type for configuring the API server.
 type ServerOption func(*server)
 
 // WithChainManager sets the chain manager used by the server.

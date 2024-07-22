@@ -9,6 +9,7 @@ type (
 		Password string `yaml:"password,omitempty"`
 	}
 
+	// Syncer contains the configuration for the p2p syncer.
 	Syncer struct {
 		Address    string   `yaml:"address,omitempty"`
 		Peers      []string `yaml:"peers,omitempty"`
@@ -16,6 +17,8 @@ type (
 		Bootstrap  bool     `yaml:"bootstrap,omitempty"`
 	}
 
+	// A RemoteConsensus contains the configuration for connecting to a remote
+	// consensus database.
 	RemoteConsensus struct {
 		Address  string `yaml:"address,omitempty"`
 		Password string `yaml:"password,omitempty"`
