@@ -187,7 +187,7 @@ func setAdvancedConfig() {
 	fmt.Println("")
 	fmt.Println("The gateway address is used to connect to the Sia network.")
 	fmt.Println("It should be reachable from other Sia nodes.")
-	setListenAddress("Gateway Address", &cfg.Consensus.GatewayAddress)
+	setListenAddress("Gateway Address", &cfg.Syncer.Address)
 
 	fmt.Println("")
 	fmt.Println("Index mode determines how much of the blockchain to store.")
