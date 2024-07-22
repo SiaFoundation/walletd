@@ -3505,8 +3505,6 @@ func TestEventTypes(t *testing.T) {
 	})
 
 	t.Run("v2 contract resolution - finalization", func(t *testing.T) {
-		t.Skip("finalization currently errors with commitment hash mismatch")
-
 		sces := spendableSiacoinUTXOs()
 
 		// using the UnlockConditions policy for brevity
