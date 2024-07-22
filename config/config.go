@@ -9,13 +9,26 @@ type (
 		Password string `yaml:"password,omitempty"`
 	}
 
+	Syncer struct {
+		Address    string   `yaml:"address,omitempty"`
+		Peers      []string `yaml:"peers,omitempty"`
+		EnableUPNP bool     `yaml:"enableUPnP,omitempty"`
+		Bootstrap  bool     `yaml:"bootstrap,omitempty"`
+	}
+
+	RemoteConsensus struct {
+		Address  string `yaml:"address,omitempty"`
+		Password string `yaml:"password,omitempty"`
+	}
+
 	// Consensus contains the configuration for the consensus set.
 	Consensus struct {
-		Network        string   `yaml:"network,omitempty"`
-		GatewayAddress string   `yaml:"gatewayAddress,omitempty"`
-		Bootstrap      bool     `yaml:"bootstrap,omitempty"`
-		Peers          []string `yaml:"peers,omitempty"`
-		EnableUPNP     bool     `yaml:"enableUPnP,omitempty"`
+		Mode    string `yaml:"mode,omitempty"`
+		Network string `yaml:"network,omitempty"`
+
+		// Remote is an experimental feature that enables walletd to connect to a
+		// remote consensus set for scanning the chain state.
+		Remote RemoteConsensus `yaml:"remote,omitempty"`
 	}
 
 	// Index contains the configuration for the blockchain indexer
@@ -55,6 +68,7 @@ type (
 		AutoOpenWebUI bool   `yaml:"autoOpenWebUI,omitempty"`
 
 		HTTP      HTTP      `yaml:"http,omitempty"`
+		Syncer    Syncer    `yaml:"syncer,omitempty"`
 		Consensus Consensus `yaml:"consensus,omitempty"`
 		Log       Log       `yaml:"log,omitempty"`
 		Index     Index     `yaml:"index,omitempty"`
