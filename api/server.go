@@ -15,6 +15,7 @@ import (
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/walletd/build"
 	"go.sia.tech/walletd/wallet"
@@ -23,6 +24,7 @@ import (
 type (
 	// A ChainManager manages blockchain and txpool state.
 	ChainManager interface {
+		UpdatesSince(types.ChainIndex, int) ([]chain.RevertUpdate, []chain.ApplyUpdate, error)
 		BestIndex(height uint64) (types.ChainIndex, bool)
 		TipState() consensus.State
 		AddBlocks([]types.Block) error
@@ -72,11 +74,10 @@ type (
 		AddressSiacoinOutputs(address types.Address, offset, limit int) ([]types.SiacoinElement, error)
 		AddressSiafundOutputs(address types.Address, offset, limit int) ([]types.SiafundElement, error)
 
-		Events(eventIDs []types.Hash256) ([]wallet.Event, error)
-
 		SiacoinElement(types.SiacoinOutputID) (types.SiacoinElement, error)
 		SiafundElement(types.SiafundOutputID) (types.SiafundElement, error)
 
+		Events(eventIDs []types.Hash256) ([]wallet.Event, error)
 		Reserve(ids []types.Hash256, duration time.Duration) error
 	}
 )
@@ -118,6 +119,56 @@ func (s *server) consensusTipHandler(jc jape.Context) {
 
 func (s *server) consensusTipStateHandler(jc jape.Context) {
 	jc.Encode(s.cm.TipState())
+}
+
+func (s *server) consensusIndexHeightHandler(jc jape.Context) {
+	var height uint64
+	if jc.DecodeParam("height", &height) != nil {
+		return
+	}
+	index, ok := s.cm.BestIndex(height)
+	if !ok {
+		jc.Error(errors.New("height not found"), http.StatusNotFound)
+		return
+	}
+	jc.Encode(index)
+}
+
+func (s *server) consensusUpdatesIndexHandler(jc jape.Context) {
+	var index types.ChainIndex
+	if jc.DecodeParam("index", &index) != nil {
+		return
+	}
+
+	limit := 10
+	if jc.DecodeForm("limit", &limit) != nil {
+		return
+	} else if limit <= 0 || limit > 100 {
+		jc.Error(errors.New("limit must be between 0 and 100"), http.StatusBadRequest)
+		return
+	}
+
+	reverted, applied, err := s.cm.UpdatesSince(index, limit)
+	if jc.Check("couldn't get updates", err) != nil {
+		return
+	}
+
+	var res ConsensusUpdatesResponse
+	for _, ru := range reverted {
+		res.Reverted = append(res.Reverted, RevertUpdate{
+			Update: ru.RevertUpdate,
+			State:  ru.State,
+			Block:  ru.Block,
+		})
+	}
+	for _, au := range applied {
+		res.Applied = append(res.Applied, ApplyUpdate{
+			Update: au.ApplyUpdate,
+			State:  au.State,
+			Block:  au.Block,
+		})
+	}
+	jc.Encode(res)
 }
 
 func (s *server) syncerPeersHandler(jc jape.Context) {
@@ -204,6 +255,15 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		}
 		s.s.BroadcastV2TransactionSet(index, tbr.V2Transactions)
 	}
+}
+
+func (s *server) txpoolParentsHandler(jc jape.Context) {
+	var txn types.Transaction
+	if jc.Decode(&txn) != nil {
+		return
+	}
+
+	jc.Encode(s.cm.UnconfirmedParents(txn))
 }
 
 func (s *server) walletsHandler(jc jape.Context) {
@@ -765,9 +825,11 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 	return jape.Mux(map[string]jape.Handler{
 		"GET /state": srv.stateHandler,
 
-		"GET /consensus/network":  srv.consensusNetworkHandler,
-		"GET /consensus/tip":      srv.consensusTipHandler,
-		"GET /consensus/tipstate": srv.consensusTipStateHandler,
+		"GET /consensus/network":        srv.consensusNetworkHandler,
+		"GET /consensus/tip":            srv.consensusTipHandler,
+		"GET /consensus/tipstate":       srv.consensusTipStateHandler,
+		"GET /consensus/updates/:index": srv.consensusUpdatesIndexHandler,
+		"GET /consensus/index/:height":  srv.consensusIndexHeightHandler,
 
 		"GET /syncer/peers":            srv.syncerPeersHandler,
 		"POST /syncer/connect":         srv.syncerConnectHandler,
@@ -776,6 +838,7 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"GET /txpool/transactions": srv.txpoolTransactionsHandler,
 		"GET /txpool/fee":          srv.txpoolFeeHandler,
 		"POST /txpool/broadcast":   srv.txpoolBroadcastHandler,
+		"POST /txpool/parents":     srv.txpoolParentsHandler,
 
 		"GET /rescan":  srv.rescanHandlerGET,
 		"POST /rescan": srv.rescanHandlerPOST,

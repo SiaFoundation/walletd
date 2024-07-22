@@ -6,6 +6,7 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/jape"
 	"go.sia.tech/walletd/wallet"
 )
@@ -35,6 +36,11 @@ func (c *Client) TxpoolTransactions() (txns []types.Transaction, v2txns []types.
 	return resp.Transactions, resp.V2Transactions, err
 }
 
+func (c *Client) TxpoolParents(txn types.Transaction) (resp []types.Transaction, err error) {
+	err = c.c.POST("/txpool/parents", txn, &resp)
+	return
+}
+
 // TxpoolFee returns the recommended fee (per weight unit) to ensure a high
 // probability of inclusion in the next block.
 func (c *Client) TxpoolFee() (resp types.Currency, err error) {
@@ -55,16 +61,69 @@ func (c *Client) ConsensusTip() (resp types.ChainIndex, err error) {
 	return
 }
 
-// ConsensusTipState returns the current tip state.
-func (c *Client) ConsensusTipState() (resp consensus.State, err error) {
+func (c *Client) ConsensusIndex(height uint64) (resp types.ChainIndex, err error) {
+	err = c.c.GET(fmt.Sprintf("/consensus/index/%d", height), &resp)
+	return
+}
+
+func (c *Client) getNetwork() (*consensus.Network, error) {
 	if c.n == nil {
+		var err error
 		c.n, err = c.ConsensusNetwork()
 		if err != nil {
-			return
+			return nil, err
 		}
 	}
-	err = c.c.GET("/consensus/tipstate", &resp)
-	resp.Network = c.n
+	return c.n, nil
+}
+
+func (c *Client) ConsensusUpdates(index types.ChainIndex, limit int) ([]chain.RevertUpdate, []chain.ApplyUpdate, error) {
+	// index.String() is a short-hand representation. We need the full text
+	indexBuf, err := index.MarshalText()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal index: %w", err)
+	}
+
+	var resp ConsensusUpdatesResponse
+	if err = c.c.GET(fmt.Sprintf("/consensus/updates/%s?limit=%d", indexBuf, limit), &resp); err != nil {
+		return nil, nil, err
+	}
+
+	network, err := c.getNetwork()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get network metadata: %w", err)
+	}
+
+	reverted := make([]chain.RevertUpdate, 0, len(resp.Reverted))
+	for _, u := range resp.Reverted {
+		revert := chain.RevertUpdate{
+			RevertUpdate: u.Update,
+			State:        u.State,
+			Block:        u.Block,
+		}
+		revert.State.Network = network
+		reverted = append(reverted, revert)
+	}
+
+	applied := make([]chain.ApplyUpdate, 0, len(resp.Applied))
+	for _, u := range resp.Applied {
+		apply := chain.ApplyUpdate{
+			ApplyUpdate: u.Update,
+			State:       u.State,
+			Block:       u.Block,
+		}
+		apply.State.Network = network
+		applied = append(applied, apply)
+	}
+	return reverted, applied, nil
+}
+
+// ConsensusTipState returns the current tip state.
+func (c *Client) ConsensusTipState() (resp consensus.State, err error) {
+	if err = c.c.GET("/consensus/tipstate", &resp); err != nil {
+		return
+	}
+	resp.Network, err = c.getNetwork()
 	return
 }
 
