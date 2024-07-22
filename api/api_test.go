@@ -48,7 +48,10 @@ func runServer(cm api.ChainManager, s api.Syncer, wm api.WalletManager) (*api.Cl
 		panic(err)
 	}
 	go func() {
-		srv := api.NewServer(cm, s, wm)
+		srv := api.NewServer(
+			api.WithChainManager(cm, "local"),
+			api.WithSyncer(s),
+			api.WithWalletManager(wm))
 		http.Serve(l, jape.BasicAuth("password")(srv))
 	}()
 	c := api.NewClient("http://"+l.Addr().String(), "password")
@@ -90,7 +93,7 @@ func TestWalletAdd(t *testing.T) {
 	}
 	defer ws.Close()
 
-	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(ws), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +281,7 @@ func TestWallet(t *testing.T) {
 	})
 
 	// create the wallet manager
-	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(ws), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +503,7 @@ func TestAddresses(t *testing.T) {
 	}
 	defer ws.Close()
 
-	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(ws), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -697,7 +700,7 @@ func TestV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ws.Close()
-	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(ws), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -925,7 +928,7 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wm1, err := wallet.NewManager(cm1, store1, wallet.WithLogger(log1.Named("wallet")))
+	wm1, err := wallet.NewManager(wallet.WithChainManager(cm1), wallet.WithStore(store1), wallet.WithLogger(log1.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -968,7 +971,7 @@ func TestP2P(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store2.Close()
-	wm2, err := wallet.NewManager(cm2, store2, wallet.WithLogger(log2.Named("wallet")))
+	wm2, err := wallet.NewManager(wallet.WithChainManager(cm2), wallet.WithStore(store2), wallet.WithLogger(log2.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1235,7 +1238,7 @@ func TestRemoteChainManager(t *testing.T) {
 	}
 	defer ws1.Close()
 
-	wm1, err := wallet.NewManager(cm1, ws1, wallet.WithLogger(log1.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
+	wm1, err := wallet.NewManager(wallet.WithChainManager(cm1), wallet.WithStore(ws1), wallet.WithLogger(log1.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1273,7 +1276,7 @@ func TestRemoteChainManager(t *testing.T) {
 	}
 	defer ws2.Close()
 
-	wm2, err := wallet.NewManager(cm2, ws2, wallet.WithLogger(log2.Named("wallet")))
+	wm2, err := wallet.NewManager(wallet.WithChainManager(cm2), wallet.WithStore(ws2), wallet.WithLogger(log2.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}

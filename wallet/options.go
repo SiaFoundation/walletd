@@ -27,3 +27,17 @@ func WithSyncBatchSize(size int) Option {
 		m.syncBatchSize = size
 	}
 }
+
+// WithChainManager sets the chain manager used by the manager.
+func WithChainManager(cm ChainManager) Option {
+	return func(m *Manager) {
+		m.chain = cm
+	}
+}
+
+// WithStore sets the store used by the manager.
+func WithStore(s Store) Option {
+	return func(m *Manager) {
+		m.store = s
+	}
+}

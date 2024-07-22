@@ -327,33 +327,37 @@ func syncStore(ctx context.Context, store Store, cm ChainManager, index types.Ch
 }
 
 // NewManager creates a new wallet manager.
-func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) {
+func NewManager(opts ...Option) (*Manager, error) {
 	m := &Manager{
 		indexMode:     IndexModePersonal,
 		syncBatchSize: defaultSyncBatchSize,
 
-		chain: cm,
-		store: store,
-		log:   zap.NewNop(),
-		tg:    threadgroup.New(),
+		log: zap.NewNop(),
+		tg:  threadgroup.New(),
 	}
 
 	for _, opt := range opts {
 		opt(m)
 	}
 
+	if m.chain == nil {
+		panic("chain manager is required")
+	} else if m.store == nil {
+		panic("store is required")
+	}
+
 	// if the index mode is none, skip setting the index mode in the store
 	// and return the manager
 	if m.indexMode == IndexModeNone {
 		return m, nil
-	} else if err := store.SetIndexMode(m.indexMode); err != nil {
+	} else if err := m.store.SetIndexMode(m.indexMode); err != nil {
 		return nil, err
 	}
 
 	// start a goroutine to sync the store with the chain manager
 	reorgChan := make(chan struct{}, 1)
 	reorgChan <- struct{}{}
-	unsubscribe := cm.OnReorg(func(index types.ChainIndex) {
+	unsubscribe := m.chain.OnReorg(func(index types.ChainIndex) {
 		select {
 		case reorgChan <- struct{}{}:
 		default:
@@ -379,10 +383,10 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 
 			m.mu.Lock()
 			// update the store
-			lastTip, err := store.LastCommittedIndex()
+			lastTip, err := m.store.LastCommittedIndex()
 			if err != nil {
 				log.Panic("failed to get last committed index", zap.Error(err))
-			} else if err := syncStore(ctx, store, cm, lastTip, m.syncBatchSize); err != nil && !errors.Is(err, context.Canceled) {
+			} else if err := syncStore(ctx, m.store, m.chain, lastTip, m.syncBatchSize); err != nil && !errors.Is(err, context.Canceled) {
 				log.Panic("failed to sync store", zap.Error(err))
 			}
 			m.mu.Unlock()

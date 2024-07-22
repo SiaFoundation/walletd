@@ -128,7 +128,7 @@ func TestReorg(t *testing.T) {
 		}
 		cm := chain.NewManager(store, genesisState)
 
-		wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(mode))
+		wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(mode))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -336,7 +336,7 @@ func TestEphemeralBalance(t *testing.T) {
 	}
 
 	cm := chain.NewManager(store, genesisState)
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,7 +532,7 @@ func TestWalletAddresses(t *testing.T) {
 	}
 
 	cm := chain.NewManager(store, genesisState)
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -666,7 +666,7 @@ func TestScan(t *testing.T) {
 
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -833,7 +833,7 @@ func TestSiafunds(t *testing.T) {
 
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -989,7 +989,7 @@ func TestOrphans(t *testing.T) {
 	}
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1123,7 +1123,7 @@ func TestOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wm, err = wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err = wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1183,7 +1183,7 @@ func TestFullIndex(t *testing.T) {
 	}
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1409,7 +1409,7 @@ func TestEvents(t *testing.T) {
 	}
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1639,7 +1639,7 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1847,7 +1847,7 @@ func TestAddressUnconfirmedEvents(t *testing.T) {
 
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2070,7 +2070,7 @@ func TestV2(t *testing.T) {
 	}
 
 	cm := chain.NewManager(store, genesisState)
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2192,7 +2192,7 @@ func TestScanV2(t *testing.T) {
 
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2381,7 +2381,7 @@ func TestReorgV2(t *testing.T) {
 	}
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2608,7 +2608,7 @@ func TestOrphansV2(t *testing.T) {
 	}
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2733,7 +2733,7 @@ func TestOrphansV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wm, err = wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err = wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2823,7 +2823,7 @@ func TestDeleteWallet(t *testing.T) {
 	}
 	cm := chain.NewManager(store, genesisState)
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2937,7 +2937,7 @@ func TestEventTypes(t *testing.T) {
 		waitForBlock(t, cm, db)
 	}
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
+	wm, err := wallet.NewManager(wallet.WithChainManager(cm), wallet.WithStore(db), wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
 	if err != nil {
 		t.Fatal(err)
 	}

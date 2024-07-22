@@ -84,6 +84,7 @@ type (
 
 type server struct {
 	startTime time.Time
+	chainMode string
 
 	cm ChainManager
 	s  Syncer
@@ -106,6 +107,7 @@ func (s *server) stateHandler(jc jape.Context) {
 		BuildTime: build.Time(),
 		StartTime: s.startTime,
 		IndexMode: s.wm.IndexMode(),
+		ChainMode: s.chainMode,
 	})
 }
 
@@ -813,15 +815,16 @@ func (s *server) outputsSiafundHandlerGET(jc jape.Context) {
 }
 
 // NewServer returns an HTTP handler that serves the walletd API.
-func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
-	srv := server{
+func NewServer(opts ...ServerOption) http.Handler {
+	srv := &server{
 		startTime: time.Now(),
-
-		cm:   cm,
-		s:    s,
-		wm:   wm,
-		used: make(map[types.Hash256]bool),
+		used:      make(map[types.Hash256]bool),
 	}
+
+	for _, opt := range opts {
+		opt(srv)
+	}
+
 	return jape.Mux(map[string]jape.Handler{
 		"GET /state": srv.stateHandler,
 

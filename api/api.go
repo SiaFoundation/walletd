@@ -18,6 +18,7 @@ type StateResponse struct {
 	BuildTime time.Time        `json:"buildTime"`
 	StartTime time.Time        `json:"startTime"`
 	IndexMode wallet.IndexMode `json:"indexMode"`
+	ChainMode string           `json:"chainMode"`
 }
 
 // A GatewayPeer is a currently-connected peer.
