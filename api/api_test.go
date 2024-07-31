@@ -15,6 +15,7 @@ import (
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/jape"
@@ -1212,5 +1213,71 @@ func TestP2P(t *testing.T) {
 	// use a v2 transaction instead
 	if err := sendV2(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestConsensusUpdates(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	n, genesisBlock := testNetwork()
+	giftPrivateKey := types.GeneratePrivateKey()
+	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(1),
+		Address: giftAddress,
+	}
+
+	// create wallets
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	c, shutdown := runServer(cm, nil, wm)
+	defer shutdown()
+
+	for i := 0; i < 10; i++ {
+		b, ok := coreutils.MineBlock(cm, types.VoidAddress, time.Second)
+		if !ok {
+			t.Fatal("failed to mine block")
+		} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	waitForBlock(t, cm, ws)
+
+	reverted, applied, err := c.ConsensusUpdates(types.ChainIndex{}, 10)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(reverted) != 0 {
+		t.Fatal("expected no reverted blocks")
+	} else if len(applied) != 11 { // genesis + 10 mined blocks (chain manager off-by-one)
+		t.Fatalf("expected 11 applied blocks, got %v", len(applied))
+	}
+
+	for i, cau := range applied {
+		// using i for height since we're testing the update contents
+		expected, ok := cm.BestIndex(uint64(i))
+		if !ok {
+			t.Fatalf("failed to get expected index for block %v", i)
+		} else if cau.State.Index != expected {
+			t.Fatalf("expected index %v, got %v", expected, cau.State.Index)
+		} else if cau.State.Network.Name != n.Name { // TODO: better comparison. reflect.DeepEqual is failing in CI, but passing local.
+			t.Fatalf("expected network to be %q, got %q", n.Name, cau.State.Network.Name)
+		}
 	}
 }

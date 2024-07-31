@@ -2,10 +2,12 @@ package api
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/jape"
 	"go.sia.tech/walletd/wallet"
 )
@@ -13,7 +15,23 @@ import (
 // A Client provides methods for interacting with a walletd API server.
 type Client struct {
 	c jape.Client
-	n *consensus.Network // for ConsensusTipState
+
+	mu sync.Mutex // protects n
+	n  *consensus.Network
+}
+
+func (c *Client) getNetwork() (*consensus.Network, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.n == nil {
+		var err error
+		c.n, err = c.ConsensusNetwork()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return c.n, nil
 }
 
 // State returns information about the current state of the walletd daemon.
@@ -35,6 +53,13 @@ func (c *Client) TxpoolTransactions() (txns []types.Transaction, v2txns []types.
 	return resp.Transactions, resp.V2Transactions, err
 }
 
+// TxpoolParents returns the parents of a transaction that are currently in the
+// transaction pool.
+func (c *Client) TxpoolParents(txn types.Transaction) (resp []types.Transaction, err error) {
+	err = c.c.POST("/txpool/parents", txn, &resp)
+	return
+}
+
 // TxpoolFee returns the recommended fee (per weight unit) to ensure a high
 // probability of inclusion in the next block.
 func (c *Client) TxpoolFee() (resp types.Currency, err error) {
@@ -49,22 +74,67 @@ func (c *Client) ConsensusNetwork() (resp *consensus.Network, err error) {
 	return
 }
 
-// ConsensusTip returns the current tip index.
-func (c *Client) ConsensusTip() (resp types.ChainIndex, err error) {
-	err = c.c.GET("/consensus/tip", &resp)
+// ConsensusIndex returns the consensus index at the specified height.
+func (c *Client) ConsensusIndex(height uint64) (resp types.ChainIndex, err error) {
+	err = c.c.GET(fmt.Sprintf("/consensus/index/%d", height), &resp)
 	return
+}
+
+// ConsensusUpdates returns at most n consensus updates that have occurred since
+// the specified index
+func (c *Client) ConsensusUpdates(index types.ChainIndex, limit int) ([]chain.RevertUpdate, []chain.ApplyUpdate, error) {
+	// index.String() is a short-hand representation. We need the full text
+	indexBuf, err := index.MarshalText()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal index: %w", err)
+	}
+
+	var resp ConsensusUpdatesResponse
+	if err := c.c.GET(fmt.Sprintf("/consensus/updates/%s?limit=%d", indexBuf, limit), &resp); err != nil {
+		return nil, nil, err
+	}
+
+	network, err := c.getNetwork()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get network metadata: %w", err)
+	}
+
+	reverted := make([]chain.RevertUpdate, 0, len(resp.Reverted))
+	for _, u := range resp.Reverted {
+		revert := chain.RevertUpdate{
+			RevertUpdate: u.Update,
+			State:        u.State,
+			Block:        u.Block,
+		}
+		revert.State.Network = network
+		reverted = append(reverted, revert)
+	}
+
+	applied := make([]chain.ApplyUpdate, 0, len(resp.Applied))
+	for _, u := range resp.Applied {
+		apply := chain.ApplyUpdate{
+			ApplyUpdate: u.Update,
+			State:       u.State,
+			Block:       u.Block,
+		}
+		apply.State.Network = network
+		applied = append(applied, apply)
+	}
+	return reverted, applied, nil
 }
 
 // ConsensusTipState returns the current tip state.
 func (c *Client) ConsensusTipState() (resp consensus.State, err error) {
-	if c.n == nil {
-		c.n, err = c.ConsensusNetwork()
-		if err != nil {
-			return
-		}
+	if err = c.c.GET("/consensus/tipstate", &resp); err != nil {
+		return
 	}
-	err = c.c.GET("/consensus/tipstate", &resp)
-	resp.Network = c.n
+	resp.Network, err = c.getNetwork()
+	return
+}
+
+// ConsensusTip returns the current tip index.
+func (c *Client) ConsensusTip() (resp types.ChainIndex, err error) {
+	err = c.c.GET("/consensus/tip", &resp)
 	return
 }
 
