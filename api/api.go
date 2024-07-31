@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/wallet"
 )
@@ -101,4 +102,24 @@ type RescanResponse struct {
 	Index      types.ChainIndex `json:"index"`
 	StartTime  time.Time        `json:"startTime"`
 	Error      *string          `json:"error,omitempty"`
+}
+
+// An ApplyUpdate is a consensus update that was applied to the best chain.
+type ApplyUpdate struct {
+	Update consensus.ApplyUpdate `json:"update"`
+	State  consensus.State       `json:"state"`
+	Block  types.Block           `json:"block"`
+}
+
+// A RevertUpdate is a consensus update that was reverted from the best chain.
+type RevertUpdate struct {
+	Update consensus.RevertUpdate `json:"update"`
+	State  consensus.State        `json:"state"`
+	Block  types.Block            `json:"block"`
+}
+
+// ConsensusUpdatesResponse is the response type for /consensus/updates/:index.
+type ConsensusUpdatesResponse struct {
+	Applied  []ApplyUpdate  `json:"applied"`
+	Reverted []RevertUpdate `json:"reverted"`
 }
