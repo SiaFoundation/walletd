@@ -143,6 +143,7 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	if err != nil {
 		return fmt.Errorf("failed to create wallet manager: %w", err)
 	}
+	defer wm.Close()
 
 	api := jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cm, s, wm))
 	web := walletd.Handler()

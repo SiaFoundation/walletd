@@ -940,7 +940,8 @@ func TestP2P(t *testing.T) {
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: l1.Addr().String(),
 	})
-	go s1.Run()
+	go s1.Run(context.Background())
+	defer s1.Close()
 	c1, shutdown := runServer(cm1, s1, wm1)
 	defer shutdown()
 	w1, err := c1.AddWallet(api.WalletUpdateRequest{Name: "primary"})
@@ -983,7 +984,8 @@ func TestP2P(t *testing.T) {
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: l2.Addr().String(),
 	}, syncer.WithLogger(zaptest.NewLogger(t)))
-	go s2.Run()
+	go s2.Run(context.Background())
+	defer s2.Close()
 	c2, shutdown2 := runServer(cm2, s2, wm2)
 	defer shutdown2()
 

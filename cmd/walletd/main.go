@@ -91,6 +91,10 @@ func check(context string, err error) {
 }
 
 func mustSetAPIPassword() {
+	if cfg.HTTP.Password != "" {
+		return
+	}
+
 	// retry until a valid API password is entered
 	for {
 		fmt.Println("Please choose a password to unlock walletd.")
