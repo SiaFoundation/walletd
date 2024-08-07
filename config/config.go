@@ -9,13 +9,17 @@ type (
 		Password string `yaml:"password,omitempty"`
 	}
 
+	// Syncer contains the configuration for the consensus set syncer.
+	Syncer struct {
+		Address    string   `yaml:"address,omitempty"`
+		Bootstrap  bool     `yaml:"bootstrap,omitempty"`
+		EnableUPnP bool     `yaml:"enableUPnP,omitempty"`
+		Peers      []string `yaml:"peers,omitempty"`
+	}
+
 	// Consensus contains the configuration for the consensus set.
 	Consensus struct {
-		Network        string   `yaml:"network,omitempty"`
-		GatewayAddress string   `yaml:"gatewayAddress,omitempty"`
-		Bootstrap      bool     `yaml:"bootstrap,omitempty"`
-		Peers          []string `yaml:"peers,omitempty"`
-		EnableUPNP     bool     `yaml:"enableUPnP,omitempty"`
+		Network string `yaml:"network,omitempty"`
 	}
 
 	// Index contains the configuration for the blockchain indexer
@@ -56,6 +60,7 @@ type (
 
 		HTTP      HTTP      `yaml:"http,omitempty"`
 		Consensus Consensus `yaml:"consensus,omitempty"`
+		Syncer    Syncer    `yaml:"syncer,omitempty"`
 		Log       Log       `yaml:"log,omitempty"`
 		Index     Index     `yaml:"index,omitempty"`
 	}

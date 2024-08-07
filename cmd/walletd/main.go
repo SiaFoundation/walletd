@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,7 +18,6 @@ import (
 	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 	"lukechampine.com/flagg"
 )
@@ -60,10 +58,12 @@ var cfg = config.Config{
 		Address:  "localhost:9980",
 		Password: os.Getenv("WALLETD_API_PASSWORD"),
 	},
+	Syncer: config.Syncer{
+		Address:   ":9981",
+		Bootstrap: true,
+	},
 	Consensus: config.Consensus{
-		Network:        "mainnet",
-		GatewayAddress: ":9981",
-		Bootstrap:      true,
+		Network: "mainnet",
 	},
 	Index: config.Index{
 		Mode:      wallet.IndexModePersonal,
@@ -90,16 +90,20 @@ func check(context string, err error) {
 	}
 }
 
-func getAPIPassword() string {
-	apiPassword := cfg.HTTP.Password
-	if apiPassword == "" {
-		fmt.Print("Enter API password: ")
-		pw, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Println()
-		check("Could not read API password:", err)
-		apiPassword = string(pw)
+func mustSetAPIPassword() {
+	// retry until a valid API password is entered
+	for {
+		fmt.Println("Please choose a password to unlock walletd.")
+		fmt.Println("This password will be required to access the admin UI in your web browser.")
+		fmt.Println("(The password must be at least 4 characters.)")
+		cfg.HTTP.Password = readPasswordInput("Enter password")
+		if len(cfg.HTTP.Password) >= 4 {
+			break
+		}
+
+		fmt.Println(wrapANSI("\033[31m", "Password must be at least 4 characters!", "\033[0m"))
+		fmt.Println("")
 	}
-	return apiPassword
 }
 
 // tryLoadConfig loads the config file specified by the WALLETD_CONFIG_FILE. If
@@ -192,10 +196,10 @@ func main() {
 	rootCmd.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store node state in")
 	rootCmd.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 
-	rootCmd.StringVar(&cfg.Consensus.GatewayAddress, "addr", cfg.Consensus.GatewayAddress, "p2p address to listen on")
+	rootCmd.StringVar(&cfg.Syncer.Address, "addr", cfg.Syncer.Address, "p2p address to listen on")
 	rootCmd.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network to connect to")
-	rootCmd.BoolVar(&cfg.Consensus.EnableUPNP, "upnp", cfg.Consensus.EnableUPNP, "attempt to forward ports and discover IP with UPnP")
-	rootCmd.BoolVar(&cfg.Consensus.Bootstrap, "bootstrap", cfg.Consensus.Bootstrap, "attempt to bootstrap the network")
+	rootCmd.BoolVar(&cfg.Syncer.EnableUPnP, "upnp", cfg.Syncer.EnableUPnP, "attempt to forward ports and discover IP with UPnP")
+	rootCmd.BoolVar(&cfg.Syncer.Bootstrap, "bootstrap", cfg.Syncer.Bootstrap, "attempt to bootstrap the network")
 
 	rootCmd.StringVar(&indexModeStr, "index.mode", indexModeStr, "address index mode (personal, full, none)")
 	rootCmd.IntVar(&cfg.Index.BatchSize, "index.batch", cfg.Index.BatchSize, "max number of blocks to index at a time. Increasing this will increase scan speed, but also increase memory and cpu usage.")
@@ -232,11 +236,7 @@ func main() {
 			stdoutFatalError("failed to create directory: " + err.Error())
 		}
 
-		apiPassword := getAPIPassword()
-		l, err := net.Listen("tcp", cfg.HTTP.Address)
-		if err != nil {
-			stdoutFatalError("failed to start HTTP server: " + err.Error())
-		}
+		mustSetAPIPassword()
 
 		var logCores []zapcore.Core
 		if cfg.Log.StdOut.Enabled {
@@ -305,18 +305,9 @@ func main() {
 			log.Fatal("failed to parse index mode", zap.Error(err))
 		}
 
-		n, err := newNode(cfg, log)
-		if err != nil {
-			log.Fatal("failed to create node", zap.Error(err))
+		if err := runNode(ctx, cfg, log); err != nil {
+			log.Fatal("failed to run node", zap.Error(err))
 		}
-		defer n.Close()
-
-		stop := n.Start()
-		go startWeb(l, n, apiPassword)
-		log.Info("walletd started", zap.String("version", build.Version()), zap.String("network", cfg.Consensus.Network), zap.String("commit", build.Commit()), zap.Time("buildDate", build.Time()))
-		<-ctx.Done()
-		log.Info("shutting down")
-		stop()
 	case versionCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
@@ -357,7 +348,8 @@ func main() {
 			log.Fatal(err)
 		}
 
-		c := api.NewClient("http://"+cfg.HTTP.Address+"/api", getAPIPassword())
+		mustSetAPIPassword()
+		c := api.NewClient("http://"+cfg.HTTP.Address+"/api", cfg.HTTP.Password)
 		runCPUMiner(c, minerAddr, minerBlocks)
 	}
 }
