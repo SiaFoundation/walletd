@@ -173,8 +173,6 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 	// collect all elements
 	sces := make(map[types.SiacoinOutputID]types.SiacoinElement)
 	sfes := make(map[types.SiafundOutputID]types.SiafundElement)
-	fces := make(map[types.FileContractID]types.FileContractElement)
-	v2fces := make(map[types.FileContractID]types.V2FileContractElement)
 	cu.ForEachSiacoinElement(func(sce types.SiacoinElement, _, _ bool) {
 		sce.MerkleProof = nil
 		sces[types.SiacoinOutputID(sce.ID)] = sce
@@ -182,14 +180,6 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 	cu.ForEachSiafundElement(func(sfe types.SiafundElement, _, _ bool) {
 		sfe.MerkleProof = nil
 		sfes[types.SiafundOutputID(sfe.ID)] = sfe
-	})
-	cu.ForEachFileContractElement(func(fce types.FileContractElement, _ bool, rev *types.FileContractElement, resolved, valid bool) {
-		fce.MerkleProof = nil
-		fces[types.FileContractID(fce.ID)] = fce
-	})
-	cu.ForEachV2FileContractElement(func(fce types.V2FileContractElement, _ bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
-		fce.MerkleProof = nil
-		v2fces[types.FileContractID(fce.ID)] = fce
 	})
 
 	// handle v1 transactions
@@ -309,6 +299,8 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			return
 		}
 
+		fce.MerkleProof = nil
+
 		if valid {
 			for i := range fce.FileContract.ValidProofOutputs {
 				address := fce.FileContract.ValidProofOutputs[i].Address
@@ -344,6 +336,8 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		if res == nil {
 			return
 		}
+
+		fce.MerkleProof = nil
 
 		var missed bool
 		if _, ok := res.(*types.V2FileContractExpiration); ok {
