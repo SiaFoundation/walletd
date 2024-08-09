@@ -47,7 +47,7 @@ func (s *Store) AddressEvents(address types.Address, offset, limit int) (events 
 			if err != nil {
 				return fmt.Errorf("failed to scan event: %w", err)
 			}
-
+			event.Relevant = []types.Address{address}
 			events = append(events, event)
 		}
 		return rows.Err()
