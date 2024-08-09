@@ -42,8 +42,10 @@ type (
 	// contract.
 	EventV2ContractResolution = wallet.EventV2ContractResolution
 
+	// EventData is the data associated with an event.
 	EventData = wallet.EventData
-	Event     = wallet.Event
+	// An Event is a record of a consensus event that affects the wallet.
+	Event = wallet.Event
 )
 
 type (
