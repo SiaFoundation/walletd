@@ -1459,16 +1459,22 @@ func TestEvents(t *testing.T) {
 	waitForBlock(t, cm, db)
 
 	// check the payout was received
-	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+	events, err := wm.AddressEvents(addr, 0, 100)
+	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 1 {
 		t.Fatalf("expected 1 events, got %v", len(events))
 	} else if events[0].Type != wallet.EventTypeMinerPayout {
 		t.Fatalf("expected miner payout event, got %v", events[0].Type)
-	} else if events2, err := wm.Events([]types.Hash256{events[0].ID}); err != nil {
+	}
+
+	expected := events[0]
+	expected.Relevant = nil // clear the relevant field for deep equal
+	events2, err := wm.Events([]types.Hash256{events[0].ID})
+	if err != nil {
 		t.Fatalf("expected to get event: %v", err)
-	} else if !reflect.DeepEqual(events2[0], events[0]) {
-		t.Fatalf("expected event %v to match %v", events[0], events2)
+	} else if !reflect.DeepEqual(events2[0], expected) {
+		t.Fatalf("expected event %v to match %v", expected, events2[0])
 	}
 
 	assertBalance(t, addr, types.ZeroCurrency, expectedBalance1, 0)
@@ -1527,29 +1533,40 @@ func TestEvents(t *testing.T) {
 	assertBalance(t, addr2, expectedBalance1.Div64(2), types.ZeroCurrency, cm.TipState().SiafundCount())
 
 	// check the events for the transaction
-	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+	events, err = wm.AddressEvents(addr, 0, 100)
+	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 2 {
 		t.Fatalf("expected 2 events, got %v", len(events))
 	} else if events[0].Type != wallet.EventTypeV2Transaction {
 		t.Fatalf("expected transaction event, got %v", events[0].Type)
-	} else if events2, err := wm.Events([]types.Hash256{events[0].ID}); err != nil {
+	}
+
+	expected = events[0]
+	expected.Relevant = nil // clear the relevant field for deep equal
+	if events2, err := wm.Events([]types.Hash256{expected.ID}); err != nil {
 		t.Fatalf("expected to get event: %v", err)
-	} else if !reflect.DeepEqual(events2[0], events[0]) {
-		t.Fatalf("expected event %v to match %v", events[0], events2)
+	} else if !reflect.DeepEqual(events2[0], expected) {
+		t.Fatalf("expected event %v to match %v", expected, events2)
 	}
 
 	// check the events for the second address
-	if events, err := wm.AddressEvents(addr2, 0, 100); err != nil {
+	events, err = wm.AddressEvents(addr2, 0, 100)
+	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 2 {
 		t.Fatalf("expected 2 event, got %v", len(events))
 	} else if events[0].Type != wallet.EventTypeV2Transaction {
 		t.Fatalf("expected transaction event, got %v", events[0].Type)
-	} else if events2, err := wm.Events([]types.Hash256{events[0].ID}); err != nil {
+	}
+
+	expected = events[0]
+	expected.Relevant = nil // clear the relevant field for deep equal
+	events2, err = wm.Events([]types.Hash256{events[0].ID})
+	if err != nil {
 		t.Fatalf("expected to get event: %v", err)
-	} else if !reflect.DeepEqual(events2[0], events[0]) {
-		t.Fatalf("expected event %v to match %v", events[0], events2)
+	} else if !reflect.DeepEqual(events2[0], expected) {
+		t.Fatalf("expected event %v to match %v", expected, events2[0])
 	}
 
 	sf, err := wm.AddressSiafundOutputs(addr2, 0, 100)
@@ -1586,29 +1603,39 @@ func TestEvents(t *testing.T) {
 	assertBalance(t, addr2, expectedBalance1.Div64(2), types.ZeroCurrency, 0)
 
 	// check the events for the transaction
-	if events, err := wm.AddressEvents(addr2, 0, 100); err != nil {
+	events, err = wm.AddressEvents(addr2, 0, 100)
+	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 4 {
 		t.Fatalf("expected 4 events, got %v", len(events))
 	} else if events[0].Type != wallet.EventTypeSiafundClaim {
 		t.Fatalf("expected transaction event, got %v", events[0].Type)
-	} else if events2, err := wm.Events([]types.Hash256{events[0].ID}); err != nil {
+	}
+
+	expected = events[0]
+	expected.Relevant = nil // clear the relevant field for deep equal
+	if events2, err := wm.Events([]types.Hash256{expected.ID}); err != nil {
 		t.Fatalf("expected to get event: %v", err)
-	} else if !reflect.DeepEqual(events2[0], events[0]) {
-		t.Fatalf("expected event %v to match %v", events[0], events2)
+	} else if !reflect.DeepEqual(events2[0], expected) {
+		t.Fatalf("expected event %v to match %v", expected, events2)
 	}
 
 	// check the events for the first address
-	if events, err := wm.AddressEvents(addr, 0, 100); err != nil {
+	events, err = wm.AddressEvents(addr, 0, 100)
+	if err != nil {
 		t.Fatal(err)
 	} else if len(events) != 3 {
 		t.Fatalf("expected 3 events, got %v", len(events))
 	} else if events[0].Type != wallet.EventTypeV2Transaction {
 		t.Fatalf("expected transaction event, got %v", events[0].Type)
-	} else if events2, err := wm.Events([]types.Hash256{events[0].ID}); err != nil {
+	}
+
+	expected = events[0]
+	expected.Relevant = nil // clear the relevant field for deep equal
+	if events2, err := wm.Events([]types.Hash256{expected.ID}); err != nil {
 		t.Fatalf("expected to get event: %v", err)
-	} else if !reflect.DeepEqual(events2[0], events[0]) {
-		t.Fatalf("expected event %v to match %v", events[0], events2)
+	} else if !reflect.DeepEqual(events2[0], expected) {
+		t.Fatalf("expected event %v to match %v", expected, events2)
 	}
 }
 
@@ -2964,7 +2991,7 @@ func TestEventTypes(t *testing.T) {
 		return filtered
 	}
 
-	assertEvent := func(id types.Hash256, eventType string, expectedInflow, expectedOutflow types.Currency, maturityHeight uint64) {
+	assertEvent := func(t *testing.T, id types.Hash256, eventType string, expectedInflow, expectedOutflow types.Currency, maturityHeight uint64) {
 		t.Helper()
 
 		events, err := wm.AddressEvents(addr, 0, 100)
@@ -2980,50 +3007,10 @@ func TestEventTypes(t *testing.T) {
 					t.Fatalf("expected maturity height %v, got %v", maturityHeight, event.MaturityHeight)
 				}
 
-				var inflowSum, outflowSum types.Currency
-				switch ev := event.Data.(type) {
-				case wallet.EventV1Transaction:
-					for _, sce := range ev.SpentSiacoinElements {
-						if sce.SiacoinOutput.Address == addr {
-							outflowSum = outflowSum.Add(sce.SiacoinOutput.Value)
-						}
-					}
-					for _, sce := range ev.Transaction.SiacoinOutputs {
-						if sce.Address == addr {
-							inflowSum = inflowSum.Add(sce.Value)
-						}
-					}
-				case wallet.EventV1ContractResolution:
-					if ev.SiacoinElement.SiacoinOutput.Address == addr {
-						inflowSum = ev.SiacoinElement.SiacoinOutput.Value
-					}
-				case wallet.EventPayout:
-					if ev.SiacoinElement.SiacoinOutput.Address == addr {
-						inflowSum = ev.SiacoinElement.SiacoinOutput.Value
-					}
-				case wallet.EventV2ContractResolution:
-					if ev.SiacoinElement.SiacoinOutput.Address == addr {
-						inflowSum = ev.SiacoinElement.SiacoinOutput.Value
-					}
-				case wallet.EventV2Transaction:
-					for _, sce := range ev.SiacoinInputs {
-						if sce.Parent.SiacoinOutput.Address == addr {
-							outflowSum = outflowSum.Add(sce.Parent.SiacoinOutput.Value)
-						}
-					}
-					for _, sce := range ev.SiacoinOutputs {
-						if sce.Address == addr {
-							inflowSum = inflowSum.Add(sce.Value)
-						}
-					}
-				default:
-					t.Fatalf("unexpected event type %T", ev)
-				}
-
-				if !inflowSum.Equals(expectedInflow) {
-					t.Fatalf("expected inflow %v, got %v", expectedInflow, inflowSum)
-				} else if !outflowSum.Equals(expectedOutflow) {
-					t.Fatalf("expected outflow %v, got %v", expectedOutflow, outflowSum)
+				if !event.SiacoinInflow().Equals(expectedInflow) {
+					t.Fatalf("expected inflow %v, got %v", expectedInflow, event.SiacoinInflow())
+				} else if !event.SiacoinOutflow().Equals(expectedOutflow) {
+					t.Fatalf("expected outflow %v, got %v", expectedOutflow, event.SiacoinOutflow())
 				}
 				return
 			}
@@ -3033,7 +3020,7 @@ func TestEventTypes(t *testing.T) {
 
 	// miner payout event
 	mineBlock(1, addr)
-	assertEvent(types.Hash256(cm.Tip().ID.MinerOutputID(0)), wallet.EventTypeMinerPayout, genesisState.BlockReward(), types.ZeroCurrency, genesisState.MaturityHeight())
+	assertEvent(t, types.Hash256(cm.Tip().ID.MinerOutputID(0)), wallet.EventTypeMinerPayout, genesisState.BlockReward(), types.ZeroCurrency, genesisState.MaturityHeight())
 
 	// mine until the payout matures
 	mineBlock(int(cm.TipState().MaturityHeight()), types.VoidAddress)
@@ -3075,7 +3062,7 @@ func TestEventTypes(t *testing.T) {
 		}
 		// mine a block to confirm the transaction
 		mineBlock(1, types.VoidAddress)
-		assertEvent(types.Hash256(txn.ID()), wallet.EventTypeV1Transaction, sce[0].SiacoinOutput.Value.Sub(types.Siacoins(1000)), sce[0].SiacoinOutput.Value, cm.Tip().Height)
+		assertEvent(t, types.Hash256(txn.ID()), wallet.EventTypeV1Transaction, sce[0].SiacoinOutput.Value.Sub(types.Siacoins(1000)), sce[0].SiacoinOutput.Value, cm.Tip().Height)
 	})
 
 	t.Run("v1 contract resolution - missed", func(t *testing.T) {
@@ -3133,7 +3120,7 @@ func TestEventTypes(t *testing.T) {
 		// mine until the contract expires to trigger the resolution event
 		blocksRemaining := int(fc.WindowEnd - cm.Tip().Height)
 		mineBlock(blocksRemaining, types.VoidAddress)
-		assertEvent(types.Hash256(txn.FileContractID(0).MissedOutputID(0)), wallet.EventTypeV1ContractResolution, contractPayout, types.ZeroCurrency, fc.WindowEnd+144)
+		assertEvent(t, types.Hash256(txn.FileContractID(0).MissedOutputID(0)), wallet.EventTypeV1ContractResolution, contractPayout, types.ZeroCurrency, fc.WindowEnd+144)
 	})
 
 	t.Run("v2 transaction", func(t *testing.T) {
@@ -3167,7 +3154,7 @@ func TestEventTypes(t *testing.T) {
 		}
 		// mine a block to confirm the transaction
 		mineBlock(1, types.VoidAddress)
-		assertEvent(types.Hash256(txn.ID()), wallet.EventTypeV2Transaction, sce[0].SiacoinOutput.Value.Sub(types.Siacoins(1000)), sce[0].SiacoinOutput.Value, cm.Tip().Height)
+		assertEvent(t, types.Hash256(txn.ID()), wallet.EventTypeV2Transaction, sce[0].SiacoinOutput.Value.Sub(types.Siacoins(1000)), sce[0].SiacoinOutput.Value, cm.Tip().Height)
 	})
 
 	t.Run("v2 contract resolution - expired", func(t *testing.T) {
@@ -3258,7 +3245,7 @@ func TestEventTypes(t *testing.T) {
 		}
 		// mine a block to confirm the resolution
 		mineBlock(1, types.VoidAddress)
-		assertEvent(types.Hash256(types.FileContractID(fce.ID).V2RenterOutputID()), wallet.EventTypeV2ContractResolution, renterPayout, types.ZeroCurrency, cm.Tip().Height+144)
+		assertEvent(t, types.Hash256(types.FileContractID(fce.ID).V2RenterOutputID()), wallet.EventTypeV2ContractResolution, renterPayout, types.ZeroCurrency, cm.Tip().Height+144)
 	})
 
 	t.Run("v2 contract resolution - storage proof", func(t *testing.T) {
@@ -3355,7 +3342,7 @@ func TestEventTypes(t *testing.T) {
 			t.Fatal(err)
 		}
 		mineBlock(1, types.VoidAddress)
-		assertEvent(types.Hash256(types.FileContractID(fce.ID).V2HostOutputID()), wallet.EventTypeV2ContractResolution, renterPayout, types.ZeroCurrency, cm.Tip().Height+144)
+		assertEvent(t, types.Hash256(types.FileContractID(fce.ID).V2HostOutputID()), wallet.EventTypeV2ContractResolution, renterPayout, types.ZeroCurrency, cm.Tip().Height+144)
 	})
 
 	t.Run("v2 contract resolution - renewal", func(t *testing.T) {
@@ -3501,7 +3488,7 @@ func TestEventTypes(t *testing.T) {
 			t.Fatal(err)
 		}
 		mineBlock(1, types.VoidAddress)
-		assertEvent(types.Hash256(types.FileContractID(fce.ID).V2RenterOutputID()), wallet.EventTypeV2ContractResolution, renterPayout, types.ZeroCurrency, cm.Tip().Height+144)
+		assertEvent(t, types.Hash256(types.FileContractID(fce.ID).V2RenterOutputID()), wallet.EventTypeV2ContractResolution, renterPayout, types.ZeroCurrency, cm.Tip().Height+144)
 	})
 
 	t.Run("v2 contract resolution - finalization", func(t *testing.T) {
@@ -3601,7 +3588,7 @@ func TestEventTypes(t *testing.T) {
 			t.Fatal(err)
 		}
 		mineBlock(1, types.VoidAddress)
-		assertEvent(types.Hash256(types.FileContractID(fce.ID).V2RenterOutputID()), wallet.EventTypeV2ContractResolution, renterPayout, types.ZeroCurrency, cm.Tip().Height+144)
+		assertEvent(t, types.Hash256(types.FileContractID(fce.ID).V2RenterOutputID()), wallet.EventTypeV2ContractResolution, renterPayout, types.ZeroCurrency, cm.Tip().Height+144)
 	})
 
 	t.Run("siafund claim", func(t *testing.T) {
@@ -3639,6 +3626,6 @@ func TestEventTypes(t *testing.T) {
 		}
 		// mine a block to confirm the transaction
 		mineBlock(1, types.VoidAddress)
-		assertEvent(types.Hash256(types.SiafundOutputID(sfe[0].ID).V2ClaimOutputID()), wallet.EventTypeSiafundClaim, claimValue, types.ZeroCurrency, cm.Tip().Height+144)
+		assertEvent(t, types.Hash256(types.SiafundOutputID(sfe[0].ID).V2ClaimOutputID()), wallet.EventTypeSiafundClaim, claimValue, types.ZeroCurrency, cm.Tip().Height+144)
 	})
 }

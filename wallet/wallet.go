@@ -8,6 +8,44 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils/wallet"
+)
+
+// event types indicate the source of an event. Events can
+// either be created by sending Siacoins between addresses or they can be
+// created by consensus (e.g. a miner payout, a siafund claim, or a contract).
+const (
+	EventTypeMinerPayout       = wallet.EventTypeMinerPayout
+	EventTypeFoundationSubsidy = wallet.EventTypeFoundationSubsidy
+	EventTypeSiafundClaim      = wallet.EventTypeSiafundClaim
+
+	EventTypeV1Transaction        = wallet.EventTypeV1Transaction
+	EventTypeV1ContractResolution = wallet.EventTypeV1ContractResolution
+
+	EventTypeV2Transaction        = wallet.EventTypeV2Transaction
+	EventTypeV2ContractResolution = wallet.EventTypeV2ContractResolution
+)
+
+type (
+	// An EventPayout represents a miner payout, siafund claim, or foundation
+	// subsidy.
+	EventPayout = wallet.EventPayout
+	// An EventV1Transaction pairs a v1 transaction with its spent siacoin and
+	// siafund elements.
+	EventV1Transaction = wallet.EventV1Transaction
+	// An EventV1ContractResolution represents a file contract payout from a v1
+	// contract.
+	EventV1ContractResolution = wallet.EventV1ContractResolution
+	// EventV2Transaction is a transaction event that includes the transaction
+	EventV2Transaction = wallet.EventV2Transaction
+	// An EventV2ContractResolution represents a file contract payout from a v2
+	// contract.
+	EventV2ContractResolution = wallet.EventV2ContractResolution
+
+	// EventData is the data associated with an event.
+	EventData = wallet.EventData
+	// An Event is a record of a consensus event that affects the wallet.
+	Event = wallet.Event
 )
 
 type (
@@ -93,7 +131,7 @@ func SignTransaction(cs consensus.State, txn *types.Transaction, sigIndex int, k
 
 // AppliedEvents extracts a list of relevant events from a chain update.
 func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant func(types.Address) bool) (events []Event) {
-	addEvent := func(id types.Hash256, maturityHeight uint64, eventType string, v EventData, relevant []types.Address) {
+	addEvent := func(id types.Hash256, maturityHeight uint64, eventType string, v wallet.EventData, relevant []types.Address) {
 		// dedup relevant addresses
 		seen := make(map[types.Address]bool)
 		unique := relevant[:0]
@@ -135,8 +173,6 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 	// collect all elements
 	sces := make(map[types.SiacoinOutputID]types.SiacoinElement)
 	sfes := make(map[types.SiafundOutputID]types.SiafundElement)
-	fces := make(map[types.FileContractID]types.FileContractElement)
-	v2fces := make(map[types.FileContractID]types.V2FileContractElement)
 	cu.ForEachSiacoinElement(func(sce types.SiacoinElement, _, _ bool) {
 		sce.MerkleProof = nil
 		sces[types.SiacoinOutputID(sce.ID)] = sce
@@ -145,19 +181,11 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 		sfe.MerkleProof = nil
 		sfes[types.SiafundOutputID(sfe.ID)] = sfe
 	})
-	cu.ForEachFileContractElement(func(fce types.FileContractElement, _ bool, rev *types.FileContractElement, resolved, valid bool) {
-		fce.MerkleProof = nil
-		fces[types.FileContractID(fce.ID)] = fce
-	})
-	cu.ForEachV2FileContractElement(func(fce types.V2FileContractElement, _ bool, rev *types.V2FileContractElement, res types.V2FileContractResolutionType) {
-		fce.MerkleProof = nil
-		v2fces[types.FileContractID(fce.ID)] = fce
-	})
 
 	// handle v1 transactions
 	for _, txn := range b.Transactions {
 		addresses := make(map[types.Address]bool)
-		e := &EventV1Transaction{
+		e := &wallet.EventV1Transaction{
 			Transaction:          txn,
 			SpentSiacoinElements: make([]types.SiacoinElement, 0, len(txn.SiacoinInputs)),
 			SpentSiafundElements: make([]types.SiafundElement, 0, len(txn.SiafundInputs)),
@@ -193,7 +221,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 			sce, ok := sces[sfi.ParentID.ClaimOutputID()]
 			if ok && relevant(sce.SiacoinOutput.Address) {
-				addEvent(sce.ID, sce.MaturityHeight, EventTypeSiafundClaim, EventPayout{
+				addEvent(sce.ID, sce.MaturityHeight, EventTypeSiafundClaim, wallet.EventPayout{
 					SiacoinElement: sce,
 				}, []types.Address{sfi.ClaimAddress})
 			}
@@ -240,7 +268,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 			sce, ok := sces[types.SiafundOutputID(sfi.Parent.ID).V2ClaimOutputID()]
 			if ok && relevant(sfi.ClaimAddress) {
-				addEvent(sce.ID, sce.MaturityHeight, EventTypeSiafundClaim, EventPayout{
+				addEvent(sce.ID, sce.MaturityHeight, EventTypeSiafundClaim, wallet.EventPayout{
 					SiacoinElement: sce,
 				}, []types.Address{sfi.ClaimAddress})
 			}
@@ -257,7 +285,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			continue
 		}
 
-		ev := EventV2Transaction(txn)
+		ev := wallet.EventV2Transaction(txn)
 		relevant := make([]types.Address, 0, len(addresses))
 		for addr := range addresses {
 			relevant = append(relevant, addr)
@@ -271,6 +299,8 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			return
 		}
 
+		fce.MerkleProof = nil
+
 		if valid {
 			for i := range fce.FileContract.ValidProofOutputs {
 				address := fce.FileContract.ValidProofOutputs[i].Address
@@ -279,7 +309,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 				}
 
 				element := sces[types.FileContractID(fce.ID).ValidOutputID(i)]
-				addEvent(element.ID, element.MaturityHeight, EventTypeV1ContractResolution, EventV1ContractResolution{
+				addEvent(element.ID, element.MaturityHeight, EventTypeV1ContractResolution, wallet.EventV1ContractResolution{
 					Parent:         fce,
 					SiacoinElement: element,
 					Missed:         false,
@@ -293,7 +323,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 				}
 
 				element := sces[types.FileContractID(fce.ID).MissedOutputID(i)]
-				addEvent(element.ID, element.MaturityHeight, EventTypeV1ContractResolution, EventV1ContractResolution{
+				addEvent(element.ID, element.MaturityHeight, EventTypeV1ContractResolution, wallet.EventV1ContractResolution{
 					Parent:         fce,
 					SiacoinElement: element,
 					Missed:         true,
@@ -307,6 +337,8 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			return
 		}
 
+		fce.MerkleProof = nil
+
 		var missed bool
 		if _, ok := res.(*types.V2FileContractExpiration); ok {
 			missed = true
@@ -314,7 +346,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 		if relevant(fce.V2FileContract.HostOutput.Address) {
 			element := sces[types.FileContractID(fce.ID).V2HostOutputID()]
-			addEvent(element.ID, element.MaturityHeight, EventTypeV2ContractResolution, EventV2ContractResolution{
+			addEvent(element.ID, element.MaturityHeight, EventTypeV2ContractResolution, wallet.EventV2ContractResolution{
 				Resolution: types.V2FileContractResolution{
 					Parent:     fce,
 					Resolution: res,
@@ -326,7 +358,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 		if relevant(fce.V2FileContract.RenterOutput.Address) {
 			element := sces[types.FileContractID(fce.ID).V2RenterOutputID()]
-			addEvent(element.ID, element.MaturityHeight, EventTypeV2ContractResolution, EventV2ContractResolution{
+			addEvent(element.ID, element.MaturityHeight, EventTypeV2ContractResolution, wallet.EventV2ContractResolution{
 				Resolution: types.V2FileContractResolution{
 					Parent:     fce,
 					Resolution: res,
@@ -341,7 +373,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 	for i := range b.MinerPayouts {
 		if relevant(b.MinerPayouts[i].Address) {
 			element := sces[cs.Index.ID.MinerOutputID(i)]
-			addEvent(element.ID, element.MaturityHeight, EventTypeMinerPayout, EventPayout{
+			addEvent(element.ID, element.MaturityHeight, EventTypeMinerPayout, wallet.EventPayout{
 				SiacoinElement: element,
 			}, []types.Address{b.MinerPayouts[i].Address})
 		}
@@ -351,7 +383,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 	if relevant(cs.FoundationPrimaryAddress) {
 		element, ok := sces[cs.Index.ID.FoundationOutputID()]
 		if ok {
-			addEvent(element.ID, element.MaturityHeight, EventTypeFoundationSubsidy, EventPayout{
+			addEvent(element.ID, element.MaturityHeight, EventTypeFoundationSubsidy, wallet.EventPayout{
 				SiacoinElement: element,
 			}, []types.Address{element.SiacoinOutput.Address})
 		}
