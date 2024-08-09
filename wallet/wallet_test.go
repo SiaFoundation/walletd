@@ -2980,50 +2980,10 @@ func TestEventTypes(t *testing.T) {
 					t.Fatalf("expected maturity height %v, got %v", maturityHeight, event.MaturityHeight)
 				}
 
-				var inflowSum, outflowSum types.Currency
-				switch ev := event.Data.(type) {
-				case wallet.EventV1Transaction:
-					for _, sce := range ev.SpentSiacoinElements {
-						if sce.SiacoinOutput.Address == addr {
-							outflowSum = outflowSum.Add(sce.SiacoinOutput.Value)
-						}
-					}
-					for _, sce := range ev.Transaction.SiacoinOutputs {
-						if sce.Address == addr {
-							inflowSum = inflowSum.Add(sce.Value)
-						}
-					}
-				case wallet.EventV1ContractResolution:
-					if ev.SiacoinElement.SiacoinOutput.Address == addr {
-						inflowSum = ev.SiacoinElement.SiacoinOutput.Value
-					}
-				case wallet.EventPayout:
-					if ev.SiacoinElement.SiacoinOutput.Address == addr {
-						inflowSum = ev.SiacoinElement.SiacoinOutput.Value
-					}
-				case wallet.EventV2ContractResolution:
-					if ev.SiacoinElement.SiacoinOutput.Address == addr {
-						inflowSum = ev.SiacoinElement.SiacoinOutput.Value
-					}
-				case wallet.EventV2Transaction:
-					for _, sce := range ev.SiacoinInputs {
-						if sce.Parent.SiacoinOutput.Address == addr {
-							outflowSum = outflowSum.Add(sce.Parent.SiacoinOutput.Value)
-						}
-					}
-					for _, sce := range ev.SiacoinOutputs {
-						if sce.Address == addr {
-							inflowSum = inflowSum.Add(sce.Value)
-						}
-					}
-				default:
-					t.Fatalf("unexpected event type %T", ev)
-				}
-
-				if !inflowSum.Equals(expectedInflow) {
-					t.Fatalf("expected inflow %v, got %v", expectedInflow, inflowSum)
-				} else if !outflowSum.Equals(expectedOutflow) {
-					t.Fatalf("expected outflow %v, got %v", expectedOutflow, outflowSum)
+				if !event.SiacoinInflow().Equals(expectedInflow) {
+					t.Fatalf("expected inflow %v, got %v", expectedInflow, event.SiacoinInflow())
+				} else if !event.SiacoinOutflow().Equals(expectedOutflow) {
+					t.Fatalf("expected outflow %v, got %v", expectedOutflow, event.SiacoinOutflow())
 				}
 				return
 			}
