@@ -1,4 +1,4 @@
-FROM docker.io/library/golang:1.21 AS builder
+FROM docker.io/library/golang:1.23 AS builder
 
 WORKDIR /walletd
 
