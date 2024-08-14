@@ -110,6 +110,11 @@ func mustSetAPIPassword() {
 	}
 }
 
+func fatalError(err error) {
+	os.Stderr.WriteString(err.Error() + "\n")
+	os.Exit(1)
+}
+
 // tryLoadConfig loads the config file specified by the WALLETD_CONFIG_FILE. If
 // the config file does not exist, it will not be loaded.
 func tryLoadConfig() {
@@ -126,7 +131,7 @@ func tryLoadConfig() {
 
 	f, err := os.Open(configPath)
 	if err != nil {
-		stdoutFatalError("failed to open config file: " + err.Error())
+		fatalError(fmt.Errorf("failed to open config file: %w", err))
 		return
 	}
 	defer f.Close()
@@ -237,7 +242,7 @@ func main() {
 		defer cancel()
 
 		if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
-			stdoutFatalError("failed to create directory: " + err.Error())
+			fatalError(fmt.Errorf("failed to create data directory: %w", err))
 		}
 
 		mustSetAPIPassword()
@@ -284,7 +289,7 @@ func main() {
 
 			fileWriter, closeFn, err := zap.Open(cfg.Log.File.Path)
 			if err != nil {
-				stdoutFatalError("failed to open log file: " + err.Error())
+				fatalError(fmt.Errorf("failed to open log file: %w", err))
 				return
 			}
 			defer closeFn()

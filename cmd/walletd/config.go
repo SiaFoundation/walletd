@@ -19,7 +19,7 @@ func readPasswordInput(context string) string {
 	fmt.Printf("%s: ", context)
 	input, err := term.ReadPassword(int(os.Stdin.Fd()))
 	if err != nil {
-		stdoutFatalError("Could not read input: " + err.Error())
+		fatalError(fmt.Errorf("could not read password input: %w", err))
 	}
 	fmt.Println("")
 	return string(input)
@@ -30,7 +30,7 @@ func readInput(context string) string {
 	r := bufio.NewReader(os.Stdin)
 	input, err := r.ReadString('\n')
 	if err != nil {
-		stdoutFatalError("Could not read input: " + err.Error())
+		fatalError(fmt.Errorf("could not read input: %w", err))
 	}
 	return strings.TrimSpace(input)
 }
@@ -84,12 +84,6 @@ func promptYesNo(question string) bool {
 	return strings.EqualFold(answer, "yes")
 }
 
-// stdoutFatalError prints an error message to stdout and exits with a 1 exit code.
-func stdoutFatalError(msg string) {
-	stdoutError(msg)
-	os.Exit(1)
-}
-
 // stdoutError prints an error message to stdout
 func stdoutError(msg string) {
 	if cfg.Log.StdOut.EnableANSI {
@@ -122,7 +116,7 @@ func setDataDirectory() {
 
 	dir, err := filepath.Abs(cfg.Directory)
 	if err != nil {
-		stdoutFatalError("Could not get absolute path of data directory: " + err.Error())
+		fatalError(fmt.Errorf("failed to get absolute path of data directory: %w", err))
 	}
 
 	fmt.Println("The data directory is where walletd will store its metadata and consensus data.")
@@ -200,12 +194,13 @@ func setAdvancedConfig() {
 	fmt.Println("This cannot be changed later without resetting walletd.")
 	fmt.Printf("Currently %q\n", cfg.Index.Mode)
 	mode := readInput(`Enter index mode ("personal" or "full")`)
-	if strings.EqualFold(mode, "personal") {
+	switch {
+	case strings.EqualFold(mode, "personal"):
 		cfg.Index.Mode = wallet.IndexModePersonal
-	} else if strings.EqualFold(mode, "full") {
+	case strings.EqualFold(mode, "full"):
 		cfg.Index.Mode = wallet.IndexModeFull
-	} else {
-		stdoutFatalError("Invalid index mode: " + mode)
+	default:
+		fatalError(fmt.Errorf("invalid index mode: %q", mode))
 	}
 
 	fmt.Println("")
@@ -242,14 +237,20 @@ func buildConfig() {
 	// write the config file
 	f, err := os.Create(configPath)
 	if err != nil {
-		stdoutFatalError("failed to create config file: " + err.Error())
+		fatalError(fmt.Errorf("failed to create config file: %w", err))
 		return
 	}
 	defer f.Close()
 
 	enc := yaml.NewEncoder(f)
 	if err := enc.Encode(cfg); err != nil {
-		stdoutFatalError("failed to encode config file: " + err.Error())
+		fatalError(fmt.Errorf("failed to encode config file: %w", err))
+		return
+	} else if err := f.Sync(); err != nil {
+		fatalError(fmt.Errorf("failed to sync config file: %w", err))
+		return
+	} else if err := f.Close(); err != nil {
+		fatalError(fmt.Errorf("failed to close config file: %w", err))
 		return
 	}
 }
