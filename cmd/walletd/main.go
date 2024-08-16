@@ -199,9 +199,11 @@ func main() {
 
 	var minerAddrStr string
 	var minerBlocks int
+	var enableDebug bool
 
 	rootCmd := flagg.Root
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, rootUsage)
+	rootCmd.BoolVar(&enableDebug, "debug", false, "enable debug mode with additional profiling and mining endpoints")
 	rootCmd.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store node state in")
 	rootCmd.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 
@@ -314,7 +316,7 @@ func main() {
 			log.Fatal("failed to parse index mode", zap.Error(err))
 		}
 
-		if err := runNode(ctx, cfg, log); err != nil {
+		if err := runNode(ctx, cfg, log, enableDebug); err != nil {
 			log.Fatal("failed to run node", zap.Error(err))
 		}
 	case versionCmd:

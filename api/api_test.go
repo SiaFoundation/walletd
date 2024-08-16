@@ -41,17 +41,24 @@ func testNetwork() (*consensus.Network, types.Block) {
 	return n, genesisBlock
 }
 
-func runServer(cm api.ChainManager, s api.Syncer, wm api.WalletManager) (*api.Client, func()) {
+func runServer(t *testing.T, cm api.ChainManager, s api.Syncer, wm api.WalletManager) *api.Client {
+	t.Helper()
+
 	l, err := net.Listen("tcp", ":0")
 	if err != nil {
-		panic(err)
+		t.Fatal("failed to listen:", err)
 	}
-	go func() {
-		srv := api.NewServer(cm, s, wm)
-		http.Serve(l, jape.BasicAuth("password")(srv))
-	}()
-	c := api.NewClient("http://"+l.Addr().String(), "password")
-	return c, func() { l.Close() }
+	t.Cleanup(func() { l.Close() })
+
+	server := &http.Server{
+		Handler:      jape.BasicAuth("password")(api.NewServer(cm, s, wm, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t)))),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+	}
+	t.Cleanup(func() { server.Close() })
+
+	go server.Serve(l)
+	return api.NewClient("http://"+l.Addr().String(), "password")
 }
 
 func waitForBlock(tb testing.TB, cm *chain.Manager, ws wallet.Store) {
@@ -95,8 +102,7 @@ func TestWalletAdd(t *testing.T) {
 	}
 	defer wm.Close()
 
-	c, shutdown := runServer(cm, nil, wm)
-	defer shutdown()
+	c := runServer(t, cm, nil, wm)
 
 	checkWalletResponse := func(wr api.WalletUpdateRequest, w wallet.Wallet, isUpdate bool) error {
 		// check wallet
@@ -287,8 +293,7 @@ func TestWallet(t *testing.T) {
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
 
 	// run server
-	c, shutdown := runServer(cm, s, wm)
-	defer shutdown()
+	c := runServer(t, cm, s, wm)
 	w, err := c.AddWallet(api.WalletUpdateRequest{Name: "primary"})
 	if err != nil {
 		t.Fatal(err)
@@ -506,8 +511,7 @@ func TestAddresses(t *testing.T) {
 	defer wm.Close()
 
 	sav := wallet.NewSeedAddressVault(wallet.NewSeed(), 0, 20)
-	c, shutdown := runServer(cm, nil, wm)
-	defer shutdown()
+	c := runServer(t, cm, nil, wm)
 	w, err := c.AddWallet(api.WalletUpdateRequest{Name: "primary"})
 	if err != nil {
 		t.Fatal(err)
@@ -702,8 +706,7 @@ func TestV2(t *testing.T) {
 	}
 	defer wm.Close()
 
-	c, shutdown := runServer(cm, nil, wm)
-	defer shutdown()
+	c := runServer(t, cm, nil, wm)
 	primaryWallet, err := c.AddWallet(api.WalletUpdateRequest{Name: "primary"})
 	if err != nil {
 		t.Fatal(err)
@@ -942,8 +945,7 @@ func TestP2P(t *testing.T) {
 	})
 	go s1.Run(context.Background())
 	defer s1.Close()
-	c1, shutdown := runServer(cm1, s1, wm1)
-	defer shutdown()
+	c1 := runServer(t, cm1, s1, wm1)
 	w1, err := c1.AddWallet(api.WalletUpdateRequest{Name: "primary"})
 	if err != nil {
 		t.Fatal(err)
@@ -986,8 +988,7 @@ func TestP2P(t *testing.T) {
 	}, syncer.WithLogger(zaptest.NewLogger(t)))
 	go s2.Run(context.Background())
 	defer s2.Close()
-	c2, shutdown2 := runServer(cm2, s2, wm2)
-	defer shutdown2()
+	c2 := runServer(t, cm2, s2, wm2)
 
 	w2, err := c2.AddWallet(api.WalletUpdateRequest{Name: "secondary"})
 	if err != nil {
@@ -1248,8 +1249,7 @@ func TestConsensusUpdates(t *testing.T) {
 	}
 	defer wm.Close()
 
-	c, shutdown := runServer(cm, nil, wm)
-	defer shutdown()
+	c := runServer(t, cm, nil, wm)
 
 	for i := 0; i < 10; i++ {
 		b, ok := coreutils.MineBlock(cm, types.VoidAddress, time.Second)
@@ -1281,5 +1281,67 @@ func TestConsensusUpdates(t *testing.T) {
 		} else if cau.State.Network.Name != n.Name { // TODO: better comparison. reflect.DeepEqual is failing in CI, but passing local.
 			t.Fatalf("expected network to be %q, got %q", n.Name, cau.State.Network.Name)
 		}
+	}
+}
+
+func TestDebugMine(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	n, genesisBlock := testNetwork()
+
+	// create wallets
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	ps, err := sqlite.NewPeerStore(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := syncer.New(l, cm, ps, gateway.Header{
+		GenesisID:  genesisBlock.ID(),
+		UniqueID:   gateway.GenerateUniqueID(),
+		NetAddress: l.Addr().String(),
+	})
+	defer s.Close()
+	go s.Run(context.Background())
+
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	c := runServer(t, cm, s, wm)
+
+	jc := jape.Client{
+		BaseURL:  c.BaseURL(),
+		Password: "password",
+	}
+
+	err = jc.POST("/debug/mine", api.DebugMineRequest{
+		Blocks:  5,
+		Address: types.VoidAddress,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cm.Tip().Height != 5 {
+		t.Fatalf("expected tip height to be 5, got %v", cm.Tip().Height)
 	}
 }

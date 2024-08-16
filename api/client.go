@@ -34,6 +34,11 @@ func (c *Client) getNetwork() (*consensus.Network, error) {
 	return c.n, nil
 }
 
+// BaseURL returns the URL of the walletd server.
+func (c *Client) BaseURL() string {
+	return c.c.BaseURL
+}
+
 // State returns information about the current state of the walletd daemon.
 func (c *Client) State() (resp StateResponse, err error) {
 	err = c.c.GET("/state", &resp)

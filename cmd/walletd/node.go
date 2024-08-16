@@ -44,7 +44,7 @@ func setupUPNP(ctx context.Context, port uint16, log *zap.Logger) (string, error
 	return d.ExternalIP()
 }
 
-func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
+func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebug bool) error {
 	var network *consensus.Network
 	var genesisBlock types.Block
 	var bootstrapPeers []string
@@ -145,7 +145,13 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	}
 	defer wm.Close()
 
-	api := jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cm, s, wm))
+	apiOpts := []api.ServerOption{
+		api.WithLogger(log.Named("api")),
+	}
+	if enableDebug {
+		apiOpts = append(apiOpts, api.WithDebug())
+	}
+	api := jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cm, s, wm, apiOpts...))
 	web := walletd.Handler()
 	server := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
