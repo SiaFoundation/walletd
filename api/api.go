@@ -123,3 +123,9 @@ type ConsensusUpdatesResponse struct {
 	Applied  []ApplyUpdate  `json:"applied"`
 	Reverted []RevertUpdate `json:"reverted"`
 }
+
+// DebugMineRequest is the request type for /debug/mine.
+type DebugMineRequest struct {
+	Blocks  int           `json:"blocks"`
+	Address types.Address `json:"address"`
+}

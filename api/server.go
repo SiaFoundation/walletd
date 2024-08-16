@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/pprof"
 	"reflect"
 	"runtime"
 	"sync"
 	"time"
 
 	"go.sia.tech/jape"
+	"go.uber.org/zap"
 	"lukechampine.com/frand"
 
 	"go.sia.tech/core/consensus"
@@ -21,11 +23,29 @@ import (
 	"go.sia.tech/walletd/wallet"
 )
 
+// A ServerOption sets an optional parameter for the server.
+type ServerOption func(*server)
+
+// WithLogger sets the logger used by the server.
+func WithLogger(log *zap.Logger) ServerOption {
+	return func(s *server) {
+		s.log = log
+	}
+}
+
+// WithDebug enables debug endpoints.
+func WithDebug() ServerOption {
+	return func(s *server) {
+		s.debugEnabled = true
+	}
+}
+
 type (
 	// A ChainManager manages blockchain and txpool state.
 	ChainManager interface {
 		UpdatesSince(types.ChainIndex, int) ([]chain.RevertUpdate, []chain.ApplyUpdate, error)
 
+		Tip() types.ChainIndex
 		BestIndex(height uint64) (types.ChainIndex, bool)
 		TipState() consensus.State
 		AddBlocks([]types.Block) error
@@ -85,11 +105,13 @@ type (
 )
 
 type server struct {
-	startTime time.Time
+	startTime    time.Time
+	debugEnabled bool
 
-	cm ChainManager
-	s  Syncer
-	wm WalletManager
+	log *zap.Logger
+	cm  ChainManager
+	s   Syncer
+	wm  WalletManager
 
 	// for walletsReserveHandler
 	mu   sync.Mutex
@@ -814,17 +836,78 @@ func (s *server) outputsSiafundHandlerGET(jc jape.Context) {
 	jc.Encode(output)
 }
 
+func (s *server) debugMineHandler(jc jape.Context) {
+	var req DebugMineRequest
+	if jc.Decode(&req) != nil {
+		return
+	}
+
+	log := s.log.Named("miner")
+	ctx := jc.Request.Context()
+
+	for n := req.Blocks; n > 0; {
+		b, err := mineBlock(ctx, s.cm, req.Address)
+		if errors.Is(err, context.Canceled) {
+			return
+		} else if err != nil {
+			log.Warn("failed to mine block", zap.Error(err))
+		} else if err := s.cm.AddBlocks([]types.Block{b}); err != nil {
+			log.Warn("failed to add block", zap.Error(err))
+		}
+
+		if b.V2 == nil {
+			s.s.BroadcastHeader(gateway.BlockHeader{
+				ParentID:   b.ParentID,
+				Nonce:      b.Nonce,
+				Timestamp:  b.Timestamp,
+				MerkleRoot: b.MerkleRoot(),
+			})
+		} else {
+			s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions()))
+		}
+
+		log.Debug("mined block", zap.Stringer("blockID", b.ID()))
+		n--
+	}
+}
+
+func (s *server) pprofHandler(jc jape.Context) {
+	var handler string
+	if err := jc.DecodeParam("handler", &handler); err != nil {
+		return
+	}
+
+	switch handler {
+	case "cmdline":
+		pprof.Cmdline(jc.ResponseWriter, jc.Request)
+	case "profile":
+		pprof.Profile(jc.ResponseWriter, jc.Request)
+	case "symbol":
+		pprof.Symbol(jc.ResponseWriter, jc.Request)
+	case "trace":
+		pprof.Trace(jc.ResponseWriter, jc.Request)
+	default:
+		pprof.Index(jc.ResponseWriter, jc.Request)
+	}
+	pprof.Index(jc.ResponseWriter, jc.Request)
+}
+
 // NewServer returns an HTTP handler that serves the walletd API.
-func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
+func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption) http.Handler {
 	srv := server{
-		startTime: time.Now(),
+		log:          zap.NewNop(),
+		debugEnabled: false,
+		startTime:    time.Now(),
 
 		cm:   cm,
 		s:    s,
 		wm:   wm,
 		used: make(map[types.Hash256]bool),
 	}
-	return jape.Mux(map[string]jape.Handler{
+	for _, opt := range opts {
+		opt(&srv)
+	}
+	handlers := map[string]jape.Handler{
 		"GET /state": srv.stateHandler,
 
 		"GET /consensus/network":        srv.consensusNetworkHandler,
@@ -872,5 +955,12 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager) http.Handler {
 		"GET /outputs/siafund/:id": srv.outputsSiafundHandlerGET,
 
 		"GET /events/:id": srv.eventsHandlerGET,
-	})
+	}
+
+	if srv.debugEnabled {
+		handlers["POST /debug/mine"] = srv.debugMineHandler
+		handlers["GET /debug/pprof/:handler"] = srv.pprofHandler
+	}
+
+	return jape.Mux(handlers)
 }

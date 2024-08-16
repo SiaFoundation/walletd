@@ -331,7 +331,6 @@ func scanAddress(s scanner) (ab addressRef, err error) {
 
 func applyMatureSiacoinBalance(tx *txn, index types.ChainIndex, log *zap.Logger) error {
 	log = log.With(zap.Uint64("maturityHeight", index.Height))
-	log.Debug("applying mature siacoin balance")
 	const query = `SELECT id, address_id, siacoin_value
 FROM siacoin_elements
 WHERE maturity_height=$1 AND matured=false AND spent_index_id IS NULL`
