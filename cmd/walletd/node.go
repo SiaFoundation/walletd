@@ -55,6 +55,9 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebu
 	case "zen":
 		network, genesisBlock = chain.TestnetZen()
 		bootstrapPeers = syncer.ZenBootstrapPeers
+	case "anagami":
+		network, genesisBlock = chain.TestnetAnagami()
+		bootstrapPeers = syncer.AnagamiBootstrapPeers
 	default:
 		return errors.New("invalid network: must be one of 'mainnet', 'zen', or 'anagami'")
 	}
