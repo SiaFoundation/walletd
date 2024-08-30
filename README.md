@@ -65,22 +65,36 @@ The priority of configuration settings is as follows:
 
 ### Command Line Flags
 ```
--addr string
-	p2p address to listen on (default ":9981")
--bootstrap
-	attempt to bootstrap the network (default true)
--dir string
-	directory to store node state in (default "/Users/n8maninger/Downloads/walletd-tmp")
--http string
-	address to serve API on (default "localhost:9980")
--index.batch int
-	max number of blocks to index at a time. Increasing this will increase scan speed, but also increase memory and cpu usage. (default 64)
--index.mode string
-	address index mode (personal, full, none) (default "full")
--network string
-	network to connect to (default "mainnet")
--upnp
-	attempt to forward ports and discover IP with UPnP
+Usage:
+    walletd [flags] [action]
+
+Run 'walletd' with no arguments to start the blockchain node and API server.
+
+Actions:
+    version     print walletd version
+    seed        generate a recovery phrase
+    mine        run CPU miner
+Flags:
+  -addr string
+        p2p address to listen on (default ":9981")
+  -bootstrap
+        attempt to bootstrap the network (default true)
+  -debug
+        enable debug mode with additional profiling and mining endpoints
+  -dir string
+        directory to store node state in (default "/Users/n8maninger/Downloads/walletd-tmp")
+  -http string
+        address to serve API on (default "localhost:9980")
+  -http.public
+        disables auth on endpoints that should be publicly accessible when running walletd as a service
+  -index.batch int
+        max number of blocks to index at a time. Increasing this will increase scan speed, but also increase memory and cpu usage. (default 1000)
+  -index.mode string
+        address index mode (personal, full, none) (default "full")
+  -network string
+        network to connect to (default "mainnet")
+  -upnp
+        attempt to forward ports and discover IP with UPnP
 ```
 
 ### YAML
@@ -92,6 +106,7 @@ autoOpenWebUI: true
 http:
   address: :9980
   password: sia is cool
+  publicEndpoints: false # when true, auth will be disabled on endpoints that should be publicly accessible when running walletd as a service
 consensus:
   network: mainnet
   gatewayAddress: :9981
