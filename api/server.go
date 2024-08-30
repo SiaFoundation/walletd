@@ -40,12 +40,15 @@ func WithDebug() ServerOption {
 	}
 }
 
+// WithPublicEndpoints sets whether the server should disable authentication
+// on endpoints that are safe for use when running walletd as a service.
 func WithPublicEndpoints(public bool) ServerOption {
 	return func(s *server) {
 		s.publicEndpoints = public
 	}
 }
 
+// WithBasicAuth sets the password for basic authentication.
 func WithBasicAuth(password string) ServerOption {
 	return func(s *server) {
 		s.password = password
