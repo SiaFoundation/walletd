@@ -40,6 +40,21 @@ func WithDebug() ServerOption {
 	}
 }
 
+// WithPublicEndpoints sets whether the server should disable authentication
+// on endpoints that are safe for use when running walletd as a service.
+func WithPublicEndpoints(public bool) ServerOption {
+	return func(s *server) {
+		s.publicEndpoints = public
+	}
+}
+
+// WithBasicAuth sets the password for basic authentication.
+func WithBasicAuth(password string) ServerOption {
+	return func(s *server) {
+		s.password = password
+	}
+}
+
 type (
 	// A ChainManager manages blockchain and txpool state.
 	ChainManager interface {
@@ -105,8 +120,10 @@ type (
 )
 
 type server struct {
-	startTime    time.Time
-	debugEnabled bool
+	startTime       time.Time
+	debugEnabled    bool
+	publicEndpoints bool
+	password        string
 
 	log *zap.Logger
 	cm  ChainManager
@@ -895,9 +912,10 @@ func (s *server) pprofHandler(jc jape.Context) {
 // NewServer returns an HTTP handler that serves the walletd API.
 func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption) http.Handler {
 	srv := server{
-		log:          zap.NewNop(),
-		debugEnabled: false,
-		startTime:    time.Now(),
+		log:             zap.NewNop(),
+		debugEnabled:    false,
+		publicEndpoints: false,
+		startTime:       time.Now(),
 
 		cm:   cm,
 		s:    s,
@@ -907,60 +925,98 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 	for _, opt := range opts {
 		opt(&srv)
 	}
+
+	// checkAuth checks the request for basic authentication.
+	checkAuth := func(jc jape.Context) bool {
+		if srv.password == "" {
+			// unset password is equivalent to no auth
+			return true
+		}
+
+		// verify auth header
+		_, pass, ok := jc.Request.BasicAuth()
+		if ok && pass == srv.password {
+			return true
+		}
+
+		jc.Error(errors.New("unauthorized"), http.StatusUnauthorized)
+		return false
+	}
+
+	// wrapAuthHandler wraps a jape handler with an authentication check.
+	wrapAuthHandler := func(h jape.Handler) jape.Handler {
+		return func(jc jape.Context) {
+			if !checkAuth(jc) {
+				return
+			}
+			h(jc)
+		}
+	}
+
+	// wrapPublicAuthHandler wraps a jape handler with an authentication check
+	// unless publicEndpoints is true.
+	wrapPublicAuthHandler := func(h jape.Handler) jape.Handler {
+		return func(jc jape.Context) {
+			if !srv.publicEndpoints && !checkAuth(jc) {
+				return
+			}
+			h(jc)
+		}
+	}
+
 	handlers := map[string]jape.Handler{
-		"GET /state": srv.stateHandler,
+		"GET /state": wrapPublicAuthHandler(srv.stateHandler),
 
-		"GET /consensus/network":        srv.consensusNetworkHandler,
-		"GET /consensus/tip":            srv.consensusTipHandler,
-		"GET /consensus/tipstate":       srv.consensusTipStateHandler,
-		"GET /consensus/updates/:index": srv.consensusUpdatesIndexHandler,
-		"GET /consensus/index/:height":  srv.consensusIndexHeightHandler,
+		"GET /consensus/network":        wrapPublicAuthHandler(srv.consensusNetworkHandler),
+		"GET /consensus/tip":            wrapPublicAuthHandler(srv.consensusTipHandler),
+		"GET /consensus/tipstate":       wrapPublicAuthHandler(srv.consensusTipStateHandler),
+		"GET /consensus/updates/:index": wrapPublicAuthHandler(srv.consensusUpdatesIndexHandler),
+		"GET /consensus/index/:height":  wrapPublicAuthHandler(srv.consensusIndexHeightHandler),
 
-		"GET /syncer/peers":            srv.syncerPeersHandler,
-		"POST /syncer/connect":         srv.syncerConnectHandler,
-		"POST /syncer/broadcast/block": srv.syncerBroadcastBlockHandler,
+		"POST /syncer/connect":         wrapAuthHandler(srv.syncerConnectHandler),
+		"GET /syncer/peers":            wrapPublicAuthHandler(srv.syncerPeersHandler),
+		"POST /syncer/broadcast/block": wrapPublicAuthHandler(srv.syncerBroadcastBlockHandler),
 
-		"POST /txpool/parents":     srv.txpoolParentsHandler,
-		"GET /txpool/transactions": srv.txpoolTransactionsHandler,
-		"GET /txpool/fee":          srv.txpoolFeeHandler,
-		"POST /txpool/broadcast":   srv.txpoolBroadcastHandler,
+		"GET /txpool/transactions": wrapPublicAuthHandler(srv.txpoolTransactionsHandler),
+		"GET /txpool/fee":          wrapPublicAuthHandler(srv.txpoolFeeHandler),
+		"POST /txpool/parents":     wrapPublicAuthHandler(srv.txpoolParentsHandler),
+		"POST /txpool/broadcast":   wrapPublicAuthHandler(srv.txpoolBroadcastHandler),
 
-		"GET /rescan":  srv.rescanHandlerGET,
-		"POST /rescan": srv.rescanHandlerPOST,
+		"GET /addresses/:addr/balance":            wrapPublicAuthHandler(srv.addressesAddrBalanceHandler),
+		"GET /addresses/:addr/events":             wrapPublicAuthHandler(srv.addressesAddrEventsHandlerGET),
+		"GET /addresses/:addr/events/unconfirmed": wrapPublicAuthHandler(srv.addressesAddrEventsUnconfirmedHandlerGET),
+		"GET /addresses/:addr/outputs/siacoin":    wrapPublicAuthHandler(srv.addressesAddrOutputsSCHandler),
+		"GET /addresses/:addr/outputs/siafund":    wrapPublicAuthHandler(srv.addressesAddrOutputsSFHandler),
 
-		"GET /wallets":                        srv.walletsHandler,
-		"POST /wallets":                       srv.walletsHandlerPOST,
-		"POST /wallets/:id":                   srv.walletsIDHandlerPOST,
-		"DELETE	/wallets/:id":                 srv.walletsIDHandlerDELETE,
-		"PUT /wallets/:id/addresses":          srv.walletsAddressHandlerPUT,
-		"DELETE /wallets/:id/addresses/:addr": srv.walletsAddressHandlerDELETE,
-		"GET /wallets/:id/addresses":          srv.walletsAddressesHandlerGET,
-		"GET /wallets/:id/balance":            srv.walletsBalanceHandler,
-		"GET /wallets/:id/events":             srv.walletsEventsHandler,
-		"GET /wallets/:id/events/unconfirmed": srv.walletsEventsUnconfirmedHandlerGET,
-		"GET /wallets/:id/outputs/siacoin":    srv.walletsOutputsSiacoinHandler,
-		"GET /wallets/:id/outputs/siafund":    srv.walletsOutputsSiafundHandler,
-		"POST /wallets/:id/reserve":           srv.walletsReserveHandler,
-		"POST /wallets/:id/release":           srv.walletsReleaseHandler,
-		"POST /wallets/:id/fund":              srv.walletsFundHandler,
-		"POST /wallets/:id/fundsf":            srv.walletsFundSFHandler,
+		"GET /outputs/siacoin/:id": wrapPublicAuthHandler(srv.outputsSiacoinHandlerGET),
+		"GET /outputs/siafund/:id": wrapPublicAuthHandler(srv.outputsSiafundHandlerGET),
 
-		"GET /addresses/:addr/balance":            srv.addressesAddrBalanceHandler,
-		"GET /addresses/:addr/events":             srv.addressesAddrEventsHandlerGET,
-		"GET /addresses/:addr/events/unconfirmed": srv.addressesAddrEventsUnconfirmedHandlerGET,
-		"GET /addresses/:addr/outputs/siacoin":    srv.addressesAddrOutputsSCHandler,
-		"GET /addresses/:addr/outputs/siafund":    srv.addressesAddrOutputsSFHandler,
+		"GET /events/:id": wrapPublicAuthHandler(srv.eventsHandlerGET),
 
-		"GET /outputs/siacoin/:id": srv.outputsSiacoinHandlerGET,
-		"GET /outputs/siafund/:id": srv.outputsSiafundHandlerGET,
+		"GET /rescan":  wrapAuthHandler(srv.rescanHandlerGET),
+		"POST /rescan": wrapAuthHandler(srv.rescanHandlerPOST),
 
-		"GET /events/:id": srv.eventsHandlerGET,
+		"GET /wallets":                        wrapAuthHandler(srv.walletsHandler),
+		"POST /wallets":                       wrapAuthHandler(srv.walletsHandlerPOST),
+		"POST /wallets/:id":                   wrapAuthHandler(srv.walletsIDHandlerPOST),
+		"DELETE	/wallets/:id":                 wrapAuthHandler(srv.walletsIDHandlerDELETE),
+		"PUT /wallets/:id/addresses":          wrapAuthHandler(srv.walletsAddressHandlerPUT),
+		"DELETE /wallets/:id/addresses/:addr": wrapAuthHandler(srv.walletsAddressHandlerDELETE),
+		"GET /wallets/:id/addresses":          wrapAuthHandler(srv.walletsAddressesHandlerGET),
+		"GET /wallets/:id/balance":            wrapAuthHandler(srv.walletsBalanceHandler),
+		"GET /wallets/:id/events":             wrapAuthHandler(srv.walletsEventsHandler),
+		"GET /wallets/:id/events/unconfirmed": wrapAuthHandler(srv.walletsEventsUnconfirmedHandlerGET),
+		"GET /wallets/:id/outputs/siacoin":    wrapAuthHandler(srv.walletsOutputsSiacoinHandler),
+		"GET /wallets/:id/outputs/siafund":    wrapAuthHandler(srv.walletsOutputsSiafundHandler),
+		"POST /wallets/:id/reserve":           wrapAuthHandler(srv.walletsReserveHandler),
+		"POST /wallets/:id/release":           wrapAuthHandler(srv.walletsReleaseHandler),
+		"POST /wallets/:id/fund":              wrapAuthHandler(srv.walletsFundHandler),
+		"POST /wallets/:id/fundsf":            wrapAuthHandler(srv.walletsFundSFHandler),
 	}
 
 	if srv.debugEnabled {
-		handlers["POST /debug/mine"] = srv.debugMineHandler
-		handlers["GET /debug/pprof/:handler"] = srv.pprofHandler
+		handlers["POST /debug/mine"] = wrapAuthHandler(srv.debugMineHandler)
+		handlers["GET /debug/pprof/:handler"] = wrapAuthHandler(srv.pprofHandler)
 	}
-
 	return jape.Mux(handlers)
 }

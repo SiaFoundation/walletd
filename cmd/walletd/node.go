@@ -17,7 +17,6 @@ import (
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
-	"go.sia.tech/jape"
 	"go.sia.tech/walletd/api"
 	"go.sia.tech/walletd/build"
 	"go.sia.tech/walletd/config"
@@ -150,11 +149,13 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebu
 
 	apiOpts := []api.ServerOption{
 		api.WithLogger(log.Named("api")),
+		api.WithPublicEndpoints(cfg.HTTP.PublicEndpoints),
+		api.WithBasicAuth(cfg.HTTP.Password),
 	}
 	if enableDebug {
 		apiOpts = append(apiOpts, api.WithDebug())
 	}
-	api := jape.BasicAuth(cfg.HTTP.Password)(api.NewServer(cm, s, wm, apiOpts...))
+	api := api.NewServer(cm, s, wm, apiOpts...)
 	web := walletd.Handler()
 	server := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
