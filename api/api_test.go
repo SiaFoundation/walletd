@@ -18,6 +18,7 @@ import (
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
+	"go.sia.tech/coreutils/testutil"
 	"go.sia.tech/jape"
 	"go.sia.tech/walletd/api"
 	"go.sia.tech/walletd/persist/sqlite"
@@ -51,7 +52,7 @@ func runServer(t *testing.T, cm api.ChainManager, s api.Syncer, wm api.WalletMan
 	t.Cleanup(func() { l.Close() })
 
 	server := &http.Server{
-		Handler:      jape.BasicAuth("password")(api.NewServer(cm, s, wm, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t)))),
+		Handler:      api.NewServer(cm, s, wm, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t))),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
@@ -1343,5 +1344,119 @@ func TestDebugMine(t *testing.T) {
 
 	if cm.Tip().Height != 5 {
 		t.Fatalf("expected tip height to be 5, got %v", cm.Tip().Height)
+	}
+}
+
+func TestAPISecurity(t *testing.T) {
+	n, genesisBlock := testutil.Network()
+	log := zaptest.NewLogger(t)
+
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	syncerListener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syncerListener.Close()
+
+	ps, err := sqlite.NewPeerStore(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := syncer.New(syncerListener, cm, ps, gateway.Header{
+		GenesisID:  genesisBlock.ID(),
+		UniqueID:   gateway.GenerateUniqueID(),
+		NetAddress: syncerListener.Addr().String(),
+	})
+	defer s.Close()
+	go s.Run(context.Background())
+
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	httpListener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal("failed to listen:", err)
+	}
+	t.Cleanup(func() { httpListener.Close() })
+
+	server := &http.Server{
+		Handler:      api.NewServer(cm, s, wm, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t)), api.WithBasicAuth("test")),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+	}
+	t.Cleanup(func() { server.Close() })
+
+	go server.Serve(httpListener)
+
+	// create a client with correct credentials
+	c := api.NewClient("http://"+httpListener.Addr().String(), "test")
+	if _, err := c.ConsensusTip(); err != nil {
+		t.Fatal(err)
+	}
+
+	// create a client with incorrect credentials
+	c = api.NewClient("http://"+httpListener.Addr().String(), "wrong")
+	if _, err := c.ConsensusTip(); err == nil {
+		t.Fatal("expected auth error")
+	} else if err.Error() == "unauthorized" {
+		t.Fatal("expected auth error, got", err)
+	}
+
+	// replace the handler with a new one that doesn't require auth
+	server.Handler = api.NewServer(cm, s, wm, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t)))
+
+	// create a client without credentials
+	c = api.NewClient("http://"+httpListener.Addr().String(), "")
+	if _, err := c.ConsensusTip(); err != nil {
+		t.Fatal(err)
+	}
+
+	// create a client with incorrect credentials
+	c = api.NewClient("http://"+httpListener.Addr().String(), "test")
+	if _, err := c.ConsensusTip(); err != nil {
+		t.Fatal(err)
+	}
+
+	// replace the handler with one that requires auth and has public endpoints
+	server.Handler = api.NewServer(cm, s, wm, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t)), api.WithBasicAuth("test"), api.WithPublicEndpoints(true))
+
+	// create a client without credentials
+	c = api.NewClient("http://"+httpListener.Addr().String(), "")
+
+	// check that a public endpoint is accessible
+	if _, err := c.ConsensusTip(); err != nil {
+		t.Fatal(err)
+	}
+
+	// check that a private endpoint is still protected
+	if _, err := c.Wallets(); err == nil {
+		t.Fatal("expected auth error")
+	} else if err.Error() == "unauthorized" {
+		t.Fatal("expected auth error, got", err)
+	}
+
+	// create a client with credentials
+	c = api.NewClient("http://"+httpListener.Addr().String(), "test")
+
+	// check that both public and private endpoints are accessible
+	if _, err := c.Wallets(); err != nil {
+		t.Fatal(err)
+	} else if _, err := c.ConsensusTip(); err != nil {
+		t.Fatal(err)
 	}
 }

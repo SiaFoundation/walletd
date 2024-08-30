@@ -55,8 +55,9 @@ var cfg = config.Config{
 	Directory:     ".",
 	AutoOpenWebUI: true,
 	HTTP: config.HTTP{
-		Address:  "localhost:9980",
-		Password: os.Getenv("WALLETD_API_PASSWORD"),
+		Address:         "localhost:9980",
+		Password:        os.Getenv("WALLETD_API_PASSWORD"),
+		PublicEndpoints: false,
 	},
 	Syncer: config.Syncer{
 		Address:   ":9981",
@@ -122,7 +123,6 @@ func tryLoadConfig() {
 	if str := os.Getenv("WALLETD_CONFIG_FILE"); str != "" {
 		configPath = str
 	}
-	fmt.Println("loading config from", configPath)
 
 	// If the config file doesn't exist, don't try to load it.
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -143,7 +143,6 @@ func tryLoadConfig() {
 		fmt.Println("failed to decode config file:", err)
 		os.Exit(1)
 	}
-	fmt.Println("config loaded")
 }
 
 // jsonEncoder returns a zapcore.Encoder that encodes logs as JSON intended for
@@ -206,6 +205,7 @@ func main() {
 	rootCmd.BoolVar(&enableDebug, "debug", false, "enable debug mode with additional profiling and mining endpoints")
 	rootCmd.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store node state in")
 	rootCmd.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
+	rootCmd.BoolVar(&cfg.HTTP.PublicEndpoints, "http.public", cfg.HTTP.PublicEndpoints, "disables auth on endpoints that should be publicly accessible when running walletd as a service")
 
 	rootCmd.StringVar(&cfg.Syncer.Address, "addr", cfg.Syncer.Address, "p2p address to listen on")
 	rootCmd.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network to connect to")

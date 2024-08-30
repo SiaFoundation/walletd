@@ -5,8 +5,9 @@ import "go.sia.tech/walletd/wallet"
 type (
 	// HTTP contains the configuration for the HTTP server.
 	HTTP struct {
-		Address  string `yaml:"address,omitempty"`
-		Password string `yaml:"password,omitempty"`
+		Address         string `yaml:"address,omitempty"`
+		Password        string `yaml:"password,omitempty"`
+		PublicEndpoints bool   `yaml:"publicEndpoints,omitempty"`
 	}
 
 	// Syncer contains the configuration for the consensus set syncer.
