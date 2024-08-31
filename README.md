@@ -61,7 +61,9 @@ The priority of configuration settings is as follows:
 + `9981` Sia consensus
 
 ### Environment Variables
-+ `WALLETD_API_PASSWORD` - The password required to access the API
++ `WALLETD_API_PASSWORD` - The password required to access the API.
++ `WALLETD_CONFIG_FILE` - The path to the YAML configuration file. Defaults to `walletd.yml` in the working directory.
++ `WALLETD_LOG_FILE` - The path to the log file.
 
 ### Command Line Flags
 ```
@@ -99,7 +101,7 @@ Flags:
 
 ### YAML
 All configuration settings can be set in a YAML file. The file should be named 
-`walletd.yaml` in the working directory. All fields are optional.
+`walletd.yml` in the working directory. All fields are optional.
 ```yaml
 directory: /etc/walletd
 autoOpenWebUI: true
@@ -109,9 +111,11 @@ http:
   publicEndpoints: false # when true, auth will be disabled on endpoints that should be publicly accessible when running walletd as a service
 consensus:
   network: mainnet
-  gatewayAddress: :9981
+syncer:
   bootstrap: false
   enableUPnP: false
+  peers: []
+  address: :9981
 index:
   mode: personal # personal, full, none ("full" will index the entire blockchain, "personal" will only index addresses that are registered in the wallet, "none" will treat the database as read-only and not index any new data)
   batchSize: 64 # max number of blocks to index at a time (increasing this will increase scan speed, but also increase memory and cpu usage)
