@@ -106,7 +106,7 @@ All configuration settings can be set in a YAML file. The file should be named
 directory: /etc/walletd
 autoOpenWebUI: true
 http:
-  address: 9980
+  address: :9980
   password: sia is cool
   publicEndpoints: false # when true, auth will be disabled on endpoints that should be publicly accessible when running walletd as a service
 consensus:
@@ -115,7 +115,7 @@ syncer:
   bootstrap: false
   enableUPnP: false
   peers: []
-  address: 9981
+  address: :9981
 index:
   mode: personal # personal, full, none ("full" will index the entire blockchain, "personal" will only index addresses that are registered in the wallet, "none" will treat the database as read-only and not index any new data)
   batchSize: 64 # max number of blocks to index at a time (increasing this will increase scan speed, but also increase memory and cpu usage)
