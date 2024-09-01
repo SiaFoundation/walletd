@@ -6,7 +6,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.22
 	go.sia.tech/core v0.4.4
 	go.sia.tech/coreutils v0.3.0
-	go.sia.tech/jape v0.12.0
+	go.sia.tech/jape v0.12.1
 	go.sia.tech/web/walletd v0.23.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/term v0.23.0
