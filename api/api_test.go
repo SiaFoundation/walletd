@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -1458,5 +1459,72 @@ func TestAPISecurity(t *testing.T) {
 		t.Fatal(err)
 	} else if _, err := c.ConsensusTip(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAPINoContent(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	n, genesisBlock := testNetwork()
+
+	// create wallets
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	l, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	ps, err := sqlite.NewPeerStore(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := syncer.New(l, cm, ps, gateway.Header{
+		GenesisID:  genesisBlock.ID(),
+		UniqueID:   gateway.GenerateUniqueID(),
+		NetAddress: l.Addr().String(),
+	})
+	defer s.Close()
+	go s.Run(context.Background())
+
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	c := runServer(t, cm, s, wm)
+
+	buf, err := json.Marshal(api.TxpoolBroadcastRequest{
+		Transactions:   []types.Transaction{},
+		V2Transactions: []types.V2Transaction{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, c.BaseURL()+"/txpool/broadcast", bytes.NewReader(buf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected status %v, got %v", http.StatusNoContent, resp.StatusCode)
+	} else if resp.ContentLength != 0 {
+		t.Fatalf("expected no content, got %v bytes", resp.ContentLength)
 	}
 }

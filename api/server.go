@@ -243,7 +243,10 @@ func (s *server) syncerConnectHandler(jc jape.Context) {
 		return
 	}
 	_, err := s.s.Connect(jc.Request.Context(), addr)
-	jc.Check("couldn't connect to peer", err)
+	if jc.Check("couldn't connect to peer", err) != nil {
+		return
+	}
+	jc.EmptyResonse()
 }
 
 func (s *server) syncerBroadcastBlockHandler(jc jape.Context) {
@@ -263,6 +266,7 @@ func (s *server) syncerBroadcastBlockHandler(jc jape.Context) {
 	} else {
 		s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions()))
 	}
+	jc.EmptyResonse()
 }
 
 func (s *server) txpoolParentsHandler(jc jape.Context) {
@@ -305,6 +309,8 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		}
 		s.s.BroadcastV2TransactionSet(index, tbr.V2Transactions)
 	}
+
+	jc.EmptyResonse()
 }
 
 func (s *server) walletsHandler(jc jape.Context) {
@@ -367,6 +373,7 @@ func (s *server) walletsIDHandlerDELETE(jc jape.Context) {
 	} else if jc.Check("couldn't remove wallet", err) != nil {
 		return
 	}
+	jc.EmptyResonse()
 }
 
 func (s *server) rescanHandlerGET(jc jape.Context) {
@@ -425,6 +432,8 @@ func (s *server) rescanHandlerPOST(jc jape.Context) {
 			s.scanInfo.Error = &msg
 		}
 	}()
+
+	jc.EmptyResonse()
 }
 
 func (s *server) walletsAddressHandlerPUT(jc jape.Context) {
@@ -435,6 +444,7 @@ func (s *server) walletsAddressHandlerPUT(jc jape.Context) {
 	} else if jc.Check("couldn't add address", s.wm.AddAddress(id, addr)) != nil {
 		return
 	}
+	jc.EmptyResonse()
 }
 
 func (s *server) walletsAddressHandlerDELETE(jc jape.Context) {
@@ -450,6 +460,7 @@ func (s *server) walletsAddressHandlerDELETE(jc jape.Context) {
 	} else if jc.Check("couldn't remove address", err) != nil {
 		return
 	}
+	jc.EmptyResonse()
 }
 
 func (s *server) walletsAddressesHandlerGET(jc jape.Context) {
@@ -568,6 +579,7 @@ func (s *server) walletsReserveHandler(jc jape.Context) {
 	if jc.Check("couldn't reserve outputs", s.wm.Reserve(ids, wrr.Duration)) != nil {
 		return
 	}
+	jc.EmptyResonse()
 }
 
 func (s *server) walletsReleaseHandler(jc jape.Context) {
@@ -584,6 +596,7 @@ func (s *server) walletsReleaseHandler(jc jape.Context) {
 	for _, id := range wrr.SiafundOutputs {
 		delete(s.used, types.Hash256(id))
 	}
+	jc.EmptyResonse()
 }
 
 func (s *server) walletsFundHandler(jc jape.Context) {
@@ -886,6 +899,7 @@ func (s *server) debugMineHandler(jc jape.Context) {
 		log.Debug("mined block", zap.Stringer("blockID", b.ID()))
 		n--
 	}
+	jc.EmptyResonse()
 }
 
 func (s *server) pprofHandler(jc jape.Context) {
