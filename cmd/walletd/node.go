@@ -171,7 +171,7 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebu
 	defer server.Close()
 	go server.Serve(httpListener)
 
-	log.Info("node started", zap.Stringer("syncer", syncerListener.Addr()), zap.Stringer("http", httpListener.Addr()), zap.String("version", build.Version()), zap.String("commit", build.Commit()))
+	log.Info("node started", zap.String("network", network.Name), zap.Stringer("syncer", syncerListener.Addr()), zap.Stringer("http", httpListener.Addr()), zap.String("version", build.Version()), zap.String("commit", build.Commit()))
 	<-ctx.Done()
 	log.Info("shutting down")
 	return nil
