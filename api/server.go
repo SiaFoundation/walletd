@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"reflect"
@@ -296,7 +297,8 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	}
 	if len(tbr.Transactions) != 0 {
 		_, err := s.cm.AddPoolTransactions(tbr.Transactions)
-		if jc.Check("invalid transaction set", err) != nil {
+		if err != nil {
+			jc.Error(fmt.Errorf("invalid transaction set: %w", err), http.StatusBadRequest)
 			return
 		}
 		s.s.BroadcastTransactionSet(tbr.Transactions)
@@ -304,7 +306,8 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	if len(tbr.V2Transactions) != 0 {
 		index := s.cm.TipState().Index
 		_, err := s.cm.AddV2PoolTransactions(index, tbr.V2Transactions)
-		if jc.Check("invalid v2 transaction set", err) != nil {
+		if err != nil {
+			jc.Error(fmt.Errorf("invalid v2 transaction set: %w", err), http.StatusBadRequest)
 			return
 		}
 		s.s.BroadcastV2TransactionSet(index, tbr.V2Transactions)
