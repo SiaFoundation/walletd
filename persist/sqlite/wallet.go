@@ -671,14 +671,30 @@ func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.
 		return nil, nil, nil
 	}
 
-	const eventsQuery = `SELECT ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, ev.event_type, ev.event_data
+	const eventsQuery = `WITH event_ids AS (
+	SELECT 
+		ev.id
 	FROM events ev
-	INNER JOIN event_addresses ea ON (ev.id = ea.event_id)
-	INNER JOIN wallet_addresses wa ON (ea.address_id = wa.address_id)
-	INNER JOIN chain_indices ci ON (ev.chain_index_id = ci.id)
-	WHERE wa.wallet_id=$1
+	INNER JOIN event_addresses ea ON ev.id = ea.event_id
+	INNER JOIN wallet_addresses wa ON ea.address_id = wa.address_id
+	WHERE wa.wallet_id = $1
+	GROUP BY ev.id
 	ORDER BY ev.maturity_height DESC, ev.id DESC
-	LIMIT $2 OFFSET $3`
+	LIMIT $2 OFFSET $3
+)
+SELECT 
+	ev.id, 
+	ev.event_id, 
+	ev.maturity_height, 
+	ev.date_created, 
+	ci.height, 
+	ci.block_id, 
+	ev.event_type, 
+	ev.event_data
+FROM events ev
+INNER JOIN event_ids ei ON ev.id = ei.id
+INNER JOIN chain_indices ci ON ev.chain_index_id = ci.id
+ORDER BY ev.maturity_height DESC, ev.id DESC;`
 
 	rows, err := tx.Query(eventsQuery, id, limit, offset)
 	if err != nil {
