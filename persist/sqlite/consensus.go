@@ -286,7 +286,7 @@ func (s *Store) LastCommittedIndex() (index types.ChainIndex, err error) {
 
 // ResetLastIndex resets the last indexed tip to trigger a full rescan.
 func (s *Store) ResetLastIndex() error {
-	_, err := s.db.Exec(`UPDATE global_settings SET last_index_height=0, last_indexed_id=$1`, encode(types.BlockID{}))
+	_, err := s.db.Exec(`UPDATE global_settings SET last_indexed_height=0, last_indexed_id=$1`, encode(types.BlockID{}))
 	return err
 }
 
