@@ -18,7 +18,7 @@ import (
 var initDatabase string
 
 func initializeSettings(tx *txn, target int64) error {
-	_, err := tx.Exec(`INSERT INTO global_settings (id, db_version, last_indexed_tip, element_num_leaves) VALUES (0, ?, ?, ?)`, target, encode(types.ChainIndex{}), 0)
+	_, err := tx.Exec(`INSERT INTO global_settings (id, db_version, last_indexed_height, last_indexed_id, element_num_leaves) VALUES (0, ?, 0, ?, 0)`, target, encode(types.BlockID{}))
 	return err
 }
 
