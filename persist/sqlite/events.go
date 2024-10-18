@@ -22,9 +22,18 @@ WITH last_chain_index AS (
 	SELECT last_indexed_height+1 AS height FROM global_settings LIMIT 1
 )
 SELECT 
-	ev.id, ev.event_id, ev.maturity_height, ev.date_created, ci.height, ci.block_id, 
-	last_chain_index.height - ci.height AS confirmations, 
-	ev.event_type, ev.event_data
+	ev.id, 
+	ev.event_id, 
+	ev.maturity_height, 
+	ev.date_created, 
+	ci.height, 
+	ci.block_id, 
+	CASE 
+		WHEN last_chain_index.height < ci.height THEN 0
+		ELSE last_chain_index.height - ci.height
+	END AS confirmations,
+	ev.event_type, 
+	ev.event_data
 FROM events ev
 INNER JOIN event_addresses ea ON (ev.id = ea.event_id)
 INNER JOIN sia_addresses sa ON (ea.address_id = sa.id)

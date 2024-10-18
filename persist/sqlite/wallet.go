@@ -693,7 +693,10 @@ SELECT
 	ev.date_created, 
 	ci.height, 
 	ci.block_id, 
-	last_chain_index.height - ci.height AS confirmations,
+	CASE 
+		WHEN last_chain_index.height < ci.height THEN 0
+		ELSE last_chain_index.height - ci.height
+	END AS confirmations,
 	ev.event_type, 
 	ev.event_data
 FROM events ev
