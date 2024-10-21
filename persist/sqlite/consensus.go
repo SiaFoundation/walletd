@@ -280,13 +280,13 @@ func (s *Store) UpdateChainState(reverted []chain.RevertUpdate, applied []chain.
 
 // LastCommittedIndex returns the last chain index that was committed.
 func (s *Store) LastCommittedIndex() (index types.ChainIndex, err error) {
-	err = s.db.QueryRow(`SELECT last_indexed_tip FROM global_settings`).Scan(decode(&index))
+	err = s.db.QueryRow(`SELECT last_indexed_height, last_indexed_id FROM global_settings`).Scan(&index.Height, decode(&index.ID))
 	return
 }
 
 // ResetLastIndex resets the last indexed tip to trigger a full rescan.
 func (s *Store) ResetLastIndex() error {
-	_, err := s.db.Exec(`UPDATE global_settings SET last_indexed_tip=$1`, encode(types.ChainIndex{}))
+	_, err := s.db.Exec(`UPDATE global_settings SET last_indexed_height=0, last_indexed_id=$1`, encode(types.BlockID{}))
 	return err
 }
 
@@ -1324,7 +1324,7 @@ func pruneSpentSiafundElements(tx *txn, height uint64) (removed int64, err error
 }
 
 func setGlobalState(tx *txn, index types.ChainIndex, numLeaves uint64) error {
-	_, err := tx.Exec(`UPDATE global_settings SET last_indexed_tip=$1, element_num_leaves=$2`, encode(index), numLeaves)
+	_, err := tx.Exec(`UPDATE global_settings SET last_indexed_height=$1, last_indexed_id=$2, element_num_leaves=$3`, index.Height, encode(index.ID), numLeaves)
 	return err
 }
 

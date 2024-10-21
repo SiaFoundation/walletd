@@ -671,7 +671,11 @@ func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.
 		return nil, nil, nil
 	}
 
-	const eventsQuery = `WITH event_ids AS (
+	const eventsQuery = `
+WITH last_chain_index AS (
+    SELECT last_indexed_height+1 AS height FROM global_settings LIMIT 1
+),
+event_ids AS (
 	SELECT 
 		ev.id
 	FROM events ev
@@ -689,11 +693,16 @@ SELECT
 	ev.date_created, 
 	ci.height, 
 	ci.block_id, 
+	CASE 
+		WHEN last_chain_index.height < ci.height THEN 0
+		ELSE last_chain_index.height - ci.height
+	END AS confirmations,
 	ev.event_type, 
 	ev.event_data
 FROM events ev
 INNER JOIN event_ids ei ON ev.id = ei.id
 INNER JOIN chain_indices ci ON ev.chain_index_id = ci.id
+CROSS JOIN last_chain_index
 ORDER BY ev.maturity_height DESC, ev.id DESC;`
 
 	rows, err := tx.Query(eventsQuery, id, limit, offset)

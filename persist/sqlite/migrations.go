@@ -1,8 +1,41 @@
 package sqlite
 
 import (
+	"fmt"
+
+	"go.sia.tech/core/types"
 	"go.uber.org/zap"
 )
+
+// migrateVersion4 splits the height and ID of the last indexed tip into two
+// separate columns for easier querying.
+func migrateVersion4(tx *txn, _ *zap.Logger) error {
+	var dbVersion int
+	var indexMode int
+	var elementNumLeaves uint64
+	var index types.ChainIndex
+	err := tx.QueryRow(`SELECT db_version, index_mode, element_num_leaves, last_indexed_tip FROM global_settings`).Scan(&dbVersion, &indexMode, &elementNumLeaves, decode(&index))
+	if err != nil {
+		return fmt.Errorf("failed to get last indexed tip: %w", err)
+	} else if _, err := tx.Exec(`DROP TABLE global_settings`); err != nil {
+		return fmt.Errorf("failed to drop global_settings: %w", err)
+	}
+
+	_, err = tx.Exec(`CREATE TABLE global_settings (
+	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
+	db_version INTEGER NOT NULL, -- used for migrations
+	index_mode INTEGER, -- the mode of the data store
+	last_indexed_height INTEGER NOT NULL, -- the height of the last chain index that was processed
+	last_indexed_id BLOB NOT NULL, -- the block ID of the last chain index that was processed
+	element_num_leaves INTEGER NOT NULL -- the number of leaves in the state tree
+);`)
+	if err != nil {
+		return fmt.Errorf("failed to create global_settings: %w", err)
+	}
+
+	_, err = tx.Exec(`INSERT INTO global_settings (id, db_version, index_mode, last_indexed_height, last_indexed_id, element_num_leaves) VALUES (0, ?, ?, ?, ?, ?)`, dbVersion, indexMode, index.Height, encode(index.ID), elementNumLeaves)
+	return err
+}
 
 // migrateVersion3 adds additional indices to event_addresses and wallet_addresses
 // to improve query performance.
@@ -57,4 +90,5 @@ CREATE INDEX IF NOT EXISTS syncer_bans_expiration_index_idx ON syncer_bans (expi
 var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion2,
 	migrateVersion3,
+	migrateVersion4,
 }
