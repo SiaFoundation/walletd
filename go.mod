@@ -9,7 +9,7 @@ require (
 	go.sia.tech/core v0.4.8-0.20240928202806-0e77790bd8bf
 	go.sia.tech/coreutils v0.4.2-0.20241017012544-0b4946403c93
 	go.sia.tech/jape v0.12.1
-	go.sia.tech/web/walletd v0.23.0
+	go.sia.tech/web/walletd v0.23.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/term v0.25.0
 	gopkg.in/yaml.v3 v3.0.1
