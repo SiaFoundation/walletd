@@ -1,6 +1,6 @@
 module go.sia.tech/walletd
 
-go 1.23.0
+go 1.23.1
 
 toolchain go1.23.2
 
@@ -14,12 +14,11 @@ require (
 	golang.org/x/term v0.25.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
-	lukechampine.com/frand v1.4.2
+	lukechampine.com/frand v1.5.1
 	lukechampine.com/upnp v0.3.0
 )
 
 require (
-	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	go.etcd.io/bbolt v1.3.11 // indirect
 	go.sia.tech/mux v1.3.0 // indirect
