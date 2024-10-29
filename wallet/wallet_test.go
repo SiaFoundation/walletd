@@ -3569,9 +3569,7 @@ func TestEventTypes(t *testing.T) {
 		fc = fce.V2FileContract
 		fc.RevisionNumber = types.MaxRevisionNumber
 		finalizationSigHash := cm.TipState().ContractSigHash(fc)
-		fc.RenterSignature = pk.SignHash(finalizationSigHash)
-		fc.HostSignature = pk.SignHash(finalizationSigHash)
-		finalization := types.V2FileContractFinalization(fc)
+		finalization := types.V2FileContractFinalization(pk.SignHash(finalizationSigHash))
 
 		// create the resolution transaction
 		finalizationTxn := types.V2Transaction{
