@@ -24,13 +24,13 @@ WHERE se.id=$1 AND spent_index_id IS NULL`
 
 		// retrieve the merkle proofs for the siacoin element
 		if s.indexMode == wallet.IndexModeFull {
-			proof, err := fillElementProofs(tx, []uint64{ele.LeafIndex})
+			proof, err := fillElementProofs(tx, []uint64{ele.StateElement.LeafIndex})
 			if err != nil {
 				return fmt.Errorf("failed to fill element proofs: %w", err)
 			} else if len(proof) != 1 {
 				panic("expected exactly one proof") // should never happen
 			}
-			ele.MerkleProof = proof[0]
+			ele.StateElement.MerkleProof = proof[0]
 		}
 		return nil
 	})
@@ -55,13 +55,13 @@ WHERE se.id=$1 AND spent_index_id IS NULL`
 
 		// retrieve the merkle proofs for the siafund element
 		if s.indexMode == wallet.IndexModeFull {
-			proof, err := fillElementProofs(tx, []uint64{ele.LeafIndex})
+			proof, err := fillElementProofs(tx, []uint64{ele.StateElement.LeafIndex})
 			if err != nil {
 				return fmt.Errorf("failed to fill element proofs: %w", err)
 			} else if len(proof) != 1 {
 				panic("expected exactly one proof") // should never happen
 			}
-			ele.MerkleProof = proof[0]
+			ele.StateElement.MerkleProof = proof[0]
 		}
 		return nil
 	})

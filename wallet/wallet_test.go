@@ -409,13 +409,13 @@ func TestEphemeralBalance(t *testing.T) {
 		},
 		Signatures: []types.TransactionSignature{
 			{
-				ParentID:       utxos[0].ID,
+				ParentID:       types.Hash256(utxos[0].ID),
 				PublicKeyIndex: 0,
 				CoveredFields:  types.CoveredFields{WholeTransaction: true},
 			},
 		},
 	}
-	parentSigHash := cm.TipState().WholeSigHash(parentTxn, utxos[0].ID, 0, 0, nil)
+	parentSigHash := cm.TipState().WholeSigHash(parentTxn, types.Hash256(utxos[0].ID), 0, 0, nil)
 	parentSig := pk.SignHash(parentSigHash)
 	parentTxn.Signatures[0].Signature = parentSig[:]
 
@@ -1071,13 +1071,13 @@ func TestOrphans(t *testing.T) {
 		},
 		Signatures: []types.TransactionSignature{
 			{
-				ParentID:       utxos[0].ID,
+				ParentID:       types.Hash256(utxos[0].ID),
 				PublicKeyIndex: 0,
 				CoveredFields:  types.CoveredFields{WholeTransaction: true},
 			},
 		},
 	}
-	sigHash := cm.TipState().WholeSigHash(txn, utxos[0].ID, 0, 0, nil)
+	sigHash := cm.TipState().WholeSigHash(txn, types.Hash256(utxos[0].ID), 0, 0, nil)
 	sig := pk.SignHash(sigHash)
 	txn.Signatures[0].Signature = sig[:]
 
@@ -1727,13 +1727,13 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 		},
 		Signatures: []types.TransactionSignature{
 			{
-				ParentID:       utxos[0].ID,
+				ParentID:       types.Hash256(utxos[0].ID),
 				PublicKeyIndex: 0,
 				CoveredFields:  types.CoveredFields{WholeTransaction: true},
 			},
 		},
 	}
-	sigHash := cm.TipState().WholeSigHash(txn, utxos[0].ID, 0, 0, nil)
+	sigHash := cm.TipState().WholeSigHash(txn, types.Hash256(utxos[0].ID), 0, 0, nil)
 	sig := pk.SignHash(sigHash)
 	txn.Signatures[0].Signature = sig[:]
 
@@ -1824,7 +1824,7 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 	}
 
 	txnData = events[1].Data.(wallet.EventV1Transaction)
-	if txnData.SpentSiacoinElements[0].ID != types.Hash256(ephemeralOutputID) {
+	if txnData.SpentSiacoinElements[0].ID != ephemeralOutputID {
 		t.Fatalf("expected siacoin output %v, got %v", ephemeralOutputID, txnData.SpentSiacoinElements[0].ID)
 	} else if txnData.SpentSiacoinElements[0].SiacoinOutput.Value != txn.SiacoinOutputs[0].Value {
 		t.Fatalf("expected siacoin value %v, got %v", utxos[0].SiacoinOutput.Value, txnData.SpentSiacoinElements[0].SiacoinOutput.Value)
@@ -1935,13 +1935,13 @@ func TestAddressUnconfirmedEvents(t *testing.T) {
 		},
 		Signatures: []types.TransactionSignature{
 			{
-				ParentID:       utxos[0].ID,
+				ParentID:       types.Hash256(utxos[0].ID),
 				PublicKeyIndex: 0,
 				CoveredFields:  types.CoveredFields{WholeTransaction: true},
 			},
 		},
 	}
-	sigHash := cm.TipState().WholeSigHash(txn, utxos[0].ID, 0, 0, nil)
+	sigHash := cm.TipState().WholeSigHash(txn, types.Hash256(utxos[0].ID), 0, 0, nil)
 	sig := pk.SignHash(sigHash)
 	txn.Signatures[0].Signature = sig[:]
 
@@ -2041,7 +2041,7 @@ func TestAddressUnconfirmedEvents(t *testing.T) {
 	}
 
 	txnData = events[1].Data.(wallet.EventV1Transaction)
-	if txnData.SpentSiacoinElements[0].ID != types.Hash256(ephemeralOutputID) {
+	if txnData.SpentSiacoinElements[0].ID != ephemeralOutputID {
 		t.Fatalf("expected siacoin output %v, got %v", ephemeralOutputID, txnData.SpentSiacoinElements[0].ID)
 	} else if txnData.SpentSiacoinElements[0].SiacoinOutput.Value != txn.SiacoinOutputs[0].Value {
 		t.Fatalf("expected siacoin value %v, got %v", utxos[0].SiacoinOutput.Value, txnData.SpentSiacoinElements[0].SiacoinOutput.Value)
@@ -3043,7 +3043,7 @@ func TestEventTypes(t *testing.T) {
 			},
 			Signatures: []types.TransactionSignature{
 				{
-					ParentID:       sce[0].ID,
+					ParentID:       types.Hash256(sce[0].ID),
 					PublicKeyIndex: 0,
 					Timelock:       0,
 					CoveredFields:  types.CoveredFields{WholeTransaction: true},
@@ -3052,7 +3052,7 @@ func TestEventTypes(t *testing.T) {
 		}
 
 		// sign the transaction
-		sigHash := cm.TipState().WholeSigHash(txn, sce[0].ID, 0, 0, nil)
+		sigHash := cm.TipState().WholeSigHash(txn, types.Hash256(sce[0].ID), 0, 0, nil)
 		sig := pk.SignHash(sigHash)
 		txn.Signatures[0].Signature = sig[:]
 
@@ -3097,14 +3097,14 @@ func TestEventTypes(t *testing.T) {
 			FileContracts: []types.FileContract{fc},
 			Signatures: []types.TransactionSignature{
 				{
-					ParentID:       sce[0].ID,
+					ParentID:       types.Hash256(sce[0].ID),
 					PublicKeyIndex: 0,
 					Timelock:       0,
 					CoveredFields:  types.CoveredFields{WholeTransaction: true},
 				},
 			},
 		}
-		sigHash := cm.TipState().WholeSigHash(txn, sce[0].ID, 0, 0, nil)
+		sigHash := cm.TipState().WholeSigHash(txn, types.Hash256(sce[0].ID), 0, 0, nil)
 		sig := pk.SignHash(sigHash)
 		txn.Signatures[0].Signature = sig[:]
 

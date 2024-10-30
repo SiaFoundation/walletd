@@ -801,11 +801,11 @@ func TestV2(t *testing.T) {
 				Value:   sce.SiacoinOutput.Value,
 			}},
 			Signatures: []types.TransactionSignature{{
-				ParentID:      sce.ID,
+				ParentID:      types.Hash256(sce.ID),
 				CoveredFields: types.CoveredFields{WholeTransaction: true},
 			}},
 		}
-		sig := key.SignHash(cm.TipState().WholeSigHash(txn, sce.ID, 0, 0, nil))
+		sig := key.SignHash(cm.TipState().WholeSigHash(txn, types.Hash256(sce.ID), 0, 0, nil))
 		txn.Signatures[0].Signature = sig[:]
 		if err := addBlock([]types.Transaction{txn}, nil); err != nil {
 			return err
@@ -1104,7 +1104,7 @@ func TestP2P(t *testing.T) {
 				Value:   sce.SiacoinOutput.Value,
 			}},
 			Signatures: []types.TransactionSignature{{
-				ParentID:      sce.ID,
+				ParentID:      types.Hash256(sce.ID),
 				CoveredFields: types.CoveredFields{WholeTransaction: true},
 			}},
 		}
@@ -1112,7 +1112,7 @@ func TestP2P(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		sig := key.SignHash(cs.WholeSigHash(txn, sce.ID, 0, 0, nil))
+		sig := key.SignHash(cs.WholeSigHash(txn, types.Hash256(sce.ID), 0, 0, nil))
 		txn.Signatures[0].Signature = sig[:]
 		if err := c.TxpoolBroadcast([]types.Transaction{txn}, nil); err != nil {
 			return err

@@ -258,14 +258,14 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, index types.ChainIndex, offse
 		if s.indexMode == wallet.IndexModeFull {
 			indices := make([]uint64, len(siacoins))
 			for i, se := range siacoins {
-				indices[i] = se.LeafIndex
+				indices[i] = se.StateElement.LeafIndex
 			}
 			proofs, err := fillElementProofs(tx, indices)
 			if err != nil {
 				return fmt.Errorf("failed to fill element proofs: %w", err)
 			}
 			for i, proof := range proofs {
-				siacoins[i].MerkleProof = proof
+				siacoins[i].StateElement.MerkleProof = proof
 			}
 		}
 		return nil
@@ -307,14 +307,14 @@ func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds 
 		if s.indexMode == wallet.IndexModeFull {
 			indices := make([]uint64, len(siafunds))
 			for i, se := range siafunds {
-				indices[i] = se.LeafIndex
+				indices[i] = se.StateElement.LeafIndex
 			}
 			proofs, err := fillElementProofs(tx, indices)
 			if err != nil {
 				return fmt.Errorf("failed to fill element proofs: %w", err)
 			}
 			for i, proof := range proofs {
-				siafunds[i].MerkleProof = proof
+				siafunds[i].StateElement.MerkleProof = proof
 			}
 		}
 		return nil
@@ -489,13 +489,13 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 				}
 
 				sce := types.SiacoinElement{
+					ID: txn.SiacoinOutputID(i),
 					StateElement: types.StateElement{
-						ID:        types.Hash256(txn.SiacoinOutputID(i)),
 						LeafIndex: types.UnassignedLeafIndex,
 					},
 					SiacoinOutput: output,
 				}
-				siacoinElementCache[types.SiacoinOutputID(sce.StateElement.ID)] = sce
+				siacoinElementCache[sce.ID] = sce
 			}
 
 			for _, input := range txn.SiafundInputs {
@@ -528,13 +528,13 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 				}
 
 				sfe := types.SiafundElement{
+					ID: txn.SiafundOutputID(i),
 					StateElement: types.StateElement{
-						ID:        types.Hash256(txn.SiafundOutputID(i)),
 						LeafIndex: types.UnassignedLeafIndex,
 					},
 					SiafundOutput: output,
 				}
-				siafundElementCache[types.SiafundOutputID(sfe.StateElement.ID)] = sfe
+				siafundElementCache[sfe.ID] = sfe
 			}
 
 			if len(relevant) == 0 {
@@ -593,12 +593,12 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 }
 
 func scanSiacoinElement(s scanner) (se types.SiacoinElement, err error) {
-	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decode(&se.MerkleProof), &se.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address))
+	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decode(&se.StateElement.MerkleProof), &se.StateElement.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address))
 	return
 }
 
 func scanSiafundElement(s scanner) (se types.SiafundElement, err error) {
-	err = s.Scan(decode(&se.ID), &se.LeafIndex, decode(&se.MerkleProof), &se.SiafundOutput.Value, decode(&se.ClaimStart), decode(&se.SiafundOutput.Address))
+	err = s.Scan(decode(&se.ID), &se.StateElement.LeafIndex, decode(&se.StateElement.MerkleProof), &se.SiafundOutput.Value, decode(&se.ClaimStart), decode(&se.SiafundOutput.Address))
 	return
 }
 

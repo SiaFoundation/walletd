@@ -17,7 +17,7 @@ CREATE TABLE siacoin_elements (
 	id BLOB PRIMARY KEY,
 	siacoin_value BLOB NOT NULL,
 	merkle_proof BLOB NOT NULL,
-	leaf_index INTEGER NOT NULL,
+	leaf_index INTEGER UNIQUE NOT NULL,
 	maturity_height INTEGER NOT NULL, /* stored as int64 for easier querying */
 	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
 	matured BOOLEAN NOT NULL, /* tracks whether the value has been added to the address balance */
@@ -34,7 +34,7 @@ CREATE TABLE siafund_elements (
 	id BLOB PRIMARY KEY,
 	claim_start BLOB NOT NULL,
 	merkle_proof BLOB NOT NULL,
-	leaf_index INTEGER NOT NULL,
+	leaf_index INTEGER UNIQUE NOT NULL,
 	siafund_value INTEGER NOT NULL,
 	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
 	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
