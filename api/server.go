@@ -218,7 +218,7 @@ func (s *server) syncerPeersHandler(jc jape.Context) {
 	for _, p := range s.s.Peers() {
 		// create peer response with known fields
 		peer := GatewayPeer{
-			Addr:    p.Addr(),
+			Address: p.Addr(),
 			Inbound: p.Inbound,
 			Version: p.Version(),
 		}
