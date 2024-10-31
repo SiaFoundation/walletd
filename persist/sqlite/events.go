@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -62,47 +61,44 @@ WHERE ev.event_id = $1`
 	return
 }
 
+func decodeEventData[T wallet.EventPayout |
+	wallet.EventV1Transaction |
+	wallet.EventV2Transaction |
+	wallet.EventV1ContractResolution |
+	wallet.EventV2ContractResolution, TP interface {
+	*T
+	types.DecoderFrom
+}](dec *types.Decoder) T {
+	v := new(T)
+	TP(v).DecodeFrom(dec)
+	return *v
+}
+
 func scanEvent(s scanner) (ev wallet.Event, eventID int64, err error) {
 	var eventBuf []byte
-
 	err = s.Scan(&eventID, decode(&ev.ID), &ev.MaturityHeight, decode(&ev.Timestamp), &ev.Index.Height, decode(&ev.Index.ID), &ev.Confirmations, &ev.Type, &eventBuf)
 	if err != nil {
 		return
 	}
 
+	dec := types.NewBufDecoder(eventBuf)
 	switch ev.Type {
 	case wallet.EventTypeV1Transaction:
-		var tx wallet.EventV1Transaction
-		if err = json.Unmarshal(eventBuf, &tx); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal transaction event: %w", err)
-		}
-		ev.Data = tx
+		ev.Data = decodeEventData[wallet.EventV1Transaction](dec)
 	case wallet.EventTypeV2Transaction:
-		var tx wallet.EventV2Transaction
-		if err = json.Unmarshal(eventBuf, &tx); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal transaction event: %w", err)
-		}
-		ev.Data = tx
+		ev.Data = decodeEventData[wallet.EventV2Transaction](dec)
 	case wallet.EventTypeV1ContractResolution:
-		var r wallet.EventV1ContractResolution
-		if err = json.Unmarshal(eventBuf, &r); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal missed file contract event: %w", err)
-		}
-		ev.Data = r
+		ev.Data = decodeEventData[wallet.EventV1ContractResolution](dec)
 	case wallet.EventTypeV2ContractResolution:
-		var r wallet.EventV2ContractResolution
-		if err = json.Unmarshal(eventBuf, &r); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal file contract event: %w", err)
-		}
-		ev.Data = r
+		ev.Data = decodeEventData[wallet.EventV2ContractResolution](dec)
 	case wallet.EventTypeSiafundClaim, wallet.EventTypeMinerPayout, wallet.EventTypeFoundationSubsidy:
-		var p wallet.EventPayout
-		if err = json.Unmarshal(eventBuf, &p); err != nil {
-			return wallet.Event{}, 0, fmt.Errorf("failed to unmarshal event %q (%q): %w", ev.ID, ev.Type, err)
-		}
-		ev.Data = p
+		ev.Data = decodeEventData[wallet.EventPayout](dec)
 	default:
 		return wallet.Event{}, 0, fmt.Errorf("unknown event type: %q", ev.Type)
 	}
+	if err := dec.Err(); err != nil {
+		return wallet.Event{}, 0, fmt.Errorf("failed to decode event data: %w", err)
+	}
+
 	return
 }

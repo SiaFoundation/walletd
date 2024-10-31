@@ -103,14 +103,14 @@ func (s *Store) AddressSiacoinOutputs(address types.Address, index types.ChainIn
 		if s.indexMode == wallet.IndexModeFull {
 			indices := make([]uint64, len(siacoins))
 			for i, se := range siacoins {
-				indices[i] = se.LeafIndex
+				indices[i] = se.StateElement.LeafIndex
 			}
 			proofs, err := fillElementProofs(tx, indices)
 			if err != nil {
 				return fmt.Errorf("failed to fill element proofs: %w", err)
 			}
 			for i, proof := range proofs {
-				siacoins[i].MerkleProof = proof
+				siacoins[i].StateElement.MerkleProof = proof
 			}
 		}
 		return nil
@@ -148,14 +148,14 @@ func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) 
 		if s.indexMode == wallet.IndexModeFull {
 			indices := make([]uint64, len(siafunds))
 			for i, se := range siafunds {
-				indices[i] = se.LeafIndex
+				indices[i] = se.StateElement.LeafIndex
 			}
 			proofs, err := fillElementProofs(tx, indices)
 			if err != nil {
 				return fmt.Errorf("failed to fill element proofs: %w", err)
 			}
 			for i, proof := range proofs {
-				siafunds[i].MerkleProof = proof
+				siafunds[i].StateElement.MerkleProof = proof
 			}
 		}
 		return nil
@@ -244,13 +244,13 @@ func (s *Store) AnnotateV1Events(index types.ChainIndex, timestamp time.Time, v1
 
 			for i, output := range txn.SiacoinOutputs {
 				sce := types.SiacoinElement{
+					ID: txn.SiacoinOutputID(i),
 					StateElement: types.StateElement{
-						ID:        types.Hash256(txn.SiacoinOutputID(i)),
 						LeafIndex: types.UnassignedLeafIndex,
 					},
 					SiacoinOutput: output,
 				}
-				siacoinElementCache[types.SiacoinOutputID(sce.StateElement.ID)] = sce
+				siacoinElementCache[sce.ID] = sce
 				relevant = true
 			}
 
@@ -268,13 +268,13 @@ func (s *Store) AnnotateV1Events(index types.ChainIndex, timestamp time.Time, v1
 
 			for i, output := range txn.SiafundOutputs {
 				sfe := types.SiafundElement{
+					ID: txn.SiafundOutputID(i),
 					StateElement: types.StateElement{
-						ID:        types.Hash256(txn.SiafundOutputID(i)),
 						LeafIndex: types.UnassignedLeafIndex,
 					},
 					SiafundOutput: output,
 				}
-				siafundElementCache[types.SiafundOutputID(sfe.StateElement.ID)] = sfe
+				siafundElementCache[sfe.ID] = sfe
 				relevant = true
 			}
 

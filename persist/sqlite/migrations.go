@@ -7,6 +7,77 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion5 resets the database to trigger a full resync to switch
+// events from JSON to Sia encoding
+func migrateVersion5(tx *txn, _ *zap.Logger) error {
+	if _, err := tx.Exec(`DELETE FROM siacoin_elements;`); err != nil {
+		return fmt.Errorf("failed to delete siacoin_elements: %w", err)
+	} else if _, err := tx.Exec(`DELETE FROM siafund_elements;`); err != nil {
+		return fmt.Errorf("failed to delete siafund_elements: %w", err)
+	} else if _, err := tx.Exec(`DELETE FROM state_tree;`); err != nil {
+		return fmt.Errorf("failed to delete state_tree: %w", err)
+	} else if _, err := tx.Exec(`DELETE FROM event_addresses;`); err != nil {
+		return fmt.Errorf("failed to delete event_addresses: %w", err)
+	} else if _, err := tx.Exec(`DELETE FROM events;`); err != nil {
+		return fmt.Errorf("failed to delete events: %w", err)
+	} else if _, err := tx.Exec(`DELETE FROM chain_indices;`); err != nil {
+		return fmt.Errorf("failed to delete chain_indices: %w", err)
+	} else if _, err := tx.Exec(`DROP TABLE siacoin_elements;`); err != nil {
+		return fmt.Errorf("failed to drop siacoin_elements: %w", err)
+	} else if _, err := tx.Exec(`DROP TABLE siafund_elements;`); err != nil {
+		return fmt.Errorf("failed to drop siafund_elements: %w", err)
+	}
+
+	_, err := tx.Exec(`UPDATE global_settings SET last_indexed_height=0, last_indexed_id=$1, element_num_leaves=0`, encode(types.ChainIndex{}))
+	if err != nil {
+		return fmt.Errorf("failed to reset global_settings: %w", err)
+	}
+
+	_, err = tx.Exec(`UPDATE sia_addresses SET siacoin_balance=$1, immature_siacoin_balance=$1, siafund_balance=0;`, encode(types.ZeroCurrency))
+	if err != nil {
+		return fmt.Errorf("failed to reset sia_addresses: %w", err)
+	}
+
+	_, err = tx.Exec(`CREATE TABLE siacoin_elements (
+	id BLOB PRIMARY KEY,
+	siacoin_value BLOB NOT NULL,
+	merkle_proof BLOB NOT NULL,
+	leaf_index INTEGER UNIQUE NOT NULL,
+	maturity_height INTEGER NOT NULL, /* stored as int64 for easier querying */
+	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
+	matured BOOLEAN NOT NULL, /* tracks whether the value has been added to the address balance */
+	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
+	spent_index_id INTEGER REFERENCES chain_indices (id) /* soft delete */
+);
+CREATE INDEX siacoin_elements_address_id_idx ON siacoin_elements (address_id);
+CREATE INDEX siacoin_elements_maturity_height_matured_idx ON siacoin_elements (maturity_height, matured);
+CREATE INDEX siacoin_elements_chain_index_id_idx ON siacoin_elements (chain_index_id);
+CREATE INDEX siacoin_elements_spent_index_id_idx ON siacoin_elements (spent_index_id);
+CREATE INDEX siacoin_elements_address_id_spent_index_id_idx ON siacoin_elements(address_id, spent_index_id);`)
+	if err != nil {
+		return fmt.Errorf("failed to create siacoin_elements: %w", err)
+	}
+
+	_, err = tx.Exec(`CREATE TABLE siafund_elements (
+	id BLOB PRIMARY KEY,
+	claim_start BLOB NOT NULL,
+	merkle_proof BLOB NOT NULL,
+	leaf_index INTEGER UNIQUE NOT NULL,
+	siafund_value INTEGER NOT NULL,
+	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
+	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
+	spent_index_id INTEGER REFERENCES chain_indices (id) /* soft delete */	
+);
+CREATE INDEX siafund_elements_address_id_idx ON siafund_elements (address_id);
+CREATE INDEX siafund_elements_chain_index_id_idx ON siafund_elements (chain_index_id);
+CREATE INDEX siafund_elements_spent_index_id_idx ON siafund_elements (spent_index_id);
+CREATE INDEX siafund_elements_address_id_spent_index_id_idx ON siafund_elements(address_id, spent_index_id);`)
+	if err != nil {
+		return fmt.Errorf("failed to create siafund_elements: %w", err)
+	}
+	return nil
+}
+
 // migrateVersion4 splits the height and ID of the last indexed tip into two
 // separate columns for easier querying.
 func migrateVersion4(tx *txn, _ *zap.Logger) error {
@@ -91,4 +162,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion2,
 	migrateVersion3,
 	migrateVersion4,
+	migrateVersion5,
 }

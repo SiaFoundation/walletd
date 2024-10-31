@@ -12,8 +12,13 @@ type (
 	// A stateTreeUpdater is an interface for applying and reverting
 	// Merkle tree updates.
 	stateTreeUpdater interface {
-		UpdateElementProof(e *types.StateElement)
+		UpdateElementProof(*types.StateElement)
 		ForEachTreeNode(fn func(row uint64, col uint64, h types.Hash256))
+	}
+
+	// A ProofUpdater is an interface for updating Merkle proofs.
+	ProofUpdater interface {
+		UpdateElementProof(*types.StateElement)
 	}
 
 	// AddressBalance pairs an address with its balance.
@@ -53,12 +58,7 @@ type (
 
 	// An UpdateTx atomically updates the state of a store.
 	UpdateTx interface {
-		SiacoinStateElements() ([]types.StateElement, error)
-		UpdateSiacoinStateElements([]types.StateElement) error
-
-		SiafundStateElements() ([]types.StateElement, error)
-		UpdateSiafundStateElements([]types.StateElement) error
-
+		UpdateStateElementProofs(ProofUpdater) error
 		UpdateStateTree([]TreeNodeUpdate) error
 
 		AddressRelevant(types.Address) (bool, error)
@@ -82,31 +82,7 @@ func updateStateElements(tx UpdateTx, update stateTreeUpdater, indexMode IndexMo
 		})
 		return tx.UpdateStateTree(updates)
 	} else {
-		// fetch all siacoin and siafund state elements
-		siacoinStateElements, err := tx.SiacoinStateElements()
-		if err != nil {
-			return fmt.Errorf("failed to get siacoin state elements: %w", err)
-		}
-
-		// update siacoin element proofs
-		for i := range siacoinStateElements {
-			update.UpdateElementProof(&siacoinStateElements[i])
-		}
-
-		if err := tx.UpdateSiacoinStateElements(siacoinStateElements); err != nil {
-			return fmt.Errorf("failed to update siacoin state elements: %w", err)
-		}
-
-		siafundStateElements, err := tx.SiafundStateElements()
-		if err != nil {
-			return fmt.Errorf("failed to get siafund state elements: %w", err)
-		}
-
-		// update siafund element proofs
-		for i := range siafundStateElements {
-			update.UpdateElementProof(&siafundStateElements[i])
-		}
-		return tx.UpdateSiafundStateElements(siafundStateElements)
+		return tx.UpdateStateElementProofs(update)
 	}
 }
 

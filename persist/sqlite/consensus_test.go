@@ -152,10 +152,10 @@ func TestPruneSiacoins(t *testing.T) {
 		},
 	}
 
-	sigHash := cm.TipState().WholeSigHash(txn, utxos[0].ID, 0, 0, nil)
+	sigHash := cm.TipState().WholeSigHash(txn, types.Hash256(utxos[0].ID), 0, 0, nil)
 	sig := pk.SignHash(sigHash)
 	txn.Signatures = append(txn.Signatures, types.TransactionSignature{
-		ParentID:       utxos[0].ID,
+		ParentID:       types.Hash256(utxos[0].ID),
 		CoveredFields:  types.CoveredFields{WholeTransaction: true},
 		PublicKeyIndex: 0,
 		Timelock:       0,
@@ -277,10 +277,10 @@ func TestPruneSiafunds(t *testing.T) {
 		},
 	}
 
-	sigHash := cm.TipState().WholeSigHash(txn, utxos[0].ID, 0, 0, nil)
+	sigHash := cm.TipState().WholeSigHash(txn, types.Hash256(utxos[0].ID), 0, 0, nil)
 	sig := pk.SignHash(sigHash)
 	txn.Signatures = append(txn.Signatures, types.TransactionSignature{
-		ParentID:       utxos[0].ID,
+		ParentID:       types.Hash256(utxos[0].ID),
 		CoveredFields:  types.CoveredFields{WholeTransaction: true},
 		PublicKeyIndex: 0,
 		Timelock:       0,

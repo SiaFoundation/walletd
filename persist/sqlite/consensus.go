@@ -3,7 +3,6 @@ package sqlite
 import (
 	"bytes"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -26,96 +25,36 @@ type addressRef struct {
 	Balance wallet.Balance
 }
 
-func (ut *updateTx) SiacoinStateElements() ([]types.StateElement, error) {
-	if ut.indexMode == wallet.IndexModeFull {
-		panic("SiacoinStateElements called in full index mode")
-	}
-
-	const query = `SELECT id, leaf_index, merkle_proof FROM siacoin_elements`
-	rows, err := ut.tx.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
-	}
-	defer rows.Close()
-
-	var elements []types.StateElement
-	for rows.Next() {
-		se, err := scanStateElement(rows)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan state element: %w", err)
-		}
-		elements = append(elements, se)
-	}
-	return elements, rows.Err()
+type stateElement struct {
+	ID types.Hash256
+	types.StateElement
 }
 
-func (ut *updateTx) UpdateSiacoinStateElements(elements []types.StateElement) error {
+func (ut *updateTx) UpdateStateElementProofs(update wallet.ProofUpdater) error {
 	if ut.indexMode == wallet.IndexModeFull {
-		panic("UpdateSiacoinStateElements called in full index mode")
+		panic("UpdateStateElementProofs called in full index mode")
 	}
 
-	log := ut.tx.log.Named("UpdateSiacoinStateElements")
-	log.Debug("updating siacoin state elements", zap.Int("count", len(elements)))
-
-	const query = `UPDATE siacoin_elements SET merkle_proof=$1, leaf_index=$2 WHERE id=$3 RETURNING id`
-	stmt, err := ut.tx.Prepare(query)
+	se, err := getSiacoinStateElements(ut.tx)
 	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
+		return fmt.Errorf("failed to get siacoin state elements: %w", err)
 	}
-	defer stmt.Close()
-
-	for _, se := range elements {
-		var dummy types.Hash256
-		err := stmt.QueryRow(encode(se.MerkleProof), se.LeafIndex, encode(se.ID)).Scan(decode(&dummy))
-		if err != nil {
-			return fmt.Errorf("failed to execute statement: %w", err)
-		}
-		log.Debug("updated element proof", zap.Stringer("id", se.ID), zap.Uint64("leafIndex", se.LeafIndex))
+	for i := range se {
+		update.UpdateElementProof(&se[i].StateElement)
 	}
-	return nil
-}
-
-func (ut *updateTx) SiafundStateElements() ([]types.StateElement, error) {
-	if ut.indexMode == wallet.IndexModeFull {
-		panic("SiafundStateElements called in full index mode")
+	if err := updateSiacoinStateElements(ut.tx, se); err != nil {
+		return fmt.Errorf("failed to update siacoin state elements: %w", err)
 	}
 
-	const query = `SELECT id, leaf_index, merkle_proof FROM siafund_elements`
-	rows, err := ut.tx.Query(query)
+	sfe, err := getSiafundStateElements(ut.tx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
+		return fmt.Errorf("failed to get siafund state elements: %w", err)
 	}
-	defer rows.Close()
-
-	var elements []types.StateElement
-	for rows.Next() {
-		se, err := scanStateElement(rows)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan state element: %w", err)
-		}
-		elements = append(elements, se)
+	for i := range sfe {
+		update.UpdateElementProof(&sfe[i].StateElement)
 	}
-	return elements, rows.Err()
-}
-
-func (ut *updateTx) UpdateSiafundStateElements(elements []types.StateElement) error {
-	if ut.indexMode == wallet.IndexModeFull {
-		panic("UpdateSiafundStateElements called in full index mode")
-	}
-
-	const query = `UPDATE siafund_elements SET merkle_proof=$1, leaf_index=$2 WHERE id=$3 RETURNING id`
-	stmt, err := ut.tx.Prepare(query)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer stmt.Close()
-
-	for _, se := range elements {
-		var dummy types.Hash256
-		err := stmt.QueryRow(encode(se.MerkleProof), se.LeafIndex, encode(se.ID)).Scan(decode(&dummy))
-		if err != nil {
-			return fmt.Errorf("failed to execute statement: %w", err)
-		}
+	if err := updateSiafundStateElements(ut.tx, sfe); err != nil {
+		return fmt.Errorf("failed to update siafund state elements: %w", err)
 	}
 	return nil
 }
@@ -319,9 +258,90 @@ func (s *Store) SetIndexMode(mode wallet.IndexMode) error {
 	})
 }
 
-func scanStateElement(s scanner) (se types.StateElement, err error) {
-	err = s.Scan(decode(&se.ID), &se.LeafIndex, decode(&se.MerkleProof))
-	return
+func getSiacoinStateElements(tx *txn) ([]stateElement, error) {
+	const query = `SELECT id, leaf_index, merkle_proof FROM siacoin_elements`
+	rows, err := tx.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query siacoin elements: %w", err)
+	}
+	defer rows.Close()
+
+	var elements []stateElement
+	for rows.Next() {
+		var se stateElement
+		if err := rows.Scan(decode(&se.ID), &se.LeafIndex, decode(&se.MerkleProof)); err != nil {
+			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
+		}
+		elements = append(elements, se)
+	}
+	return elements, rows.Err()
+}
+
+func getSiafundStateElements(tx *txn) ([]stateElement, error) {
+	const query = `SELECT id, leaf_index, merkle_proof FROM siafund_elements`
+	rows, err := tx.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query siafund elements: %w", err)
+	}
+	defer rows.Close()
+
+	var elements []stateElement
+	for rows.Next() {
+		var se stateElement
+		if err := rows.Scan(decode(&se.ID), &se.LeafIndex, decode(&se.MerkleProof)); err != nil {
+			return nil, fmt.Errorf("failed to scan siacoin element: %w", err)
+		}
+		elements = append(elements, se)
+	}
+	return elements, rows.Err()
+}
+
+func updateSiafundStateElements(tx *txn, elements []stateElement) error {
+	if len(elements) == 0 {
+		return nil
+	}
+	const query = `UPDATE siafund_elements SET merkle_proof=$1, leaf_index=$2 WHERE id=$3`
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, se := range elements {
+		res, err := stmt.Exec(encode(se.MerkleProof), se.LeafIndex, encode(se.ID))
+		if err != nil {
+			return fmt.Errorf("failed to execute statement: %w", err)
+		} else if n, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		} else if n != 1 {
+			return fmt.Errorf("expected 1 row affected, got %v", n)
+		}
+	}
+	return nil
+}
+
+func updateSiacoinStateElements(tx *txn, elements []stateElement) error {
+	if len(elements) == 0 {
+		return nil
+	}
+	const query = `UPDATE siacoin_elements SET merkle_proof=$1, leaf_index=$2 WHERE id=$3`
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, se := range elements {
+		res, err := stmt.Exec(encode(se.MerkleProof), se.LeafIndex, encode(se.ID))
+		if err != nil {
+			return fmt.Errorf("failed to execute statement: %w", err)
+		} else if n, err := res.RowsAffected(); err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		} else if n != 1 {
+			return fmt.Errorf("expected 1 row affected, got %v", n)
+		}
+	}
+	return nil
 }
 
 func scanAddress(s scanner) (ab addressRef, err error) {
@@ -530,10 +550,10 @@ func addSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64,
 		// in full index mode, Merkle proofs are stored in the state tree table
 		// rather than per element.
 		if indexMode == wallet.IndexModeFull {
-			se.MerkleProof = nil
+			se.StateElement.MerkleProof = nil
 		}
 
-		_, err = insertStmt.Exec(encode(se.ID), encode(se.SiacoinOutput.Value), encode(se.MerkleProof), se.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0, indexID)
+		_, err = insertStmt.Exec(encode(se.ID), encode(se.SiacoinOutput.Value), encode(se.StateElement.MerkleProof), se.StateElement.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0, indexID)
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
@@ -804,10 +824,10 @@ func addSiafundElements(tx *txn, elements []types.SiafundElement, indexID int64,
 		// in full index mode, Merkle proofs are stored in the state tree table
 		// rather than per element.
 		if indexMode == wallet.IndexModeFull {
-			se.MerkleProof = nil
+			se.StateElement.MerkleProof = nil
 		}
 
-		_, err = insertStmt.Exec(encode(se.ID), se.SiafundOutput.Value, encode(se.MerkleProof), se.LeafIndex, encode(se.ClaimStart), addrRef.ID, indexID)
+		_, err = insertStmt.Exec(encode(se.ID), se.SiafundOutput.Value, encode(se.StateElement.MerkleProof), se.StateElement.LeafIndex, encode(se.ClaimStart), addrRef.ID, indexID)
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		} else if exists {
@@ -1052,15 +1072,18 @@ func addEvents(tx *txn, events []wallet.Event, indexID int64) error {
 	defer relevantAddrStmt.Close()
 
 	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
+	enc := types.NewEncoder(&buf)
 	for _, event := range events {
 		buf.Reset()
-		if err := enc.Encode(event.Data); err != nil {
-			return fmt.Errorf("failed to encode event: %w", err)
+		ev, ok := event.Data.(types.EncoderTo)
+		if !ok {
+			panic("event data does not implement types.EncoderTo") // developer error
 		}
+		ev.EncodeTo(enc)
+		enc.Flush()
 
 		var eventID int64
-		err = insertEventStmt.QueryRow(encode(event.ID), event.MaturityHeight, encode(event.Timestamp), event.Type, buf.String(), indexID).Scan(&eventID)
+		err = insertEventStmt.QueryRow(encode(event.ID), event.MaturityHeight, encode(event.Timestamp), event.Type, buf.Bytes(), indexID).Scan(&eventID)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue // skip if the event already exists
 		} else if err != nil {
