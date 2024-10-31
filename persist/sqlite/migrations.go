@@ -162,4 +162,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion2,
 	migrateVersion3,
 	migrateVersion4,
+	migrateVersion5,
 }
