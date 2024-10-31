@@ -22,7 +22,7 @@ type StateResponse struct {
 
 // A GatewayPeer is a currently-connected peer.
 type GatewayPeer struct {
-	Addr    string `json:"addr"`
+	Address string `json:"address"`
 	Inbound bool   `json:"inbound"`
 	Version string `json:"version"`
 
