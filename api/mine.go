@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 
 	"go.sia.tech/core/types"
@@ -50,19 +49,8 @@ func mineBlock(ctx context.Context, cm ChainManager, addr types.Address) (types.
 	}
 
 	b.Nonce = 0
-	buf := make([]byte, 32+8+8+32)
-	binary.LittleEndian.PutUint64(buf[32:], b.Nonce)
-	binary.LittleEndian.PutUint64(buf[40:], uint64(b.Timestamp.Unix()))
-	if b.V2 != nil {
-		copy(buf[:32], "sia/id/block|")
-		copy(buf[48:], b.V2.Commitment[:])
-	} else {
-		root := b.MerkleRoot()
-		copy(buf[:32], b.ParentID[:])
-		copy(buf[48:], root[:])
-	}
 	factor := cs.NonceFactor()
-	for types.BlockID(types.HashBytes(buf)).CmpWork(cs.ChildTarget) < 0 {
+	for b.ID().CmpWork(cs.ChildTarget) < 0 {
 		select {
 		case <-ctx.Done():
 			return types.Block{}, ctx.Err()
@@ -75,7 +63,6 @@ func mineBlock(ctx context.Context, cm ChainManager, addr types.Address) (types.
 		}
 
 		b.Nonce += factor
-		binary.LittleEndian.PutUint64(buf[32:], b.Nonce)
 	}
 	return b, nil
 }
