@@ -380,7 +380,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 	}
 
 	// handle foundation subsidy
-	if relevant(cs.FoundationPrimaryAddress) {
+	if relevant(cs.FoundationManagementAddress) {
 		element, ok := sces[cs.Index.ID.FoundationOutputID()]
 		if ok {
 			addEvent(types.Hash256(element.ID), element.MaturityHeight, EventTypeFoundationSubsidy, wallet.EventPayout{
