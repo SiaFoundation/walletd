@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,6 +55,7 @@ type (
 	// A Store is a persistent store of wallet data.
 	Store interface {
 		UpdateChainState(reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error
+		ResetChainState() error
 
 		WalletUnconfirmedEvents(id ID, index types.ChainIndex, timestamp time.Time, v1 []types.Transaction, v2 []types.V2Transaction) (annotated []Event, err error)
 		WalletEvents(walletID ID, offset, limit int) ([]Event, error)
@@ -380,7 +382,12 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 			m.mu.Lock()
 			// update the store
 			lastTip, err := store.LastCommittedIndex()
-			if err != nil {
+			if err != nil && strings.Contains(err.Error(), "missing block at index") {
+				log.Warn("missing block at index, resetting chain state", zap.Uint64("height", lastTip.Height), zap.Stringer("id", lastTip.ID))
+				if err := store.ResetChainState(); err != nil {
+					log.Panic("failed to reset chain state", zap.Error(err))
+				}
+			} else if err != nil {
 				log.Panic("failed to get last committed index", zap.Error(err))
 			} else if err := syncStore(ctx, store, cm, lastTip, m.syncBatchSize); err != nil && !errors.Is(err, context.Canceled) {
 				log.Panic("failed to sync store", zap.Error(err))
