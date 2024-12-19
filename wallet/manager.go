@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,6 +55,7 @@ type (
 	// A Store is a persistent store of wallet data.
 	Store interface {
 		UpdateChainState(reverted []chain.RevertUpdate, applied []chain.ApplyUpdate) error
+		ResetChainState() error
 
 		WalletUnconfirmedEvents(id ID, index types.ChainIndex, timestamp time.Time, v1 []types.Transaction, v2 []types.V2Transaction) (annotated []Event, err error)
 		WalletEvents(walletID ID, offset, limit int) ([]Event, error)
@@ -382,8 +384,26 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 			lastTip, err := store.LastCommittedIndex()
 			if err != nil {
 				log.Panic("failed to get last committed index", zap.Error(err))
-			} else if err := syncStore(ctx, store, cm, lastTip, m.syncBatchSize); err != nil && !errors.Is(err, context.Canceled) {
-				log.Panic("failed to sync store", zap.Error(err))
+			}
+			err = syncStore(ctx, store, cm, lastTip, m.syncBatchSize)
+			if err != nil {
+				switch {
+				case errors.Is(err, context.Canceled):
+					m.mu.Unlock()
+					return
+				case strings.Contains(err.Error(), "missing block at index"): // unfortunate, but not exposed by coreutils
+					log.Warn("missing block at index, resetting chain state", zap.Stringer("id", lastTip.ID), zap.Uint64("height", lastTip.Height))
+					if err := store.ResetChainState(); err != nil {
+						log.Panic("failed to reset wallet state", zap.Error(err))
+					}
+					// trigger resync
+					select {
+					case reorgChan <- struct{}{}:
+					default:
+					}
+				default:
+					log.Panic("failed to sync store", zap.Error(err))
+				}
 			}
 			m.mu.Unlock()
 		}

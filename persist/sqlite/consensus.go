@@ -258,6 +258,52 @@ func (s *Store) SetIndexMode(mode wallet.IndexMode) error {
 	})
 }
 
+// ResetChainState deletes all blockchain state from the database.
+func (s *Store) ResetChainState() error {
+	return s.transaction(func(tx *txn) error {
+		_, err := tx.Exec(`UPDATE sia_addresses SET siacoin_balance=$1, siafund_balance=0, immature_siacoin_balance=$1`, encode(types.ZeroCurrency))
+		if err != nil {
+			return fmt.Errorf("failed to reset sia addresses: %w", err)
+		}
+
+		_, err = tx.Exec(`DELETE FROM siacoin_elements`)
+		if err != nil {
+			return fmt.Errorf("failed to delete siacoin elements: %w", err)
+		}
+
+		_, err = tx.Exec(`DELETE FROM siafund_elements`)
+		if err != nil {
+			return fmt.Errorf("failed to delete siafund elements: %w", err)
+		}
+
+		_, err = tx.Exec(`DELETE FROM state_tree`)
+		if err != nil {
+			return fmt.Errorf("failed to delete state tree: %w", err)
+		}
+
+		_, err = tx.Exec(`DELETE FROM event_addresses`)
+		if err != nil {
+			return fmt.Errorf("failed to delete event addresses: %w", err)
+		}
+
+		_, err = tx.Exec(`DELETE FROM events`)
+		if err != nil {
+			return fmt.Errorf("failed to delete events: %w", err)
+		}
+
+		_, err = tx.Exec(`DELETE FROM chain_indices`)
+		if err != nil {
+			return fmt.Errorf("failed to delete chain indices: %w", err)
+		}
+
+		_, err = tx.Exec(`UPDATE global_settings SET last_indexed_height=0, last_indexed_id=$1, element_num_leaves=0`, encode(types.BlockID{}))
+		if err != nil {
+			return fmt.Errorf("failed to reset global settings: %w", err)
+		}
+		return nil
+	})
+}
+
 func getSiacoinStateElements(tx *txn) ([]stateElement, error) {
 	const query = `SELECT id, leaf_index, merkle_proof FROM siacoin_elements`
 	rows, err := tx.Query(query)
@@ -1212,7 +1258,7 @@ RETURNING id, address_id, siafund_value`, index.Height, encode(index.ID))
 func deleteOrphanedSiafundElements(tx *txn, index types.ChainIndex, log *zap.Logger) (map[int64]uint64, error) {
 	rows, err := tx.Query(`DELETE FROM siafund_elements WHERE id IN (SELECT se.id FROM siafund_elements se
 INNER JOIN chain_indices ci ON (ci.id=se.chain_index_id)
-WHERE ci.height=$1 AND ci.block_id<>$2) 
+WHERE ci.height=$1 AND ci.block_id<>$2)
 RETURNING id, address_id, siafund_value, spent_index_id IS NOT NULL`, index.Height, encode(index.ID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query siafund elements: %w", err)

@@ -577,13 +577,13 @@ func TestWalletAddresses(t *testing.T) {
 		SpendPolicy: &spendPolicy,
 		Description: "hello, world",
 	}
-	err = db.AddWalletAddress(w.ID, addr)
+	err = wm.AddAddress(w.ID, addr)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Check that the address was added
-	addresses, err := db.WalletAddresses(w.ID)
+	addresses, err := wm.Addresses(w.ID)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(addresses) != 1 {
@@ -600,12 +600,12 @@ func TestWalletAddresses(t *testing.T) {
 	addr.Description = "goodbye, world"
 	addr.Metadata = json.RawMessage(`{"foo": "bar"}`)
 
-	if err := db.AddWalletAddress(w.ID, addr); err != nil {
+	if err := wm.AddAddress(w.ID, addr); err != nil {
 		t.Fatal(err)
 	}
 
 	// Check that the address was added
-	addresses, err = db.WalletAddresses(w.ID)
+	addresses, err = wm.Addresses(w.ID)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(addresses) != 1 {
@@ -621,13 +621,13 @@ func TestWalletAddresses(t *testing.T) {
 	}
 
 	// Remove the address
-	err = db.RemoveWalletAddress(w.ID, address)
+	err = wm.RemoveAddress(w.ID, address)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Check that the address was removed
-	addresses, err = db.WalletAddresses(w.ID)
+	addresses, err = wm.Addresses(w.ID)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(addresses) != 0 {
@@ -3511,4 +3511,130 @@ func TestEventTypes(t *testing.T) {
 		mineBlock(1, types.VoidAddress)
 		assertEvent(t, types.Hash256(types.SiafundOutputID(sfe[0].ID).V2ClaimOutputID()), wallet.EventTypeSiafundClaim, claimValue, types.ZeroCurrency, cm.Tip().Height+144)
 	})
+}
+
+func TestReset(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
+	network, genesisBlock := testutil.Network()
+	// send the siafunds to the owned address
+	genesisBlock.Transactions[0].SiafundOutputs[0].Address = addr
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(t.TempDir(), "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm1 := chain.NewManager(store, genesisState)
+
+	bdb2, err := coreutils.OpenBoltChainDB(filepath.Join(t.TempDir(), "consensus2.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb2.Close()
+	store2, genesisState2, err := chain.NewDBStore(bdb2, network, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm2 := chain.NewManager(store2, genesisState2)
+
+	// mine blocks before starting the wallet manager
+	for i := 0; i < 25; i++ {
+		// blocks on the first chain manager go to the void
+		b1, ok := coreutils.MineBlock(cm1, types.VoidAddress, 15*time.Second)
+		if !ok {
+			t.Fatal("failed to mine block")
+		} else if err := cm1.AddBlocks([]types.Block{b1}); err != nil {
+			t.Fatal(err)
+		}
+
+		// blocks on the second one go to the primary address
+		b2, ok := coreutils.MineBlock(cm2, addr, 15*time.Second)
+		if !ok {
+			t.Fatal("failed to mine block")
+		} else if err := cm2.AddBlocks([]types.Block{b2}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "walletd.sqlite3"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// wait for the manager to sync to the first chain
+	wm, err := wallet.NewManager(cm1, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	waitForBlock(t, cm1, db)
+
+	assertBalance := func(t *testing.T, addr types.Address, siacoin, immature types.Currency, siafund uint64) {
+		t.Helper()
+
+		balance, err := db.AddressBalance(addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case !balance.Siacoins.Equals(siacoin):
+			t.Fatalf("expected %v SC, got %v", siacoin, balance.Siacoins)
+		case !balance.ImmatureSiacoins.Equals(immature):
+			t.Fatalf("expected immature %v SC, got %v", siacoin, balance.Siacoins)
+		case balance.Siafunds != siafund:
+			t.Fatalf("expected %v siafunds, got %v", siafund, balance.Siafunds)
+		}
+	}
+
+	assertBalance(t, addr, types.ZeroCurrency, types.ZeroCurrency, 10000)
+
+	// close the manager
+	if err := wm.Close(); err != nil {
+		t.Fatal()
+	}
+
+	// calculate the expected balances
+	_, applied, err := cm2.UpdatesSince(types.ChainIndex{}, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var siacoinElements []types.SiacoinElement
+	for _, cau := range applied {
+		cau.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
+			if created && sce.SiacoinOutput.Address == addr {
+				siacoinElements = append(siacoinElements, sce)
+			}
+		})
+	}
+
+	var expectedSiacoins, expectedImmature types.Currency
+	for _, sce := range siacoinElements {
+		if sce.MaturityHeight > cm2.Tip().Height {
+			expectedImmature = expectedImmature.Add(sce.SiacoinOutput.Value)
+		} else {
+			expectedSiacoins = expectedSiacoins.Add(sce.SiacoinOutput.Value)
+		}
+	}
+
+	wm, err = wallet.NewManager(cm2, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	waitForBlock(t, cm2, db)
+
+	assertBalance(t, addr, expectedSiacoins, expectedImmature, genesisState.SiafundCount())
 }
