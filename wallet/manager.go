@@ -36,6 +36,12 @@ const (
 
 const defaultSyncBatchSize = 1
 
+var (
+	// ErrInsufficientFunds is returned when there are not enough funds to
+	// fund a transaction.
+	ErrInsufficientFunds = errors.New("insufficient funds")
+)
+
 type (
 	// An IndexMode determines the chain state that the wallet manager stores.
 	IndexMode uint8
@@ -63,6 +69,7 @@ type (
 		UpdateWallet(Wallet) (Wallet, error)
 		DeleteWallet(walletID ID) error
 		WalletBalance(walletID ID) (Balance, error)
+		WalletAddress(ID, types.Address) (Address, error)
 		WalletSiacoinOutputs(walletID ID, index types.ChainIndex, offset, limit int) ([]types.SiacoinElement, error)
 		WalletSiafundOutputs(walletID ID, offset, limit int) ([]types.SiafundElement, error)
 		WalletAddresses(walletID ID) ([]Address, error)
@@ -265,6 +272,240 @@ func (m *Manager) Reserve(ids []types.Hash256, duration time.Duration) error {
 	return nil
 }
 
+// Release releases the given ids.
+func (m *Manager) Release(ids []types.Hash256) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, id := range ids {
+		delete(m.used, id)
+	}
+}
+
+// SelectSiacoinElements selects siacoin elements from the wallet that sum to
+// at least the given amount. Returns the elements, the element basis, and the
+// change amount. The selected elements are locked for the given duration.
+func (m *Manager) SelectSiacoinElements(walletID ID, amount types.Currency, useUnconfirmed bool, expiration time.Duration) ([]types.SiacoinElement, types.ChainIndex, types.Currency, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	knownAddresses := make(map[types.Address]bool)
+	relevantAddr := func(addr types.Address) bool {
+		if exists, ok := knownAddresses[addr]; ok {
+			return exists
+		}
+		_, err := m.store.WalletAddress(walletID, addr)
+		if errors.Is(err, ErrNotFound) {
+			knownAddresses[addr] = false
+			return false
+		} else if err != nil {
+			panic(err)
+		}
+		knownAddresses[addr] = true
+		return true
+	}
+
+	ephemeral := make(map[types.SiacoinOutputID]types.SiacoinElement)
+	inPool := make(map[types.SiacoinOutputID]bool)
+	for _, txn := range m.chain.PoolTransactions() {
+		for _, sci := range txn.SiacoinInputs {
+			inPool[sci.ParentID] = true
+			delete(ephemeral, sci.ParentID)
+		}
+		for i, sco := range txn.SiacoinOutputs {
+			if relevantAddr(sco.Address) {
+				scoid := txn.SiacoinOutputID(i)
+				ephemeral[scoid] = types.SiacoinElement{
+					ID:            scoid,
+					StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
+					SiacoinOutput: sco,
+				}
+			}
+		}
+	}
+	for _, txn := range m.chain.V2PoolTransactions() {
+		for _, sci := range txn.SiacoinInputs {
+			inPool[sci.Parent.ID] = true
+			delete(ephemeral, sci.Parent.ID)
+		}
+		for i, sco := range txn.SiacoinOutputs {
+			if relevantAddr(sco.Address) {
+				sce := txn.EphemeralSiacoinOutput(i)
+				ephemeral[sce.ID] = sce
+			}
+		}
+	}
+
+	tip := m.chain.Tip()
+	if amount.IsZero() {
+		return nil, tip, types.ZeroCurrency, nil
+	}
+
+	var inputSum types.Currency
+	var selected []types.SiacoinElement
+	const utxoBatchSize = 100
+top:
+	for i := 0; ; i += utxoBatchSize {
+		// extra large wallets may need to paginate through utxos
+		// to find enough to cover the amount
+		utxos, err := m.store.WalletSiacoinOutputs(walletID, tip, i, utxoBatchSize)
+		if err != nil {
+			return nil, types.ChainIndex{}, types.ZeroCurrency, fmt.Errorf("failed to get siacoin elements: %w", err)
+		} else if len(utxos) == 0 {
+			return nil, types.ChainIndex{}, types.ZeroCurrency, ErrInsufficientFunds
+		}
+
+		for _, sce := range utxos {
+			if inPool[sce.ID] || m.used[types.Hash256(sce.ID)] {
+				continue
+			}
+
+			selected = append(selected, sce)
+			inputSum = inputSum.Add(sce.SiacoinOutput.Value)
+			if inputSum.Cmp(amount) >= 0 {
+				break top
+			}
+		}
+	}
+
+	if inputSum.Cmp(amount) < 0 {
+		if !useUnconfirmed {
+			return nil, types.ChainIndex{}, types.ZeroCurrency, ErrInsufficientFunds
+		}
+
+		for _, sce := range ephemeral {
+			if inPool[sce.ID] || m.used[types.Hash256(sce.ID)] {
+				continue
+			}
+
+			selected = append(selected, sce)
+			inputSum = inputSum.Add(sce.SiacoinOutput.Value)
+			if inputSum.Cmp(amount) >= 0 {
+				break
+			}
+		}
+	}
+
+	if inputSum.Cmp(amount) < 0 {
+		return nil, types.ChainIndex{}, types.ZeroCurrency, ErrInsufficientFunds
+	}
+
+	for _, sce := range selected {
+		m.used[types.Hash256(sce.ID)] = true
+	}
+	time.AfterFunc(expiration, func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		for _, sce := range selected {
+			delete(m.used, types.Hash256(sce.ID))
+		}
+	})
+	return selected, tip, inputSum.Sub(amount), nil
+}
+
+// SelectSiafundElements selects siacoin elements from the wallet that sum to
+// at least the given amount. Returns the elements, the element basis, and the
+// change amount. The selected elements are locked for the given
+// duration.
+func (m *Manager) SelectSiafundElements(walletID ID, amount uint64, expiration time.Duration) ([]types.SiafundElement, types.ChainIndex, uint64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	tip := m.chain.Tip()
+	if amount == 0 {
+		return nil, tip, 0, nil
+	}
+
+	knownAddresses := make(map[types.Address]bool)
+	relevantAddr := func(addr types.Address) bool {
+		if exists, ok := knownAddresses[addr]; ok {
+			return exists
+		}
+		_, err := m.store.WalletAddress(walletID, addr)
+		if errors.Is(err, ErrNotFound) {
+			knownAddresses[addr] = false
+			return false
+		} else if err != nil {
+			panic(err)
+		}
+		knownAddresses[addr] = true
+		return true
+	}
+
+	ephemeral := make(map[types.SiafundOutputID]types.SiafundElement)
+	inPool := make(map[types.SiafundOutputID]bool)
+	for _, txn := range m.chain.PoolTransactions() {
+		for _, sfi := range txn.SiafundInputs {
+			inPool[sfi.ParentID] = true
+			delete(ephemeral, sfi.ParentID)
+		}
+		for i, sfo := range txn.SiafundOutputs {
+			if relevantAddr(sfo.Address) {
+				sfoid := txn.SiafundOutputID(i)
+				ephemeral[sfoid] = types.SiafundElement{
+					ID:            sfoid,
+					StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
+					SiafundOutput: sfo,
+				}
+			}
+		}
+	}
+	for _, txn := range m.chain.V2PoolTransactions() {
+		for _, sfi := range txn.SiafundInputs {
+			inPool[sfi.Parent.ID] = true
+			delete(ephemeral, sfi.Parent.ID)
+		}
+		for i, sfo := range txn.SiafundOutputs {
+			if relevantAddr(sfo.Address) {
+				sfe := txn.EphemeralSiafundOutput(i)
+				ephemeral[sfe.ID] = sfe
+			}
+		}
+	}
+
+	var inputSum uint64
+	var selected []types.SiafundElement
+top:
+	for i := 0; ; i++ {
+		utxos, err := m.store.WalletSiafundOutputs(walletID, i, 100)
+		if err != nil {
+			return nil, types.ChainIndex{}, 0, fmt.Errorf("failed to get siacoin elements: %w", err)
+		} else if len(utxos) == 0 {
+			return nil, types.ChainIndex{}, 0, ErrInsufficientFunds
+		}
+
+		for _, sfe := range utxos {
+			if inPool[sfe.ID] || m.used[types.Hash256(sfe.ID)] {
+				continue
+			}
+
+			selected = append(selected, sfe)
+			inputSum += sfe.SiafundOutput.Value
+			if inputSum >= amount {
+				break top
+			}
+		}
+	}
+
+	if inputSum < amount {
+		return nil, types.ChainIndex{}, 0, ErrInsufficientFunds
+	}
+
+	for _, sce := range selected {
+		m.used[types.Hash256(sce.ID)] = true
+	}
+	time.AfterFunc(expiration, func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		for _, sce := range selected {
+			delete(m.used, types.Hash256(sce.ID))
+		}
+	})
+	return selected, tip, inputSum - amount, nil
+}
+
 // Scan rescans the chain starting from the given index. The scan will complete
 // when the chain manager reaches the current tip or the context is canceled.
 func (m *Manager) Scan(ctx context.Context, index types.ChainIndex) error {
@@ -338,6 +579,8 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 		store: store,
 		log:   zap.NewNop(),
 		tg:    threadgroup.New(),
+
+		used: make(map[types.Hash256]bool),
 	}
 
 	for _, opt := range opts {

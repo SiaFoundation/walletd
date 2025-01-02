@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
-	"reflect"
 	"runtime"
 	"sync"
 	"time"
 
 	"go.sia.tech/jape"
 	"go.uber.org/zap"
-	"lukechampine.com/frand"
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/gateway"
@@ -101,6 +99,8 @@ type (
 		Addresses(id wallet.ID) ([]wallet.Address, error)
 		WalletEvents(id wallet.ID, offset, limit int) ([]wallet.Event, error)
 		WalletUnconfirmedEvents(id wallet.ID) ([]wallet.Event, error)
+		SelectSiacoinElements(walletID wallet.ID, amount types.Currency, useUnconfirmed bool, expiration time.Duration) ([]types.SiacoinElement, types.ChainIndex, types.Currency, error)
+		SelectSiafundElements(walletID wallet.ID, amount uint64, expiration time.Duration) ([]types.SiafundElement, types.ChainIndex, uint64, error)
 		UnspentSiacoinOutputs(id wallet.ID, offset, limit int) ([]types.SiacoinElement, error)
 		UnspentSiafundOutputs(id wallet.ID, offset, limit int) ([]types.SiafundElement, error)
 		WalletBalance(id wallet.ID) (wallet.Balance, error)
@@ -116,7 +116,8 @@ type (
 		SiacoinElement(types.SiacoinOutputID) (types.SiacoinElement, error)
 		SiafundElement(types.SiafundOutputID) (types.SiafundElement, error)
 
-		Reserve(ids []types.Hash256, duration time.Duration) error
+		Reserve([]types.Hash256, time.Duration) error
+		Release([]types.Hash256)
 	}
 )
 
@@ -130,10 +131,6 @@ type server struct {
 	cm  ChainManager
 	s   Syncer
 	wm  WalletManager
-
-	// for walletsReserveHandler
-	mu   sync.Mutex
-	used map[types.Hash256]bool
 
 	scanMu         sync.Mutex // for resubscribe
 	scanInProgress bool
@@ -581,88 +578,55 @@ func (s *server) walletsReserveHandler(jc jape.Context) {
 }
 
 func (s *server) walletsReleaseHandler(jc jape.Context) {
-	var name string
 	var wrr WalletReleaseRequest
-	if jc.DecodeParam("name", &name) != nil || jc.Decode(&wrr) != nil {
+	if jc.Decode(&wrr) != nil {
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+
+	ids := make([]types.Hash256, 0, len(wrr.SiacoinOutputs)+len(wrr.SiafundOutputs))
 	for _, id := range wrr.SiacoinOutputs {
-		delete(s.used, types.Hash256(id))
+		ids = append(ids, types.Hash256(id))
 	}
 	for _, id := range wrr.SiafundOutputs {
-		delete(s.used, types.Hash256(id))
+		ids = append(ids, types.Hash256(id))
 	}
+	s.wm.Release(ids)
 	jc.EmptyResonse()
 }
 
 func (s *server) walletsFundHandler(jc jape.Context) {
-	fundTxn := func(txn *types.Transaction, amount types.Currency, utxos []types.SiacoinElement, changeAddr types.Address, pool []types.Transaction) ([]types.Hash256, error) {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if amount.IsZero() {
-			return nil, nil
-		}
-		inPool := make(map[types.Hash256]bool)
-		for _, ptxn := range pool {
-			for _, in := range ptxn.SiacoinInputs {
-				inPool[types.Hash256(in.ParentID)] = true
-			}
-		}
-		frand.Shuffle(len(utxos), reflect.Swapper(utxos))
-		var outputSum types.Currency
-		var fundingElements []types.SiacoinElement
-		for _, sce := range utxos {
-			if s.used[types.Hash256(sce.ID)] || inPool[types.Hash256(sce.ID)] {
-				continue
-			}
-			fundingElements = append(fundingElements, sce)
-			outputSum = outputSum.Add(sce.SiacoinOutput.Value)
-			if outputSum.Cmp(amount) >= 0 {
-				break
-			}
-		}
-		if outputSum.Cmp(amount) < 0 {
-			return nil, errors.New("insufficient balance")
-		} else if outputSum.Cmp(amount) > 0 {
-			if changeAddr == types.VoidAddress {
-				return nil, errors.New("change address must be specified")
-			}
-			txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
-				Value:   outputSum.Sub(amount),
-				Address: changeAddr,
-			})
-		}
-
-		toSign := make([]types.Hash256, len(fundingElements))
-		for i, sce := range fundingElements {
-			txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
-				ParentID: types.SiacoinOutputID(sce.ID),
-				// UnlockConditions left empty for client to fill in
-			})
-			toSign[i] = types.Hash256(sce.ID)
-			s.used[types.Hash256(sce.ID)] = true
-		}
-
-		return toSign, nil
-	}
-
 	var id wallet.ID
 	var wfr WalletFundRequest
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&wfr) != nil {
 		return
 	}
-	utxos, err := s.wm.UnspentSiacoinOutputs(id, 0, 1000)
+	utxos, _, change, err := s.wm.SelectSiacoinElements(id, wfr.Amount, false, time.Hour)
 	if jc.Check("couldn't get utxos to fund transaction", err) != nil {
 		return
 	}
 
 	txn := wfr.Transaction
-	toSign, err := fundTxn(&txn, wfr.Amount, utxos, wfr.ChangeAddress, s.cm.PoolTransactions())
-	if jc.Check("couldn't fund transaction", err) != nil {
-		return
+	if !change.IsZero() {
+		if wfr.ChangeAddress == types.VoidAddress {
+			jc.Error(errors.New("change address must be specified"), http.StatusBadRequest)
+			return
+		}
+
+		txn.SiacoinOutputs = append(txn.SiacoinOutputs, types.SiacoinOutput{
+			Value:   change,
+			Address: wfr.ChangeAddress,
+		})
 	}
+
+	toSign := make([]types.Hash256, 0, len(utxos))
+	for _, sce := range utxos {
+		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
+			ParentID: sce.ID,
+			// UnlockConditions left empty for client to fill in
+		})
+		toSign = append(toSign, types.Hash256(sce.ID))
+	}
+
 	jc.Encode(WalletFundResponse{
 		Transaction: txn,
 		ToSign:      toSign,
@@ -671,71 +635,37 @@ func (s *server) walletsFundHandler(jc jape.Context) {
 }
 
 func (s *server) walletsFundSFHandler(jc jape.Context) {
-	fundTxn := func(txn *types.Transaction, amount uint64, utxos []types.SiafundElement, changeAddr, claimAddr types.Address, pool []types.Transaction) ([]types.Hash256, error) {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if amount == 0 {
-			return nil, nil
-		}
-		inPool := make(map[types.Hash256]bool)
-		for _, ptxn := range pool {
-			for _, in := range ptxn.SiafundInputs {
-				inPool[types.Hash256(in.ParentID)] = true
-			}
-		}
-		frand.Shuffle(len(utxos), reflect.Swapper(utxos))
-		var outputSum uint64
-		var fundingElements []types.SiafundElement
-		for _, sfe := range utxos {
-			if s.used[types.Hash256(sfe.ID)] || inPool[types.Hash256(sfe.ID)] {
-				continue
-			}
-			fundingElements = append(fundingElements, sfe)
-			outputSum += sfe.SiafundOutput.Value
-			if outputSum >= amount {
-				break
-			}
-		}
-		if outputSum < amount {
-			return nil, errors.New("insufficient balance")
-		} else if outputSum > amount {
-			if changeAddr == types.VoidAddress {
-				return nil, errors.New("change address must be specified")
-			}
-			txn.SiafundOutputs = append(txn.SiafundOutputs, types.SiafundOutput{
-				Value:   outputSum - amount,
-				Address: changeAddr,
-			})
-		}
-
-		toSign := make([]types.Hash256, len(fundingElements))
-		for i, sfe := range fundingElements {
-			txn.SiafundInputs = append(txn.SiafundInputs, types.SiafundInput{
-				ParentID:     types.SiafundOutputID(sfe.ID),
-				ClaimAddress: claimAddr,
-				// UnlockConditions left empty for client to fill in
-			})
-			toSign[i] = types.Hash256(sfe.ID)
-			s.used[types.Hash256(sfe.ID)] = true
-		}
-
-		return toSign, nil
-	}
-
 	var id wallet.ID
 	var wfr WalletFundSFRequest
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&wfr) != nil {
 		return
 	}
-	utxos, err := s.wm.UnspentSiafundOutputs(id, 0, 1000)
+	utxos, _, change, err := s.wm.SelectSiafundElements(id, wfr.Amount, time.Hour)
 	if jc.Check("couldn't get utxos to fund transaction", err) != nil {
 		return
 	}
 
 	txn := wfr.Transaction
-	toSign, err := fundTxn(&txn, wfr.Amount, utxos, wfr.ChangeAddress, wfr.ClaimAddress, s.cm.PoolTransactions())
-	if jc.Check("couldn't fund transaction", err) != nil {
-		return
+	if change > 0 {
+		if wfr.ChangeAddress == types.VoidAddress {
+			jc.Error(errors.New("change address must be specified"), http.StatusBadRequest)
+			return
+		}
+
+		txn.SiafundOutputs = append(txn.SiafundOutputs, types.SiafundOutput{
+			Value:   change,
+			Address: wfr.ChangeAddress,
+		})
+	}
+
+	toSign := make([]types.Hash256, 0, len(utxos))
+	for _, sce := range utxos {
+		txn.SiafundInputs = append(txn.SiafundInputs, types.SiafundInput{
+			ParentID:     sce.ID,
+			ClaimAddress: wfr.ChangeAddress,
+			// UnlockConditions left empty for client to fill in
+		})
+		toSign = append(toSign, types.Hash256(sce.ID))
 	}
 	jc.Encode(WalletFundResponse{
 		Transaction: txn,
@@ -924,10 +854,9 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		publicEndpoints: false,
 		startTime:       time.Now(),
 
-		cm:   cm,
-		s:    s,
-		wm:   wm,
-		used: make(map[types.Hash256]bool),
+		cm: cm,
+		s:  s,
+		wm: wm,
 	}
 	for _, opt := range opts {
 		opt(&srv)
