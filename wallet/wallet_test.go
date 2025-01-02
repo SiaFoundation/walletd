@@ -58,7 +58,6 @@ func testV2Network(siafundAddr types.Address) (*consensus.Network, types.Block) 
 	n, genesisBlock := chain.TestnetZen()
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = siafundAddr
 	n.InitialTarget = types.BlockID{0xFF}
-	n.MaturityDelay = 5
 	n.HardforkDevAddr.Height = 1
 	n.HardforkTax.Height = 1
 	n.HardforkStorageProof.Height = 1
@@ -116,10 +115,9 @@ func TestSelectSiacoins(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
+	network, genesisBlock := testutil.Network()
 	network.InitialCoinbase = types.Siacoins(100)
 	network.MinimumCoinbase = types.Siacoins(100)
-	network.MaturityDelay = 5
 
 	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
 	if err != nil {
