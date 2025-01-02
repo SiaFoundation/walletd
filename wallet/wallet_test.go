@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/bits"
 	"path/filepath"
@@ -40,6 +41,7 @@ func testV1Network(siafundAddr types.Address) (*consensus.Network, types.Block) 
 	n, genesisBlock := chain.TestnetZen()
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = siafundAddr
 	n.InitialTarget = types.BlockID{0xFF}
+	n.MaturityDelay = 5
 	n.HardforkDevAddr.Height = 1
 	n.HardforkTax.Height = 1
 	n.HardforkStorageProof.Height = 1
@@ -56,6 +58,7 @@ func testV2Network(siafundAddr types.Address) (*consensus.Network, types.Block) 
 	n, genesisBlock := chain.TestnetZen()
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = siafundAddr
 	n.InitialTarget = types.BlockID{0xFF}
+	n.MaturityDelay = 5
 	n.HardforkDevAddr.Height = 1
 	n.HardforkTax.Height = 1
 	n.HardforkStorageProof.Height = 1
@@ -96,6 +99,174 @@ func mineV2Block(state consensus.State, txns []types.V2Transaction, minerAddr ty
 		b.Nonce += state.NonceFactor()
 	}
 	return b
+}
+
+func TestSelectSiacoins(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
+	network.InitialCoinbase = types.Siacoins(100)
+	network.MinimumCoinbase = types.Siacoins(100)
+	network.MaturityDelay = 5
+
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(store, genesisState)
+
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sk := types.GeneratePrivateKey()
+	uc := types.UnlockConditions{
+		PublicKeys:         []types.UnlockKey{sk.PublicKey().UnlockKey()},
+		SignaturesRequired: 1,
+	}
+	addr := uc.UnlockHash()
+
+	err = wm.AddAddress(w.ID, wallet.Address{
+		Address: addr,
+		SpendPolicy: &types.SpendPolicy{
+			Type: types.PolicyTypeUnlockConditions(uc),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mineAndSync := func(t *testing.T, addr types.Address, n int) {
+		t.Helper()
+
+		for i := 0; i < n; i++ {
+			testutil.MineBlocks(t, cm, addr, 1)
+			waitForBlock(t, cm, db)
+		}
+	}
+	// mine enough utxos to ensure the pagination works
+	mineAndSync(t, addr, 200)
+	// mine until all the wallet's outputs are mature
+	mineAndSync(t, types.VoidAddress, int(cm.TipState().Network.MaturityDelay))
+
+	// check that the wallet has 200 matured outputs
+	utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 200 {
+		t.Fatalf("expected 200 outputs, got %v", len(utxos))
+	}
+
+	balance, err := wm.WalletBalance(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// fund a transaction with more than the wallet balance
+	_, _, _, err = wm.SelectSiacoinElements(w.ID, balance.Siacoins.Add(types.Siacoins(1)), false, time.Minute)
+	if !errors.Is(err, wallet.ErrInsufficientFunds) {
+		t.Fatal("expected insufficient funds error")
+	}
+
+	// fund multiple overlapping transactions to ensure no double spends
+	var selected []types.Hash256
+	seen := make(map[types.SiacoinOutputID]bool)
+	for i := 0; i < len(utxos); i++ {
+		utxos, _, change, err := wm.SelectSiacoinElements(w.ID, types.Siacoins(1), false, time.Minute)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(utxos) != 1 { // one UTXO should always be enough to cover
+			t.Fatalf("expected 1 output, got %v", len(utxos))
+		} else if seen[utxos[0].ID] {
+			t.Fatalf("double spend %v", utxos[0].ID)
+		} else if !change.Equals(types.Siacoins(99)) {
+			t.Fatalf("expected 99 SC change, got %v", change)
+		}
+		seen[utxos[0].ID] = true
+		selected = append(selected, types.Hash256(utxos[0].ID))
+	}
+
+	// all available outputs should be locked
+	_, _, _, err = wm.SelectSiacoinElements(w.ID, types.Siacoins(1), false, time.Minute)
+	if !errors.Is(err, wallet.ErrInsufficientFunds) {
+		t.Fatal("expected insufficient funds error")
+	}
+	// release the selected outputs
+	wm.Release(selected)
+
+	// fund and broadcast a transaction
+	utxos, basis, change, err := wm.SelectSiacoinElements(w.ID, types.Siacoins(101), false, time.Minute) // uses two outputs
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 2 {
+		t.Fatalf("expected 2 outputs, got %v", len(utxos))
+	} else if !change.Equals(types.Siacoins(99)) {
+		t.Fatalf("expected 99 SC change, got %v", change)
+	} else if basis != cm.Tip() {
+		t.Fatalf("expected tip, got %v", basis)
+	}
+	txn := types.Transaction{
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: types.VoidAddress, Value: types.Siacoins(101)},
+			{Address: addr, Value: change},
+		},
+	}
+	for _, utxo := range utxos {
+		txn.SiacoinInputs = append(txn.SiacoinInputs, types.SiacoinInput{
+			ParentID:         types.SiacoinOutputID(utxo.ID),
+			UnlockConditions: uc,
+		})
+		txn.Signatures = append(txn.Signatures, types.TransactionSignature{
+			ParentID:      types.Hash256(utxo.ID),
+			CoveredFields: types.CoveredFields{WholeTransaction: true},
+		})
+	}
+	for i := range txn.Signatures {
+		sigHash := cm.TipState().WholeSigHash(txn, txn.Signatures[i].ParentID, 0, 0, nil)
+		sig := sk.SignHash(sigHash)
+		txn.Signatures[i].Signature = sig[:]
+	}
+
+	known, err := cm.AddPoolTransactions([]types.Transaction{txn})
+	if err != nil {
+		t.Fatal(err)
+	} else if known {
+		t.Fatal("transaction was already known")
+	}
+
+	mineAndSync(t, types.VoidAddress, 1)
+
+	events, err := wm.WalletEvents(w.ID, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %v", len(events))
+	} else if events[0].Type != wallet.EventTypeV1Transaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
+	} else if events[0].ID != types.Hash256(txn.ID()) {
+		t.Fatalf("expected %v, got %v", txn.ID(), events[0].ID)
+	} else if !events[0].SiacoinOutflow().Sub(events[0].SiacoinInflow()).Equals(types.Siacoins(101)) {
+		t.Fatalf("expected transaction value 101 SC, got %v", events[0].SiacoinOutflow().Sub(events[0].SiacoinInflow()))
+	}
 }
 
 func TestReorg(t *testing.T) {
