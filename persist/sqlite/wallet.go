@@ -176,6 +176,24 @@ func (s *Store) RemoveWalletAddress(id wallet.ID, address types.Address) error {
 	})
 }
 
+// WalletAddress returns an address registered to the wallet.
+func (s *Store) WalletAddress(id wallet.ID, address types.Address) (addr wallet.Address, err error) {
+	err = s.transaction(func(tx *txn) error {
+		if err := walletExists(tx, id); err != nil {
+			return err
+		}
+
+		const query = `SELECT sa.sia_address, wa.description, wa.spend_policy, wa.extra_data
+FROM wallet_addresses wa
+INNER JOIN sia_addresses sa ON (sa.id = wa.address_id)
+WHERE wa.wallet_id=$1 AND sa.sia_address=$2`
+
+		addr, err = scanWalletAddress(tx.QueryRow(query, id, encode(address)))
+		return err
+	})
+	return
+}
+
 // WalletAddresses returns a slice of addresses registered to the wallet.
 func (s *Store) WalletAddresses(id wallet.ID) (addresses []wallet.Address, err error) {
 	err = s.transaction(func(tx *txn) error {
@@ -195,27 +213,11 @@ WHERE wa.wallet_id=$1`
 		defer rows.Close()
 
 		for rows.Next() {
-			var address wallet.Address
-			var decodedPolicy any
-			if err := rows.Scan(decode(&address.Address), &address.Description, &decodedPolicy, (*[]byte)(&address.Metadata)); err != nil {
+			addr, err := scanWalletAddress(rows)
+			if err != nil {
 				return fmt.Errorf("failed to scan address: %w", err)
 			}
-
-			if decodedPolicy != nil {
-				switch v := decodedPolicy.(type) {
-				case []byte:
-					dec := types.NewBufDecoder(v)
-					address.SpendPolicy = new(types.SpendPolicy)
-					address.SpendPolicy.DecodeFrom(dec)
-					if err := dec.Err(); err != nil {
-						return fmt.Errorf("failed to decode spend policy: %w", err)
-					}
-				default:
-					return fmt.Errorf("unexpected spend policy type: %T", decodedPolicy)
-				}
-			}
-
-			addresses = append(addresses, address)
+			addresses = append(addresses, addr)
 		}
 		return rows.Err()
 	})
@@ -609,6 +611,32 @@ RETURNING id`
 
 	err = tx.QueryRow(query, encode(addr), encode(types.ZeroCurrency), encode(types.ZeroCurrency)).Scan(&id)
 	return
+}
+
+func scanWalletAddress(s scanner) (wallet.Address, error) {
+	var address wallet.Address
+	var decodedPolicy any
+	if err := s.Scan(decode(&address.Address), &address.Description, &decodedPolicy, (*[]byte)(&address.Metadata)); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return wallet.Address{}, wallet.ErrNotFound
+		}
+		return wallet.Address{}, fmt.Errorf("failed to scan address: %w", err)
+	}
+
+	if decodedPolicy != nil {
+		switch v := decodedPolicy.(type) {
+		case []byte:
+			dec := types.NewBufDecoder(v)
+			address.SpendPolicy = new(types.SpendPolicy)
+			address.SpendPolicy.DecodeFrom(dec)
+			if err := dec.Err(); err != nil {
+				return wallet.Address{}, fmt.Errorf("failed to decode spend policy: %w", err)
+			}
+		default:
+			return wallet.Address{}, fmt.Errorf("unexpected spend policy type: %T", decodedPolicy)
+		}
+	}
+	return address, nil
 }
 
 func fillElementProofs(tx *txn, indices []uint64) (proofs [][]types.Hash256, _ error) {
