@@ -1,6 +1,10 @@
 package wallet
 
-import "go.uber.org/zap"
+import (
+	"time"
+
+	"go.uber.org/zap"
+)
 
 // An Option configures a wallet Manager.
 type Option func(*Manager)
@@ -25,5 +29,13 @@ func WithIndexMode(mode IndexMode) Option {
 func WithSyncBatchSize(size int) Option {
 	return func(m *Manager) {
 		m.syncBatchSize = size
+	}
+}
+
+// WithLockDuration sets the duration that a UTXO is locked after
+// being selected as an input to a transaction. The default is 1 hour.
+func WithLockDuration(d time.Duration) Option {
+	return func(m *Manager) {
+		m.lockDuration = d
 	}
 }

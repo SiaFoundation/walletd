@@ -41,7 +41,6 @@ func testV1Network(siafundAddr types.Address) (*consensus.Network, types.Block) 
 	n, genesisBlock := chain.TestnetZen()
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = siafundAddr
 	n.InitialTarget = types.BlockID{0xFF}
-	n.MaturityDelay = 5
 	n.HardforkDevAddr.Height = 1
 	n.HardforkTax.Height = 1
 	n.HardforkStorageProof.Height = 1
