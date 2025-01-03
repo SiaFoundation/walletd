@@ -99,8 +99,8 @@ type (
 		Addresses(id wallet.ID) ([]wallet.Address, error)
 		WalletEvents(id wallet.ID, offset, limit int) ([]wallet.Event, error)
 		WalletUnconfirmedEvents(id wallet.ID) ([]wallet.Event, error)
-		SelectSiacoinElements(walletID wallet.ID, amount types.Currency, useUnconfirmed bool, expiration time.Duration) ([]types.SiacoinElement, types.ChainIndex, types.Currency, error)
-		SelectSiafundElements(walletID wallet.ID, amount uint64, expiration time.Duration) ([]types.SiafundElement, types.ChainIndex, uint64, error)
+		SelectSiacoinElements(walletID wallet.ID, amount types.Currency, useUnconfirmed bool) ([]types.SiacoinElement, types.ChainIndex, types.Currency, error)
+		SelectSiafundElements(walletID wallet.ID, amount uint64) ([]types.SiafundElement, types.ChainIndex, uint64, error)
 		UnspentSiacoinOutputs(id wallet.ID, offset, limit int) ([]types.SiacoinElement, error)
 		UnspentSiafundOutputs(id wallet.ID, offset, limit int) ([]types.SiafundElement, error)
 		WalletBalance(id wallet.ID) (wallet.Balance, error)
@@ -116,7 +116,7 @@ type (
 		SiacoinElement(types.SiacoinOutputID) (types.SiacoinElement, error)
 		SiafundElement(types.SiafundOutputID) (types.SiafundElement, error)
 
-		Reserve([]types.Hash256, time.Duration) error
+		Reserve([]types.Hash256) error
 		Release([]types.Hash256)
 	}
 )
@@ -571,7 +571,7 @@ func (s *server) walletsReserveHandler(jc jape.Context) {
 		ids = append(ids, types.Hash256(id))
 	}
 
-	if jc.Check("couldn't reserve outputs", s.wm.Reserve(ids, wrr.Duration)) != nil {
+	if jc.Check("couldn't reserve outputs", s.wm.Reserve(ids)) != nil {
 		return
 	}
 	jc.EmptyResonse()
@@ -600,7 +600,7 @@ func (s *server) walletsFundHandler(jc jape.Context) {
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&wfr) != nil {
 		return
 	}
-	utxos, _, change, err := s.wm.SelectSiacoinElements(id, wfr.Amount, false, time.Hour)
+	utxos, _, change, err := s.wm.SelectSiacoinElements(id, wfr.Amount, false)
 	if jc.Check("couldn't get utxos to fund transaction", err) != nil {
 		return
 	}
@@ -640,7 +640,7 @@ func (s *server) walletsFundSFHandler(jc jape.Context) {
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&wfr) != nil {
 		return
 	}
-	utxos, _, change, err := s.wm.SelectSiafundElements(id, wfr.Amount, time.Hour)
+	utxos, _, change, err := s.wm.SelectSiafundElements(id, wfr.Amount)
 	if jc.Check("couldn't get utxos to fund transaction", err) != nil {
 		return
 	}

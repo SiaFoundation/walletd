@@ -22,6 +22,7 @@ import (
 	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
+	"lukechampine.com/frand"
 )
 
 func waitForBlock(tb testing.TB, cm *chain.Manager, ws wallet.Store) {
@@ -97,6 +98,80 @@ func mineV2Block(state consensus.State, txns []types.V2Transaction, minerAddr ty
 		b.Nonce += state.NonceFactor()
 	}
 	return b
+}
+
+func TestReserve(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	network, genesisBlock := testutil.V2Network()
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(store, genesisState)
+
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithLockDuration(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sk := types.GeneratePrivateKey()
+	sp := types.SpendPolicy{Type: types.PolicyTypePublicKey(sk.PublicKey())}
+	addr := sp.Address()
+
+	err = wm.AddAddress(w.ID, wallet.Address{
+		Address:     addr,
+		SpendPolicy: &sp,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	scoID := types.Hash256(frand.Entropy256())
+	if err := wm.Reserve([]types.Hash256{scoID}); err != nil {
+		t.Fatal(err)
+	}
+
+	// output should be locked
+	if err := wm.Reserve([]types.Hash256{scoID}); !errors.Is(err, wallet.ErrAlreadyReserved) {
+		t.Fatalf("expected output locked error, got %v", err)
+	}
+
+	time.Sleep(3 * time.Second)
+
+	// output should be unlocked
+	if err := wm.Reserve([]types.Hash256{scoID}); err != nil {
+		t.Fatal(err)
+	}
+
+	// output should be locked
+	if err := wm.Reserve([]types.Hash256{scoID}); !errors.Is(err, wallet.ErrAlreadyReserved) {
+		t.Fatalf("expected output locked error, got %v", err)
+	}
+
+	wm.Release([]types.Hash256{scoID})
+	// output should be unlocked
+	if err := wm.Reserve([]types.Hash256{scoID}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSelectSiacoins(t *testing.T) {
@@ -179,7 +254,7 @@ func TestSelectSiacoins(t *testing.T) {
 	}
 
 	// fund a transaction with more than the wallet balance
-	_, _, _, err = wm.SelectSiacoinElements(w.ID, balance.Siacoins.Add(types.Siacoins(1)), false, time.Minute)
+	_, _, _, err = wm.SelectSiacoinElements(w.ID, balance.Siacoins.Add(types.Siacoins(1)), false)
 	if !errors.Is(err, wallet.ErrInsufficientFunds) {
 		t.Fatal("expected insufficient funds error")
 	}
@@ -188,7 +263,7 @@ func TestSelectSiacoins(t *testing.T) {
 	var selected []types.Hash256
 	seen := make(map[types.SiacoinOutputID]bool)
 	for i := 0; i < len(utxos); i++ {
-		utxos, _, change, err := wm.SelectSiacoinElements(w.ID, types.Siacoins(1), false, time.Minute)
+		utxos, _, change, err := wm.SelectSiacoinElements(w.ID, types.Siacoins(1), false)
 		if err != nil {
 			t.Fatal(err)
 		} else if len(utxos) != 1 { // one UTXO should always be enough to cover
@@ -203,7 +278,7 @@ func TestSelectSiacoins(t *testing.T) {
 	}
 
 	// all available outputs should be locked
-	_, _, _, err = wm.SelectSiacoinElements(w.ID, types.Siacoins(1), false, time.Minute)
+	_, _, _, err = wm.SelectSiacoinElements(w.ID, types.Siacoins(1), false)
 	if !errors.Is(err, wallet.ErrInsufficientFunds) {
 		t.Fatal("expected insufficient funds error")
 	}
@@ -211,7 +286,7 @@ func TestSelectSiacoins(t *testing.T) {
 	wm.Release(selected)
 
 	// fund and broadcast a transaction
-	utxos, basis, change, err := wm.SelectSiacoinElements(w.ID, types.Siacoins(101), false, time.Minute) // uses two outputs
+	utxos, basis, change, err := wm.SelectSiacoinElements(w.ID, types.Siacoins(101), false) // uses two outputs
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 2 {

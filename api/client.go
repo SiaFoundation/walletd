@@ -300,7 +300,6 @@ func (c *WalletClient) Reserve(sc []types.SiacoinOutputID, sf []types.SiafundOut
 	err = c.c.POST(fmt.Sprintf("/wallets/%v/reserve", c.id), WalletReserveRequest{
 		SiacoinOutputs: sc,
 		SiafundOutputs: sf,
-		Duration:       duration,
 	}, nil)
 	return
 }

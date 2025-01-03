@@ -41,6 +41,7 @@ var (
 	// ErrInsufficientFunds is returned when there are not enough funds to
 	// fund a transaction.
 	ErrInsufficientFunds = errors.New("insufficient funds")
+	ErrAlreadyReserved   = errors.New("output already reserved")
 )
 
 type (
@@ -159,7 +160,7 @@ func (m *Manager) lockUTXOs(ids ...types.Hash256) {
 func (m *Manager) utxosLocked(ids ...types.Hash256) error {
 	for _, id := range ids {
 		if m.used[id].After(time.Now()) {
-			return fmt.Errorf("output %q is locked", id)
+			return fmt.Errorf("failed to lock output %q: %w", id, ErrAlreadyReserved)
 		}
 	}
 	return nil
@@ -267,7 +268,7 @@ func (m *Manager) UnconfirmedEvents() ([]Event, error) {
 }
 
 // Reserve reserves the given ids for the given duration.
-func (m *Manager) Reserve(ids []types.Hash256, duration time.Duration) error {
+func (m *Manager) Reserve(ids []types.Hash256) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -292,7 +293,7 @@ func (m *Manager) Release(ids []types.Hash256) {
 // SelectSiacoinElements selects siacoin elements from the wallet that sum to
 // at least the given amount. Returns the elements, the element basis, and the
 // change amount. The selected elements are locked for the given duration.
-func (m *Manager) SelectSiacoinElements(walletID ID, amount types.Currency, useUnconfirmed bool, expiration time.Duration) ([]types.SiacoinElement, types.ChainIndex, types.Currency, error) {
+func (m *Manager) SelectSiacoinElements(walletID ID, amount types.Currency, useUnconfirmed bool) ([]types.SiacoinElement, types.ChainIndex, types.Currency, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -412,7 +413,7 @@ top:
 // at least the given amount. Returns the elements, the element basis, and the
 // change amount. The selected elements are locked for the given
 // duration.
-func (m *Manager) SelectSiafundElements(walletID ID, amount uint64, expiration time.Duration) ([]types.SiafundElement, types.ChainIndex, uint64, error) {
+func (m *Manager) SelectSiafundElements(walletID ID, amount uint64) ([]types.SiafundElement, types.ChainIndex, uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
