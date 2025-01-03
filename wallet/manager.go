@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +98,7 @@ type (
 	Manager struct {
 		indexMode     IndexMode
 		syncBatchSize int
+		lockDuration  time.Duration
 
 		chain ChainManager
 		store Store
@@ -104,7 +106,7 @@ type (
 		tg    *threadgroup.ThreadGroup
 
 		mu   sync.Mutex // protects the fields below
-		used map[types.Hash256]bool
+		used map[types.Hash256]time.Time
 	}
 )
 
@@ -140,6 +142,27 @@ func (i *IndexMode) UnmarshalText(buf []byte) error {
 // MarshalText implements the encoding.TextMarshaler interface.
 func (i IndexMode) MarshalText() ([]byte, error) {
 	return []byte(i.String()), nil
+}
+
+// lockUTXOs locks the given UTXOs for the duration of the lock duration.
+// The lock duration is used to prevent double spending when building transactions.
+// It is expected that the caller holds the manager's lock.
+func (m *Manager) lockUTXOs(ids ...types.Hash256) {
+	ts := time.Now().Add(m.lockDuration)
+	for _, id := range ids {
+		m.used[id] = ts
+	}
+}
+
+// utxosLocked returns an error if any of the given UTXOs are locked.
+// It is expected that the caller holds the manager's lock.
+func (m *Manager) utxosLocked(ids ...types.Hash256) error {
+	for _, id := range ids {
+		if m.used[id].After(time.Now()) {
+			return fmt.Errorf("output %q is locked", id)
+		}
+	}
+	return nil
 }
 
 // Tip returns the last scanned chain index of the manager.
@@ -249,26 +272,10 @@ func (m *Manager) Reserve(ids []types.Hash256, duration time.Duration) error {
 	defer m.mu.Unlock()
 
 	// check if any of the ids are already reserved
-	for _, id := range ids {
-		if m.used[id] {
-			return fmt.Errorf("output %q already reserved", id)
-		}
+	if err := m.utxosLocked(ids...); err != nil {
+		return err
 	}
-
-	// reserve the ids
-	for _, id := range ids {
-		m.used[id] = true
-	}
-
-	// sleep for the duration and then unreserve the ids
-	time.AfterFunc(duration, func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-
-		for _, id := range ids {
-			delete(m.used, id)
-		}
-	})
+	m.lockUTXOs(ids...)
 	return nil
 }
 
@@ -290,19 +297,19 @@ func (m *Manager) SelectSiacoinElements(walletID ID, amount types.Currency, useU
 	defer m.mu.Unlock()
 
 	knownAddresses := make(map[types.Address]bool)
-	relevantAddr := func(addr types.Address) bool {
+	relevantAddr := func(addr types.Address) (bool, error) {
 		if exists, ok := knownAddresses[addr]; ok {
-			return exists
+			return exists, nil
 		}
 		_, err := m.store.WalletAddress(walletID, addr)
 		if errors.Is(err, ErrNotFound) {
 			knownAddresses[addr] = false
-			return false
+			return false, nil
 		} else if err != nil {
-			panic(err)
+			return false, err
 		}
 		knownAddresses[addr] = true
-		return true
+		return true, nil
 	}
 
 	ephemeral := make(map[types.SiacoinOutputID]types.SiacoinElement)
@@ -313,7 +320,10 @@ func (m *Manager) SelectSiacoinElements(walletID ID, amount types.Currency, useU
 			delete(ephemeral, sci.ParentID)
 		}
 		for i, sco := range txn.SiacoinOutputs {
-			if relevantAddr(sco.Address) {
+			exists, err := relevantAddr(sco.Address)
+			if err != nil {
+				return nil, types.ChainIndex{}, types.ZeroCurrency, fmt.Errorf("failed to check if address %q is relevant: %w", sco.Address, err)
+			} else if exists {
 				scoid := txn.SiacoinOutputID(i)
 				ephemeral[scoid] = types.SiacoinElement{
 					ID:            scoid,
@@ -329,7 +339,10 @@ func (m *Manager) SelectSiacoinElements(walletID ID, amount types.Currency, useU
 			delete(ephemeral, sci.Parent.ID)
 		}
 		for i, sco := range txn.SiacoinOutputs {
-			if relevantAddr(sco.Address) {
+			exists, err := relevantAddr(sco.Address)
+			if err != nil {
+				return nil, types.ChainIndex{}, types.ZeroCurrency, fmt.Errorf("failed to check if address %q is relevant: %w", sco.Address, err)
+			} else if exists {
 				sce := txn.EphemeralSiacoinOutput(i)
 				ephemeral[sce.ID] = sce
 			}
@@ -343,6 +356,7 @@ func (m *Manager) SelectSiacoinElements(walletID ID, amount types.Currency, useU
 
 	var inputSum types.Currency
 	var selected []types.SiacoinElement
+	var utxoIDs []types.Hash256
 	const utxoBatchSize = 100
 top:
 	for i := 0; ; i += utxoBatchSize {
@@ -356,11 +370,12 @@ top:
 		}
 
 		for _, sce := range utxos {
-			if inPool[sce.ID] || m.used[types.Hash256(sce.ID)] {
+			if inPool[sce.ID] || m.utxosLocked(types.Hash256(sce.ID)) != nil {
 				continue
 			}
 
 			selected = append(selected, sce)
+			utxoIDs = append(utxoIDs, types.Hash256(sce.ID))
 			inputSum = inputSum.Add(sce.SiacoinOutput.Value)
 			if inputSum.Cmp(amount) >= 0 {
 				break top
@@ -374,7 +389,7 @@ top:
 		}
 
 		for _, sce := range ephemeral {
-			if inPool[sce.ID] || m.used[types.Hash256(sce.ID)] {
+			if inPool[sce.ID] || m.utxosLocked(types.Hash256(sce.ID)) != nil {
 				continue
 			}
 
@@ -389,18 +404,7 @@ top:
 	if inputSum.Cmp(amount) < 0 {
 		return nil, types.ChainIndex{}, types.ZeroCurrency, ErrInsufficientFunds
 	}
-
-	for _, sce := range selected {
-		m.used[types.Hash256(sce.ID)] = true
-	}
-	time.AfterFunc(expiration, func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-
-		for _, sce := range selected {
-			delete(m.used, types.Hash256(sce.ID))
-		}
-	})
+	m.lockUTXOs(utxoIDs...)
 	return selected, tip, inputSum.Sub(amount), nil
 }
 
@@ -418,19 +422,19 @@ func (m *Manager) SelectSiafundElements(walletID ID, amount uint64, expiration t
 	}
 
 	knownAddresses := make(map[types.Address]bool)
-	relevantAddr := func(addr types.Address) bool {
+	relevantAddr := func(addr types.Address) (bool, error) {
 		if exists, ok := knownAddresses[addr]; ok {
-			return exists
+			return exists, nil
 		}
 		_, err := m.store.WalletAddress(walletID, addr)
 		if errors.Is(err, ErrNotFound) {
 			knownAddresses[addr] = false
-			return false
+			return false, nil
 		} else if err != nil {
-			panic(err)
+			return false, err
 		}
 		knownAddresses[addr] = true
-		return true
+		return true, nil
 	}
 
 	ephemeral := make(map[types.SiafundOutputID]types.SiafundElement)
@@ -441,7 +445,10 @@ func (m *Manager) SelectSiafundElements(walletID ID, amount uint64, expiration t
 			delete(ephemeral, sfi.ParentID)
 		}
 		for i, sfo := range txn.SiafundOutputs {
-			if relevantAddr(sfo.Address) {
+			exists, err := relevantAddr(sfo.Address)
+			if err != nil {
+				return nil, types.ChainIndex{}, 0, fmt.Errorf("failed to check if address %q is relevant: %w", sfo.Address, err)
+			} else if exists {
 				sfoid := txn.SiafundOutputID(i)
 				ephemeral[sfoid] = types.SiafundElement{
 					ID:            sfoid,
@@ -457,7 +464,10 @@ func (m *Manager) SelectSiafundElements(walletID ID, amount uint64, expiration t
 			delete(ephemeral, sfi.Parent.ID)
 		}
 		for i, sfo := range txn.SiafundOutputs {
-			if relevantAddr(sfo.Address) {
+			exists, err := relevantAddr(sfo.Address)
+			if err != nil {
+				return nil, types.ChainIndex{}, 0, fmt.Errorf("failed to check if address %q is relevant: %w", sfo.Address, err)
+			} else if exists {
 				sfe := txn.EphemeralSiafundOutput(i)
 				ephemeral[sfe.ID] = sfe
 			}
@@ -466,6 +476,7 @@ func (m *Manager) SelectSiafundElements(walletID ID, amount uint64, expiration t
 
 	var inputSum uint64
 	var selected []types.SiafundElement
+	var utxoIDs []types.Hash256
 top:
 	for i := 0; ; i++ {
 		utxos, err := m.store.WalletSiafundOutputs(walletID, i, 100)
@@ -476,11 +487,12 @@ top:
 		}
 
 		for _, sfe := range utxos {
-			if inPool[sfe.ID] || m.used[types.Hash256(sfe.ID)] {
+			if inPool[sfe.ID] || m.utxosLocked(types.Hash256(sfe.ID)) != nil {
 				continue
 			}
 
 			selected = append(selected, sfe)
+			utxoIDs = append(utxoIDs, types.Hash256(sfe.ID))
 			inputSum += sfe.SiafundOutput.Value
 			if inputSum >= amount {
 				break top
@@ -492,17 +504,7 @@ top:
 		return nil, types.ChainIndex{}, 0, ErrInsufficientFunds
 	}
 
-	for _, sce := range selected {
-		m.used[types.Hash256(sce.ID)] = true
-	}
-	time.AfterFunc(expiration, func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-
-		for _, sce := range selected {
-			delete(m.used, types.Hash256(sce.ID))
-		}
-	})
+	m.lockUTXOs(utxoIDs...)
 	return selected, tip, inputSum - amount, nil
 }
 
@@ -574,13 +576,14 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 	m := &Manager{
 		indexMode:     IndexModePersonal,
 		syncBatchSize: defaultSyncBatchSize,
+		lockDuration:  time.Hour,
 
 		chain: cm,
 		store: store,
 		log:   zap.NewNop(),
 		tg:    threadgroup.New(),
 
-		used: make(map[types.Hash256]bool),
+		used: make(map[types.Hash256]time.Time),
 	}
 
 	for _, opt := range opts {
@@ -604,6 +607,32 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 		default:
 		}
 	})
+
+	go func() {
+		ctx, cancel, err := m.tg.AddWithContext(context.Background())
+		if err != nil {
+			log.Panic("failed to add to threadgroup", zap.Error(err))
+		}
+		defer cancel()
+
+		t := time.NewTicker(m.lockDuration / 2)
+		defer t.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				m.mu.Lock()
+				for id, ts := range m.used {
+					if ts.Before(time.Now()) {
+						delete(m.used, id)
+					}
+				}
+				m.mu.Unlock()
+			}
+		}
+	}()
 
 	go func() {
 		defer unsubscribe()
