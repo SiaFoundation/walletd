@@ -51,7 +51,6 @@ type BalanceResponse wallet.Balance
 type WalletReserveRequest struct {
 	SiacoinOutputs []types.SiacoinOutputID `json:"siacoinOutputs"`
 	SiafundOutputs []types.SiafundOutputID `json:"siafundOutputs"`
-	Duration       time.Duration           `json:"duration"`
 }
 
 // A WalletUpdateRequest is a request to update a wallet
