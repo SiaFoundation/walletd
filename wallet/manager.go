@@ -41,7 +41,9 @@ var (
 	// ErrInsufficientFunds is returned when there are not enough funds to
 	// fund a transaction.
 	ErrInsufficientFunds = errors.New("insufficient funds")
-	ErrAlreadyReserved   = errors.New("output already reserved")
+	// ErrAlreadyReserved is returned when trying to reserve an output that is
+	// already reserved.
+	ErrAlreadyReserved = errors.New("output already reserved")
 )
 
 type (
