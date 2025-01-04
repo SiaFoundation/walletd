@@ -294,7 +294,7 @@ func (m *Manager) Release(ids []types.Hash256) {
 
 // SelectSiacoinElements selects siacoin elements from the wallet that sum to
 // at least the given amount. Returns the elements, the element basis, and the
-// change amount. The selected elements are locked for the given duration.
+// change amount.
 func (m *Manager) SelectSiacoinElements(walletID ID, amount types.Currency, useUnconfirmed bool) ([]types.SiacoinElement, types.ChainIndex, types.Currency, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -413,8 +413,7 @@ top:
 
 // SelectSiafundElements selects siacoin elements from the wallet that sum to
 // at least the given amount. Returns the elements, the element basis, and the
-// change amount. The selected elements are locked for the given
-// duration.
+// change amount.
 func (m *Manager) SelectSiafundElements(walletID ID, amount uint64) ([]types.SiafundElement, types.ChainIndex, uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
