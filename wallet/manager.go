@@ -483,7 +483,7 @@ top:
 	for i := 0; ; i++ {
 		utxos, err := m.store.WalletSiafundOutputs(walletID, i, 100)
 		if err != nil {
-			return nil, types.ChainIndex{}, 0, fmt.Errorf("failed to get siacoin elements: %w", err)
+			return nil, types.ChainIndex{}, 0, fmt.Errorf("failed to get siafund elements: %w", err)
 		} else if len(utxos) == 0 {
 			return nil, types.ChainIndex{}, 0, ErrInsufficientFunds
 		}
