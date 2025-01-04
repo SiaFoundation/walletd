@@ -411,7 +411,7 @@ top:
 	return selected, tip, inputSum.Sub(amount), nil
 }
 
-// SelectSiafundElements selects siacoin elements from the wallet that sum to
+// SelectSiafundElements selects siafund elements from the wallet that sum to
 // at least the given amount. Returns the elements, the element basis, and the
 // change amount.
 func (m *Manager) SelectSiafundElements(walletID ID, amount uint64) ([]types.SiafundElement, types.ChainIndex, uint64, error) {
