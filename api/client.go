@@ -46,16 +46,20 @@ func (c *Client) State() (resp StateResponse, err error) {
 }
 
 // TxpoolBroadcast broadcasts a set of transaction to the network.
-func (c *Client) TxpoolBroadcast(txns []types.Transaction, v2txns []types.V2Transaction) (err error) {
-	err = c.c.POST("/txpool/broadcast", TxpoolBroadcastRequest{txns, v2txns}, nil)
+func (c *Client) TxpoolBroadcast(basis types.ChainIndex, txns []types.Transaction, v2txns []types.V2Transaction) (err error) {
+	err = c.c.POST("/txpool/broadcast", TxpoolBroadcastRequest{
+		Basis:          basis,
+		Transactions:   txns,
+		V2Transactions: v2txns,
+	}, nil)
 	return
 }
 
 // TxpoolTransactions returns all transactions in the transaction pool.
-func (c *Client) TxpoolTransactions() (txns []types.Transaction, v2txns []types.V2Transaction, err error) {
+func (c *Client) TxpoolTransactions() (basis types.ChainIndex, txns []types.Transaction, v2txns []types.V2Transaction, err error) {
 	var resp TxpoolTransactionsResponse
 	err = c.c.GET("/txpool/transactions", &resp)
-	return resp.Transactions, resp.V2Transactions, err
+	return resp.Basis, resp.Transactions, resp.V2Transactions, err
 }
 
 // TxpoolParents returns the parents of a transaction that are currently in the
@@ -330,6 +334,26 @@ func (c *WalletClient) FundSF(txn types.Transaction, amount uint64, changeAddr, 
 		Amount:        amount,
 		ChangeAddress: changeAddr,
 		ClaimAddress:  claimAddr,
+	}, &resp)
+	return
+}
+
+// Construct constructs a transaction and returns its ID
+func (c *WalletClient) Construct(siacoins []types.SiacoinOutput, siafunds []types.SiafundOutput, change types.Address) (resp WalletConstructResponse, err error) {
+	err = c.c.POST(fmt.Sprintf("/wallets/%v/construct/transaction", c.id), WalletConstructRequest{
+		Siacoins:      siacoins,
+		Siafunds:      siafunds,
+		ChangeAddress: change,
+	}, &resp)
+	return
+}
+
+// ConstructV2 constructs a v2 transaction and returns its ID
+func (c *WalletClient) ConstructV2(siacoins []types.SiacoinOutput, siafunds []types.SiafundOutput, change types.Address) (resp WalletConstructV2Response, err error) {
+	err = c.c.POST(fmt.Sprintf("/wallets/%v/construct/v2/transaction", c.id), WalletConstructRequest{
+		Siacoins:      siacoins,
+		Siafunds:      siafunds,
+		ChangeAddress: change,
 	}, &resp)
 	return
 }
