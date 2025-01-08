@@ -23,13 +23,13 @@ func runCPUMiner(c *api.Client, minerAddr types.Address, n int) {
 		}
 		elapsed := time.Since(start)
 		cs, err := c.ConsensusTipState()
-		check("Couldn't get consensus tip state:", err)
+		checkFatalError("failed to get consensus tip state:", err)
 		d, _ := new(big.Int).SetString(cs.Difficulty.String(), 10)
 		d.Mul(d, big.NewInt(int64(1+elapsed)))
 		fmt.Printf("\rMining block %4v...(%.2f blocks/day), difficulty %v)", cs.Index.Height+1, float64(blocksFound)*float64(24*time.Hour)/float64(elapsed), cs.Difficulty)
 
 		txns, v2txns, err := c.TxpoolTransactions()
-		check("Couldn't get txpool transactions:", err)
+		checkFatalError("failed to get pool transactions:", err)
 		b := types.Block{
 			ParentID:     cs.Index.ID,
 			Nonce:        cs.NonceFactor() * frand.Uint64n(100),
@@ -56,7 +56,7 @@ func runCPUMiner(c *api.Client, minerAddr types.Address, n int) {
 		blocksFound++
 		index := types.ChainIndex{Height: cs.Index.Height + 1, ID: b.ID()}
 		tip, err := c.ConsensusTip()
-		check("Couldn't get consensus tip:", err)
+		checkFatalError("failed to get consensus tip:", err)
 		if tip != cs.Index {
 			fmt.Printf("\nMined %v but tip changed, starting over\n", index)
 		} else if err := c.SyncerBroadcastBlock(b); err != nil {

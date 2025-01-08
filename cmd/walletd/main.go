@@ -85,12 +85,6 @@ var cfg = config.Config{
 	},
 }
 
-func check(context string, err error) {
-	if err != nil {
-		log.Fatalf("%v: %v", context, err)
-	}
-}
-
 func mustSetAPIPassword() {
 	if cfg.HTTP.Password != "" {
 		return
@@ -111,8 +105,12 @@ func mustSetAPIPassword() {
 	}
 }
 
-func fatalError(err error) {
-	os.Stderr.WriteString(err.Error() + "\n")
+// checkFatalError prints an error message to stderr and exits with a 1 exit code. If err is nil, this is a no-op.
+func checkFatalError(context string, err error) {
+	if err == nil {
+		return
+	}
+	os.Stderr.WriteString(fmt.Sprintf("%s: %s\n", context, err))
 	os.Exit(1)
 }
 
@@ -130,19 +128,13 @@ func tryLoadConfig() {
 	}
 
 	f, err := os.Open(configPath)
-	if err != nil {
-		fatalError(fmt.Errorf("failed to open config file: %w", err))
-		return
-	}
+	checkFatalError("failed to open config file", err)
 	defer f.Close()
 
 	dec := yaml.NewDecoder(f)
 	dec.KnownFields(true)
 
-	if err := dec.Decode(&cfg); err != nil {
-		fmt.Println("failed to decode config file:", err)
-		os.Exit(1)
-	}
+	checkFatalError("failed to decode config file", dec.Decode(&cfg))
 }
 
 // jsonEncoder returns a zapcore.Encoder that encodes logs as JSON intended for
@@ -243,11 +235,13 @@ func main() {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGKILL)
 		defer cancel()
 
-		if err := os.MkdirAll(cfg.Directory, 0700); err != nil {
-			fatalError(fmt.Errorf("failed to create data directory: %w", err))
+		if cfg.Directory != "" {
+			checkFatalError("failed to create data directory", os.MkdirAll(cfg.Directory, 0700))
 		}
 
 		mustSetAPIPassword()
+
+		checkFatalError("failed to parse index mode", cfg.Index.Mode.UnmarshalText([]byte(indexModeStr)))
 
 		var logCores []zapcore.Core
 		if cfg.Log.StdOut.Enabled {
@@ -290,10 +284,7 @@ func main() {
 			}
 
 			fileWriter, closeFn, err := zap.Open(cfg.Log.File.Path)
-			if err != nil {
-				fatalError(fmt.Errorf("failed to open log file: %w", err))
-				return
-			}
+			checkFatalError("failed to open log file", err)
 			defer closeFn()
 
 			// create the file logger
@@ -312,13 +303,7 @@ func main() {
 		// redirect stdlib log to zap
 		zap.RedirectStdLog(log.Named("stdlib"))
 
-		if err := cfg.Index.Mode.UnmarshalText([]byte(indexModeStr)); err != nil {
-			log.Fatal("failed to parse index mode", zap.Error(err))
-		}
-
-		if err := runNode(ctx, cfg, log, enableDebug); err != nil {
-			log.Fatal("failed to run node", zap.Error(err))
-		}
+		checkFatalError("failed to run node", runNode(ctx, cfg, log, enableDebug))
 	case versionCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
