@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -18,9 +19,7 @@ import (
 func readPasswordInput(context string) string {
 	fmt.Printf("%s: ", context)
 	input, err := term.ReadPassword(int(os.Stdin.Fd()))
-	if err != nil {
-		fatalError(fmt.Errorf("could not read password input: %w", err))
-	}
+	checkFatalError("failed to read password input", err)
 	fmt.Println("")
 	return string(input)
 }
@@ -29,9 +28,7 @@ func readInput(context string) string {
 	fmt.Printf("%s: ", context)
 	r := bufio.NewReader(os.Stdin)
 	input, err := r.ReadString('\n')
-	if err != nil {
-		fatalError(fmt.Errorf("could not read input: %w", err))
-	}
+	checkFatalError("failed to read input", err)
 	return strings.TrimSpace(input)
 }
 
@@ -115,9 +112,7 @@ func setDataDirectory() {
 	}
 
 	dir, err := filepath.Abs(cfg.Directory)
-	if err != nil {
-		fatalError(fmt.Errorf("failed to get absolute path of data directory: %w", err))
-	}
+	checkFatalError("failed to get absolute path of data directory", err)
 
 	fmt.Println("The data directory is where walletd will store its metadata and consensus data.")
 	fmt.Println("This directory should be on a fast, reliable storage device, preferably an SSD.")
@@ -200,7 +195,7 @@ func setAdvancedConfig() {
 	case strings.EqualFold(mode, "full"):
 		cfg.Index.Mode = wallet.IndexModeFull
 	default:
-		fatalError(fmt.Errorf("invalid index mode: %q", mode))
+		checkFatalError("invalid index mode", errors.New("must be either 'personal' or 'full'"))
 	}
 
 	fmt.Println("")
@@ -236,21 +231,12 @@ func buildConfig() {
 
 	// write the config file
 	f, err := os.Create(configPath)
-	if err != nil {
-		fatalError(fmt.Errorf("failed to create config file: %w", err))
-		return
-	}
+	checkFatalError("failed to create config file", err)
 	defer f.Close()
 
 	enc := yaml.NewEncoder(f)
-	if err := enc.Encode(cfg); err != nil {
-		fatalError(fmt.Errorf("failed to encode config file: %w", err))
-		return
-	} else if err := f.Sync(); err != nil {
-		fatalError(fmt.Errorf("failed to sync config file: %w", err))
-		return
-	} else if err := f.Close(); err != nil {
-		fatalError(fmt.Errorf("failed to close config file: %w", err))
-		return
-	}
+	defer enc.Close()
+
+	checkFatalError("failed to encode config file", enc.Encode(cfg))
+	checkFatalError("failed to sync config file", f.Sync())
 }
