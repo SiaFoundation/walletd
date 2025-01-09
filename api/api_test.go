@@ -1877,7 +1877,7 @@ func TestConstructV2Siafunds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	} else if len(confirmed) != 3 {
-		t.Fatalf("expected 2 confirmed events, got %v", len(confirmed)) // initial gift + sent transaction + siafund claim
+		t.Fatalf("expected 3 confirmed events, got %v", len(confirmed)) // initial gift + sent transaction + siafund claim
 	}
 	sent = confirmed[1] // confirmed[0] is the siafund claim
 	switch {
