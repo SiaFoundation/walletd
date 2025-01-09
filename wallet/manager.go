@@ -74,8 +74,8 @@ type (
 		DeleteWallet(walletID ID) error
 		WalletBalance(walletID ID) (Balance, error)
 		WalletAddress(ID, types.Address) (Address, error)
-		WalletSiacoinOutputs(walletID ID, index types.ChainIndex, offset, limit int) ([]types.SiacoinElement, error)
-		WalletSiafundOutputs(walletID ID, offset, limit int) ([]types.SiafundElement, error)
+		WalletSiacoinOutputs(walletID ID, offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error)
+		WalletSiafundOutputs(walletID ID, offset, limit int) ([]types.SiafundElement, types.ChainIndex, error)
 		WalletAddresses(walletID ID) ([]Address, error)
 		Wallets() ([]Wallet, error)
 
@@ -215,13 +215,13 @@ func (m *Manager) WalletEvents(walletID ID, offset, limit int) ([]Event, error) 
 
 // UnspentSiacoinOutputs returns a paginated list of matured siacoin outputs
 // relevant to the wallet
-func (m *Manager) UnspentSiacoinOutputs(walletID ID, offset, limit int) ([]types.SiacoinElement, error) {
-	return m.store.WalletSiacoinOutputs(walletID, m.chain.Tip(), offset, limit)
+func (m *Manager) UnspentSiacoinOutputs(walletID ID, offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error) {
+	return m.store.WalletSiacoinOutputs(walletID, offset, limit)
 }
 
 // UnspentSiafundOutputs returns a paginated list of siafund outputs relevant to
 // the wallet
-func (m *Manager) UnspentSiafundOutputs(walletID ID, offset, limit int) ([]types.SiafundElement, error) {
+func (m *Manager) UnspentSiafundOutputs(walletID ID, offset, limit int) ([]types.SiafundElement, types.ChainIndex, error) {
 	return m.store.WalletSiafundOutputs(walletID, offset, limit)
 }
 
@@ -296,6 +296,11 @@ func (m *Manager) Release(ids []types.Hash256) {
 // at least the given amount. Returns the elements, the element basis, and the
 // change amount.
 func (m *Manager) SelectSiacoinElements(walletID ID, amount types.Currency, useUnconfirmed bool) ([]types.SiacoinElement, types.ChainIndex, types.Currency, error) {
+	// sanity check that the wallet exists
+	if _, err := m.WalletBalance(walletID); err != nil {
+		return nil, types.ChainIndex{}, types.ZeroCurrency, err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -352,24 +357,22 @@ func (m *Manager) SelectSiacoinElements(walletID ID, amount types.Currency, useU
 		}
 	}
 
-	tip := m.chain.Tip()
-	if amount.IsZero() {
-		return nil, tip, types.ZeroCurrency, nil
-	}
-
 	var inputSum types.Currency
 	var selected []types.SiacoinElement
 	var utxoIDs []types.Hash256
+	var basis types.ChainIndex
 	const utxoBatchSize = 100
 top:
 	for i := 0; ; i += utxoBatchSize {
+		var utxos []types.SiacoinElement
+		var err error
 		// extra large wallets may need to paginate through utxos
 		// to find enough to cover the amount
-		utxos, err := m.store.WalletSiacoinOutputs(walletID, tip, i, utxoBatchSize)
+		utxos, basis, err = m.store.WalletSiacoinOutputs(walletID, i, utxoBatchSize)
 		if err != nil {
 			return nil, types.ChainIndex{}, types.ZeroCurrency, fmt.Errorf("failed to get siacoin elements: %w", err)
 		} else if len(utxos) == 0 {
-			return nil, types.ChainIndex{}, types.ZeroCurrency, ErrInsufficientFunds
+			break top
 		}
 
 		for _, sce := range utxos {
@@ -408,19 +411,23 @@ top:
 		return nil, types.ChainIndex{}, types.ZeroCurrency, ErrInsufficientFunds
 	}
 	m.lockUTXOs(utxoIDs...)
-	return selected, tip, inputSum.Sub(amount), nil
+	return selected, basis, inputSum.Sub(amount), nil
 }
 
 // SelectSiafundElements selects siafund elements from the wallet that sum to
 // at least the given amount. Returns the elements, the element basis, and the
 // change amount.
 func (m *Manager) SelectSiafundElements(walletID ID, amount uint64) ([]types.SiafundElement, types.ChainIndex, uint64, error) {
+	// sanity check that the wallet exists
+	if _, err := m.WalletBalance(walletID); err != nil {
+		return nil, types.ChainIndex{}, 0, err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	tip := m.chain.Tip()
 	if amount == 0 {
-		return nil, tip, 0, nil
+		return nil, m.chain.Tip(), 0, nil
 	}
 
 	knownAddresses := make(map[types.Address]bool)
@@ -479,13 +486,18 @@ func (m *Manager) SelectSiafundElements(walletID ID, amount uint64) ([]types.Sia
 	var inputSum uint64
 	var selected []types.SiafundElement
 	var utxoIDs []types.Hash256
+	var basis types.ChainIndex
+	const utxoBatchSize = 100
 top:
-	for i := 0; ; i++ {
-		utxos, err := m.store.WalletSiafundOutputs(walletID, i, 100)
+	for i := 0; ; i += utxoBatchSize {
+		var utxos []types.SiafundElement
+		var err error
+
+		utxos, basis, err = m.store.WalletSiafundOutputs(walletID, i, utxoBatchSize)
 		if err != nil {
 			return nil, types.ChainIndex{}, 0, fmt.Errorf("failed to get siafund elements: %w", err)
 		} else if len(utxos) == 0 {
-			return nil, types.ChainIndex{}, 0, ErrInsufficientFunds
+			break top
 		}
 
 		for _, sfe := range utxos {
@@ -507,7 +519,7 @@ top:
 	}
 
 	m.lockUTXOs(utxoIDs...)
-	return selected, tip, inputSum - amount, nil
+	return selected, basis, inputSum - amount, nil
 }
 
 // Scan rescans the chain starting from the given index. The scan will complete

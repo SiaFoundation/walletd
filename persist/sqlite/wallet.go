@@ -225,10 +225,15 @@ WHERE wa.wallet_id=$1`
 }
 
 // WalletSiacoinOutputs returns the unspent siacoin outputs for a wallet.
-func (s *Store) WalletSiacoinOutputs(id wallet.ID, index types.ChainIndex, offset, limit int) (siacoins []types.SiacoinElement, err error) {
+func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins []types.SiacoinElement, basis types.ChainIndex, err error) {
 	err = s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
+		}
+
+		basis, err = getScanBasis(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get basis: %w", err)
 		}
 
 		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address
@@ -237,7 +242,7 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, index types.ChainIndex, offse
 		WHERE se.spent_index_id IS NULL AND se.maturity_height <= $1 AND se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$2)
 		LIMIT $3 OFFSET $4`
 
-		rows, err := tx.Query(query, index.Height, id, limit, offset)
+		rows, err := tx.Query(query, basis.Height, id, limit, offset)
 		if err != nil {
 			return err
 		}
@@ -276,13 +281,18 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, index types.ChainIndex, offse
 }
 
 // WalletSiafundOutputs returns the unspent siafund outputs for a wallet.
-func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds []types.SiafundElement, err error) {
+func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds []types.SiafundElement, basis types.ChainIndex, err error) {
 	err = s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
 		}
 
-		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
+		basis, err = getScanBasis(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get basis: %w", err)
+		}
+
+		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address
 		FROM siafund_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE se.spent_index_id IS NULL AND se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)
@@ -419,7 +429,7 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 			return se, nil
 		}
 
-		siafundElementStmt, err := tx.Prepare(`SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
+		siafundElementStmt, err := tx.Prepare(`SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address
 		FROM siafund_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE se.id=$1`)
@@ -605,8 +615,8 @@ func scanSiafundElement(s scanner) (se types.SiafundElement, err error) {
 }
 
 func insertAddress(tx *txn, addr types.Address) (id int64, err error) {
-	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance) 
-VALUES ($1, $2, $3, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address 
+	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance)
+VALUES ($1, $2, $3, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address
 RETURNING id`
 
 	err = tx.QueryRow(query, encode(addr), encode(types.ZeroCurrency), encode(types.ZeroCurrency)).Scan(&id)
@@ -637,6 +647,11 @@ func scanWalletAddress(s scanner) (wallet.Address, error) {
 		}
 	}
 	return address, nil
+}
+
+func getScanBasis(tx *txn) (index types.ChainIndex, err error) {
+	err = tx.QueryRow(`SELECT last_indexed_id, last_indexed_height FROM global_settings`).Scan(decode(&index.ID), &index.Height)
+	return
 }
 
 func fillElementProofs(tx *txn, indices []uint64) (proofs [][]types.Hash256, _ error) {
@@ -704,7 +719,7 @@ WITH last_chain_index AS (
     SELECT last_indexed_height+1 AS height FROM global_settings LIMIT 1
 ),
 event_ids AS (
-	SELECT 
+	SELECT
 		ev.id
 	FROM events ev
 	INNER JOIN event_addresses ea ON ev.id = ea.event_id
@@ -714,18 +729,18 @@ event_ids AS (
 	ORDER BY ev.maturity_height DESC, ev.id DESC
 	LIMIT $2 OFFSET $3
 )
-SELECT 
-	ev.id, 
-	ev.event_id, 
-	ev.maturity_height, 
-	ev.date_created, 
-	ci.height, 
-	ci.block_id, 
-	CASE 
+SELECT
+	ev.id,
+	ev.event_id,
+	ev.maturity_height,
+	ev.date_created,
+	ci.height,
+	ci.block_id,
+	CASE
 		WHEN last_chain_index.height < ci.height THEN 0
 		ELSE last_chain_index.height - ci.height
 	END AS confirmations,
-	ev.event_type, 
+	ev.event_type,
 	ev.event_data
 FROM events ev
 INNER JOIN event_ids ei ON ev.id = ei.id

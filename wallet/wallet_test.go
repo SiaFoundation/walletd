@@ -241,7 +241,7 @@ func TestSelectSiacoins(t *testing.T) {
 	mineAndSync(t, types.VoidAddress, int(cm.TipState().Network.MaturityDelay))
 
 	// check that the wallet has 200 matured outputs
-	utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 1000)
+	utxos, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 1000)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 200 {
@@ -341,6 +341,145 @@ func TestSelectSiacoins(t *testing.T) {
 	}
 }
 
+func TestSelectSiafunds(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	sk := types.GeneratePrivateKey()
+	uc := types.UnlockConditions{
+		PublicKeys:         []types.UnlockKey{sk.PublicKey().UnlockKey()},
+		SignaturesRequired: 1,
+	}
+	addr := uc.UnlockHash()
+
+	network, genesisBlock := testutil.Network()
+	genesisBlock.Transactions[0].SiafundOutputs[0].Address = addr
+	network.InitialCoinbase = types.Siacoins(100)
+	network.MinimumCoinbase = types.Siacoins(100)
+
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(store, genesisState)
+
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = wm.AddAddress(w.ID, wallet.Address{
+		Address: addr,
+		SpendPolicy: &types.SpendPolicy{
+			Type: types.PolicyTypeUnlockConditions(uc),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mineAndSync := func(t *testing.T, addr types.Address, n int) {
+		t.Helper()
+
+		for i := 0; i < n; i++ {
+			testutil.MineBlocks(t, cm, addr, 1)
+			waitForBlock(t, cm, db)
+		}
+	}
+	mineAndSync(t, types.VoidAddress, 1)
+
+	// check that the wallet has a siafund utxo
+	utxos, _, err := wm.UnspentSiafundOutputs(w.ID, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 1 {
+		t.Fatalf("expected 1 outputs, got %v", len(utxos))
+	}
+
+	balance, err := wm.WalletBalance(w.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// fund a transaction with more than the wallet balance
+	_, _, _, err = wm.SelectSiafundElements(w.ID, balance.Siafunds+1)
+	if !errors.Is(err, wallet.ErrInsufficientFunds) {
+		t.Fatal("expected insufficient funds error")
+	}
+
+	// fund and broadcast a transaction
+	utxos, basis, change, err := wm.SelectSiafundElements(w.ID, balance.Siafunds/2) // uses two outputs
+	if err != nil {
+		t.Fatal(err)
+	} else if len(utxos) != 1 {
+		t.Fatalf("expected 1 utxo, got %v", len(utxos))
+	} else if change != balance.Siafunds/2 {
+		t.Fatalf("expected %v SF change, got %v", balance.Siafunds/2, change)
+	} else if basis != cm.Tip() {
+		t.Fatalf("expected tip, got %v", basis)
+	}
+	txn := types.Transaction{
+		SiafundOutputs: []types.SiafundOutput{
+			{Address: types.VoidAddress, Value: balance.Siafunds / 2},
+			{Address: addr, Value: change},
+		},
+	}
+	for _, utxo := range utxos {
+		txn.SiafundInputs = append(txn.SiafundInputs, types.SiafundInput{
+			ParentID:         types.SiafundOutputID(utxo.ID),
+			UnlockConditions: uc,
+		})
+		txn.Signatures = append(txn.Signatures, types.TransactionSignature{
+			ParentID:      types.Hash256(utxo.ID),
+			CoveredFields: types.CoveredFields{WholeTransaction: true},
+		})
+	}
+	for i := range txn.Signatures {
+		sigHash := cm.TipState().WholeSigHash(txn, txn.Signatures[i].ParentID, 0, 0, nil)
+		sig := sk.SignHash(sigHash)
+		txn.Signatures[i].Signature = sig[:]
+	}
+
+	known, err := cm.AddPoolTransactions([]types.Transaction{txn})
+	if err != nil {
+		t.Fatal(err)
+	} else if known {
+		t.Fatal("transaction was already known")
+	}
+
+	mineAndSync(t, types.VoidAddress, 1)
+
+	events, err := wm.WalletEvents(w.ID, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %v", len(events))
+	} else if events[0].Type != wallet.EventTypeV1Transaction {
+		t.Fatalf("expected transaction event, got %v", events[0].Type)
+	} else if events[0].ID != types.Hash256(txn.ID()) {
+		t.Fatalf("expected %v, got %v", txn.ID(), events[0].ID)
+	} else if events[0].SiafundOutflow()-events[0].SiafundInflow() != balance.Siafunds/2 {
+		t.Fatalf("expected transaction value %v SF, got %v", balance.Siafunds/2, events[0].SiafundOutflow()-events[0].SiafundInflow())
+	}
+}
+
 func TestReorg(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
@@ -420,7 +559,7 @@ func TestReorg(t *testing.T) {
 		}
 
 		// check that the utxo has not matured
-		utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+		utxos, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 		if err != nil {
 			t.Fatal(err)
 		} else if len(utxos) != 0 {
@@ -455,7 +594,7 @@ func TestReorg(t *testing.T) {
 		}
 
 		// check that the utxo was removed
-		utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+		utxos, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 		if err != nil {
 			t.Fatal(err)
 		} else if len(utxos) != 0 {
@@ -486,7 +625,7 @@ func TestReorg(t *testing.T) {
 		}
 
 		// check that the utxo has not matured
-		utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+		utxos, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 		if err != nil {
 			t.Fatal(err)
 		} else if len(utxos) != 0 {
@@ -529,7 +668,7 @@ func TestReorg(t *testing.T) {
 		}
 
 		// check that only the single utxo still exists
-		utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+		utxos, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 		if err != nil {
 			t.Fatal(err)
 		} else if len(utxos) != 1 {
@@ -630,7 +769,7 @@ func TestEphemeralBalance(t *testing.T) {
 	waitForBlock(t, cm, db)
 
 	// create a transaction that spends the matured payout
-	utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -1286,7 +1425,7 @@ func TestOrphans(t *testing.T) {
 	}
 
 	// check that the utxo was created
-	utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -1387,7 +1526,7 @@ func TestOrphans(t *testing.T) {
 	}
 
 	// check that the utxo was reverted
-	utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -1944,7 +2083,7 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 		}
 	}
 
-	utxos, err := wm.UnspentSiacoinOutputs(w1.ID, 0, 100)
+	utxos, _, err := wm.UnspentSiacoinOutputs(w1.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -2152,7 +2291,7 @@ func TestAddressUnconfirmedEvents(t *testing.T) {
 		}
 	}
 
-	utxos, err := wm.UnspentSiacoinOutputs(w1.ID, 0, 100)
+	utxos, _, err := wm.UnspentSiacoinOutputs(w1.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -2387,7 +2526,7 @@ func TestV2(t *testing.T) {
 	waitForBlock(t, cm, db)
 
 	// create a v2 transaction that spends the matured payout
-	utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2697,7 +2836,7 @@ func TestReorgV2(t *testing.T) {
 	}
 
 	// check that the utxo has not matured
-	utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 0 {
@@ -2732,7 +2871,7 @@ func TestReorgV2(t *testing.T) {
 	}
 
 	// check that the utxo was removed
-	utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 0 {
@@ -2763,7 +2902,7 @@ func TestReorgV2(t *testing.T) {
 	}
 
 	// check that the utxo has not matured
-	utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 0 {
@@ -2806,7 +2945,7 @@ func TestReorgV2(t *testing.T) {
 	}
 
 	// check that only the single utxo still exists
-	utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -2844,7 +2983,7 @@ func TestReorgV2(t *testing.T) {
 	}
 
 	// check that all UTXOs have been spent
-	utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 0 {
@@ -2932,7 +3071,7 @@ func TestOrphansV2(t *testing.T) {
 	}
 
 	// check that the utxo was created
-	utxos, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -3024,7 +3163,7 @@ func TestOrphansV2(t *testing.T) {
 	}
 
 	// check that the utxo was reverted
-	utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 1 {
@@ -3058,7 +3197,7 @@ func TestOrphansV2(t *testing.T) {
 	}
 
 	// check that all UTXOs have been spent
-	utxos, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(utxos) != 0 {

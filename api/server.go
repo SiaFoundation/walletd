@@ -101,8 +101,8 @@ type (
 		WalletUnconfirmedEvents(id wallet.ID) ([]wallet.Event, error)
 		SelectSiacoinElements(walletID wallet.ID, amount types.Currency, useUnconfirmed bool) ([]types.SiacoinElement, types.ChainIndex, types.Currency, error)
 		SelectSiafundElements(walletID wallet.ID, amount uint64) ([]types.SiafundElement, types.ChainIndex, uint64, error)
-		UnspentSiacoinOutputs(id wallet.ID, offset, limit int) ([]types.SiacoinElement, error)
-		UnspentSiafundOutputs(id wallet.ID, offset, limit int) ([]types.SiafundElement, error)
+		UnspentSiacoinOutputs(id wallet.ID, offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error)
+		UnspentSiafundOutputs(id wallet.ID, offset, limit int) ([]types.SiafundElement, types.ChainIndex, error)
 		WalletBalance(id wallet.ID) (wallet.Balance, error)
 
 		AddressBalance(address types.Address) (wallet.Balance, error)
@@ -530,7 +530,7 @@ func (s *server) walletsOutputsSiacoinHandler(jc jape.Context) {
 		return
 	}
 
-	scos, err := s.wm.UnspentSiacoinOutputs(id, offset, limit)
+	scos, _, err := s.wm.UnspentSiacoinOutputs(id, offset, limit)
 	if jc.Check("couldn't load siacoin outputs", err) != nil {
 		return
 	}
@@ -549,7 +549,7 @@ func (s *server) walletsOutputsSiafundHandler(jc jape.Context) {
 		return
 	}
 
-	sfos, err := s.wm.UnspentSiafundOutputs(id, offset, limit)
+	sfos, _, err := s.wm.UnspentSiafundOutputs(id, offset, limit)
 	if jc.Check("couldn't load siacoin outputs", err) != nil {
 		return
 	}

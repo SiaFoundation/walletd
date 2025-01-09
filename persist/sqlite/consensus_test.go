@@ -137,7 +137,7 @@ func TestPruneSiacoins(t *testing.T) {
 	assertUTXOs(0, 1)
 
 	// spend the utxo
-	utxos, err := db.WalletSiacoinOutputs(w.ID, cm.Tip(), 0, 100)
+	utxos, _, err := db.WalletSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatalf("failed to get wallet siacoin outputs: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestPruneSiafunds(t *testing.T) {
 	assertUTXOs(0, 1)
 
 	// spend the utxo
-	utxos, err := db.WalletSiafundOutputs(w.ID, 0, 100)
+	utxos, _, err := db.WalletSiafundOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatalf("failed to get wallet siacoin outputs: %v", err)
 	}
