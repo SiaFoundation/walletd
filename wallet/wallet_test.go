@@ -2074,23 +2074,8 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 	}
 
 	// mine a block sending the payout to the wallet
-	b, ok := coreutils.MineBlock(cm, addr1, time.Minute)
-	if !ok {
-		t.Fatal("failed to mine block")
-	} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
-		t.Fatal(err)
-	}
-
-	// mine until the payout matures
-	maturityHeight := cm.TipState().MaturityHeight()
-	for i := cm.TipState().Index.Height; i < maturityHeight; i++ {
-		b, ok := coreutils.MineBlock(cm, types.VoidAddress, time.Minute)
-		if !ok {
-			t.Fatal("failed to mine block")
-		} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
-			t.Fatal(err)
-		}
-	}
+	mineAndSync(t, cm, db, addr1, 1)
+	mineAndSync(t, cm, db, types.VoidAddress, int(network.MaturityDelay))
 
 	utxos, _, err := wm.UnspentSiacoinOutputs(w1.ID, 0, 100)
 	if err != nil {
@@ -2221,12 +2206,7 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 	}
 
 	// mine the transactions
-	b, ok = coreutils.MineBlock(cm, types.VoidAddress, time.Minute)
-	if !ok {
-		t.Fatal("failed to mine block")
-	} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
-		t.Fatal(err)
-	}
+	mineAndSync(t, cm, db, types.VoidAddress, 1)
 
 	// check that the unconfirmed events were removed
 	events, err = wm.WalletUnconfirmedEvents(w1.ID)
@@ -2482,11 +2462,7 @@ func TestV2(t *testing.T) {
 	}
 
 	expectedPayout := cm.TipState().BlockReward()
-	// mine a block sending the payout to the wallet
-	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, addr)}); err != nil {
-		t.Fatal(err)
-	}
-	waitForBlock(t, cm, db)
+	mineAndSync(t, cm, db, addr, 1)
 
 	// check that the payout was received
 	balance, err := db.AddressBalance(addr)
@@ -2507,16 +2483,10 @@ func TestV2(t *testing.T) {
 	}
 
 	// mine until the payout matures
-	maturityHeight := cm.TipState().MaturityHeight() + 1
-	for i := cm.TipState().Index.Height; i < maturityHeight; i++ {
-		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	waitForBlock(t, cm, db)
+	mineAndSync(t, cm, db, types.VoidAddress, int(network.MaturityDelay))
 
 	// create a v2 transaction that spends the matured payout
-	utxos, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	utxos, basis, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2537,10 +2507,10 @@ func TestV2(t *testing.T) {
 	}
 	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(cm.TipState().InputSigHash(txn))}
 
-	if err := cm.AddBlocks([]types.Block{mineV2Block(cm.TipState(), []types.V2Transaction{txn}, types.VoidAddress)}); err != nil {
+	if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	waitForBlock(t, cm, db)
+	mineAndSync(t, cm, db, types.VoidAddress, 1)
 
 	// check that the change was received
 	balance, err = wm.AddressBalance(addr)
