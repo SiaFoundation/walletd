@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -319,9 +318,7 @@ func main() {
 		}
 		recoveryPhrase := cwallet.NewSeedPhrase()
 		var seed [32]byte
-		if err := cwallet.SeedFromPhrase(&seed, recoveryPhrase); err != nil {
-			log.Fatal(err)
-		}
+		checkFatalError("failed to parse mnemonic phrase", cwallet.SeedFromPhrase(&seed, recoveryPhrase))
 		addr := types.StandardUnlockHash(cwallet.KeyFromSeed(&seed, 0).PublicKey())
 
 		fmt.Println("Recovery Phrase:", recoveryPhrase)
@@ -340,10 +337,7 @@ func main() {
 		}
 
 		minerAddr, err := types.ParseAddress(minerAddrStr)
-		if err != nil {
-			log.Fatal(err)
-		}
-
+		checkFatalError("failed to parse miner address", err)
 		mustSetAPIPassword()
 		c := api.NewClient("http://"+cfg.HTTP.Address+"/api", cfg.HTTP.Password)
 		runCPUMiner(c, minerAddr, minerBlocks)
