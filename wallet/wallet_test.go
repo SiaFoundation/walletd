@@ -37,6 +37,15 @@ func waitForBlock(tb testing.TB, cm *chain.Manager, ws wallet.Store) {
 	tb.Fatal("timed out waiting for block")
 }
 
+func mineAndSync(tb testing.TB, cm *chain.Manager, ws wallet.Store, addr types.Address, n int) {
+	tb.Helper()
+
+	for i := 0; i < n; i++ {
+		testutil.MineBlocks(tb, cm, addr, 1)
+		waitForBlock(tb, cm, ws)
+	}
+}
+
 func testV1Network(siafundAddr types.Address) (*consensus.Network, types.Block) {
 	// use a modified version of Zen
 	n, genesisBlock := chain.TestnetZen()
@@ -2273,23 +2282,9 @@ func TestAddressUnconfirmedEvents(t *testing.T) {
 	}
 
 	// mine a block sending the payout to the wallet
-	b, ok := coreutils.MineBlock(cm, addr1, time.Minute)
-	if !ok {
-		t.Fatal("failed to mine block")
-	} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
-		t.Fatal(err)
-	}
-
+	mineAndSync(t, cm, db, addr1, 1)
 	// mine until the payout matures
-	maturityHeight := cm.TipState().MaturityHeight()
-	for i := cm.TipState().Index.Height; i < maturityHeight; i++ {
-		b, ok := coreutils.MineBlock(cm, types.VoidAddress, time.Minute)
-		if !ok {
-			t.Fatal("failed to mine block")
-		} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
-			t.Fatal(err)
-		}
-	}
+	mineAndSync(t, cm, db, types.VoidAddress, int(network.MaturityDelay))
 
 	utxos, _, err := wm.UnspentSiacoinOutputs(w1.ID, 0, 100)
 	if err != nil {
@@ -2429,12 +2424,7 @@ func TestAddressUnconfirmedEvents(t *testing.T) {
 	}
 
 	// mine the transactions
-	b, ok = coreutils.MineBlock(cm, types.VoidAddress, time.Minute)
-	if !ok {
-		t.Fatal("failed to mine block")
-	} else if err := cm.AddBlocks([]types.Block{b}); err != nil {
-		t.Fatal(err)
-	}
+	mineAndSync(t, cm, db, types.VoidAddress, 1)
 
 	// check that the unconfirmed events were removed
 	events, err = wm.AddressUnconfirmedEvents(addr1)
