@@ -292,6 +292,11 @@ func (m *Manager) Release(ids []types.Hash256) {
 	}
 }
 
+// WalletAddress returns an address from the wallet.
+func (m *Manager) WalletAddress(id ID, addr types.Address) (Address, error) {
+	return m.store.WalletAddress(id, addr)
+}
+
 // SelectSiacoinElements selects siacoin elements from the wallet that sum to
 // at least the given amount. Returns the elements, the element basis, and the
 // change amount.

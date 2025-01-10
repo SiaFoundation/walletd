@@ -34,12 +34,14 @@ type GatewayPeer struct {
 
 // TxpoolBroadcastRequest is the request type for /txpool/broadcast.
 type TxpoolBroadcastRequest struct {
+	Basis          types.ChainIndex      `json:"basis"`
 	Transactions   []types.Transaction   `json:"transactions"`
 	V2Transactions []types.V2Transaction `json:"v2transactions"`
 }
 
 // TxpoolTransactionsResponse is the response type for /txpool/transactions.
 type TxpoolTransactionsResponse struct {
+	Basis          types.ChainIndex      `json:"basis"`
 	Transactions   []types.Transaction   `json:"transactions"`
 	V2Transactions []types.V2Transaction `json:"v2transactions"`
 }
@@ -86,6 +88,35 @@ type WalletFundResponse struct {
 	Transaction types.Transaction   `json:"transaction"`
 	ToSign      []types.Hash256     `json:"toSign"`
 	DependsOn   []types.Transaction `json:"dependsOn"`
+}
+
+// WalletConstructRequest is the request type for /wallets/:id/construct.
+type WalletConstructRequest struct {
+	Siacoins      []types.SiacoinOutput `json:"siacoins"`
+	Siafunds      []types.SiafundOutput `json:"siafunds"`
+	ChangeAddress types.Address         `json:"changeAddress"`
+}
+
+// SignaturePayload is a signature that is required to finalize a transaction.
+type SignaturePayload struct {
+	PublicKey types.PublicKey `json:"publicKey"`
+	SigHash   types.Hash256   `json:"sigHash"`
+}
+
+// WalletConstructResponse is the response type for /wallets/:id/construct/transaction.
+type WalletConstructResponse struct {
+	Basis        types.ChainIndex    `json:"basis"`
+	ID           types.TransactionID `json:"id"`
+	Transaction  types.Transaction   `json:"transaction"`
+	EstimatedFee types.Currency      `json:"estimatedFee"`
+}
+
+// WalletConstructV2Response is the response type for /wallets/:id/construct/v2/transaction.
+type WalletConstructV2Response struct {
+	Basis        types.ChainIndex    `json:"basis"`
+	ID           types.TransactionID `json:"id"`
+	Transaction  types.V2Transaction `json:"transaction"`
+	EstimatedFee types.Currency      `json:"estimatedFee"`
 }
 
 // SeedSignRequest requests that a transaction be signed using the keys derived
