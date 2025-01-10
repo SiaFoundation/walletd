@@ -686,6 +686,15 @@ func (s *server) walletsConstructHandler(jc jape.Context) {
 	if err := jc.DecodeParam("id", &walletID); err != nil {
 		return
 	}
+
+	_, err := s.wm.WalletBalance(walletID)
+	if errors.Is(err, wallet.ErrNotFound) {
+		jc.Error(err, http.StatusNotFound)
+		return
+	} else if jc.Check("failed to get wallet", err) != nil {
+		return
+	}
+
 	var wcr WalletConstructRequest
 	if err := jc.Decode(&wcr); err != nil {
 		return
@@ -775,7 +784,6 @@ func (s *server) walletsConstructHandler(jc jape.Context) {
 			return a, nil
 		}
 		a, err := s.wm.WalletAddress(walletID, addr)
-
 		if err != nil {
 			return wallet.Address{}, err
 		}
@@ -871,8 +879,22 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 	if err := jc.DecodeParam("id", &walletID); err != nil {
 		return
 	}
+
+	_, err := s.wm.WalletBalance(walletID)
+	if errors.Is(err, wallet.ErrNotFound) {
+		jc.Error(err, http.StatusNotFound)
+		return
+	} else if jc.Check("failed to get wallet", err) != nil {
+		return
+	}
+
 	var wcr WalletConstructRequest
 	if err := jc.Decode(&wcr); err != nil {
+		return
+	}
+
+	if wcr.ChangeAddress == types.VoidAddress {
+		jc.Error(errors.New("change address must be specified"), http.StatusBadRequest)
 		return
 	}
 
@@ -927,11 +949,6 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 	}
 
 	if !siacoinChange.IsZero() {
-		if wcr.ChangeAddress == types.VoidAddress {
-			jc.Error(errors.New("change address must be specified"), http.StatusBadRequest)
-			return
-		}
-
 		wcr.Siacoins = append(wcr.Siacoins, types.SiacoinOutput{
 			Value:   siacoinChange,
 			Address: wcr.ChangeAddress,
@@ -948,11 +965,6 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 	}
 
 	if siafundChange > 0 {
-		if wcr.ChangeAddress == types.VoidAddress {
-			jc.Error(errors.New("change address must be specified"), http.StatusBadRequest)
-			return
-		}
-
 		wcr.Siafunds = append(wcr.Siafunds, types.SiafundOutput{
 			Value:   siafundChange,
 			Address: wcr.ChangeAddress,
@@ -965,7 +977,6 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 			return a, nil
 		}
 		a, err := s.wm.WalletAddress(walletID, addr)
-
 		if err != nil {
 			return wallet.Address{}, err
 		}
@@ -1025,9 +1036,6 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 
 		sci := types.V2SiacoinInput{
 			Parent: sce,
-			SatisfiedPolicy: types.SatisfiedPolicy{
-				Policy: *addr.SpendPolicy,
-			},
 		}
 
 		if addr.SpendPolicy != nil {
@@ -1036,7 +1044,6 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 				Policy: *addr.SpendPolicy,
 			}
 		}
-
 		txn.SiacoinInputs = append(txn.SiacoinInputs, sci)
 	}
 

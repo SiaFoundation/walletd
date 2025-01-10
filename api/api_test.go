@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -1365,7 +1366,20 @@ func TestConstructSiacoins(t *testing.T) {
 	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
 	waitForBlock(t, cm, ws)
 
+	// try to construct a transaction with more siafunds than the wallet holds.
+	// this will lock all of the wallet's siacoins
 	resp, err := wc.Construct([]types.SiacoinOutput{
+		{Value: types.Siacoins(1), Address: receiverAddr},
+	}, []types.SiafundOutput{
+		{Value: 100000, Address: senderAddr},
+	}, senderAddr)
+	if !strings.Contains(err.Error(), "insufficient funds") {
+		t.Fatal(err)
+	}
+
+	// construct a transaction with a single siacoin output
+	// this will fail if the utxos were not unlocked
+	resp, err = wc.Construct([]types.SiacoinOutput{
 		{Value: types.Siacoins(1), Address: receiverAddr},
 	}, nil, senderAddr)
 	if err != nil {
@@ -1594,6 +1608,16 @@ func TestConstructSiafunds(t *testing.T) {
 	case sent.SiafundOutflow()-sent.SiafundInflow() != 1:
 		t.Fatalf("expected unconfirmed event to have siafund outflow of 1, got %v", sent.SiafundOutflow()-sent.SiafundInflow())
 	}
+
+	claim := confirmed[0]
+	switch {
+	case claim.Type != wallet.EventTypeSiafundClaim:
+		t.Fatalf("expected claim event to have type %q, got %q", wallet.EventTypeSiafundClaim, claim.Type)
+	case !claim.SiacoinOutflow().IsZero():
+		t.Fatalf("expected claim event to have siacoin outflow of 0, got %v", claim.SiacoinOutflow())
+	case !claim.SiacoinInflow().IsZero():
+		t.Fatalf("expected claim event to have siacoin inflow of 0, got %v", claim.SiacoinInflow())
+	}
 }
 
 func TestConstructV2Siacoins(t *testing.T) {
@@ -1675,7 +1699,20 @@ func TestConstructV2Siacoins(t *testing.T) {
 	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
 	waitForBlock(t, cm, ws)
 
+	// try to construct a transaction with more siafunds than the wallet holds.
+	// this will lock all of the wallet's Siacoin UTXOs
 	resp, err := wc.ConstructV2([]types.SiacoinOutput{
+		{Value: types.Siacoins(1), Address: receiverAddr},
+	}, []types.SiafundOutput{
+		{Value: 100000, Address: senderAddr},
+	}, senderAddr)
+	if !strings.Contains(err.Error(), "insufficient funds") {
+		t.Fatal(err)
+	}
+
+	// this will fail if the utxos were not properly
+	// unlocked when the previous request failed
+	resp, err = wc.ConstructV2([]types.SiacoinOutput{
 		{Value: types.Siacoins(1), Address: receiverAddr},
 	}, nil, senderAddr)
 	if err != nil {
@@ -1889,6 +1926,16 @@ func TestConstructV2Siafunds(t *testing.T) {
 		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", resp.EstimatedFee, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
 	case sent.SiafundOutflow()-sent.SiafundInflow() != 1:
 		t.Fatalf("expected unconfirmed event to have siafund outflow of 1, got %v", sent.SiafundOutflow()-sent.SiafundInflow())
+	}
+
+	claim := confirmed[0]
+	switch {
+	case claim.Type != wallet.EventTypeSiafundClaim:
+		t.Fatalf("expected claim event to have type %q, got %q", wallet.EventTypeSiafundClaim, claim.Type)
+	case !claim.SiacoinOutflow().IsZero():
+		t.Fatalf("expected claim event to have siacoin outflow of 0, got %v", claim.SiacoinOutflow())
+	case !claim.SiacoinInflow().IsZero():
+		t.Fatalf("expected claim event to have siacoin inflow of 0, got %v", claim.SiacoinInflow())
 	}
 }
 
