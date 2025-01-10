@@ -349,7 +349,7 @@ func (c *WalletClient) Construct(siacoins []types.SiacoinOutput, siafunds []type
 	return
 }
 
-// Construct constructs a V2 transaction sending the specified Siacoins or Siafunds to the recipients. The transaction is returned
+// ConstructV2 constructs a V2 transaction sending the specified Siacoins or Siafunds to the recipients. The transaction is returned
 // along with its ID and calculated miner fee. The transaction will need to be signed before broadcasting.
 func (c *WalletClient) ConstructV2(siacoins []types.SiacoinOutput, siafunds []types.SiafundOutput, change types.Address) (resp WalletConstructV2Response, err error) {
 	err = c.c.POST(fmt.Sprintf("/wallets/%v/construct/v2/transaction", c.id), WalletConstructRequest{
