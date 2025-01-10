@@ -997,6 +997,10 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 		SiafundOutputs: wcr.Siafunds,
 	}
 
+	// the siafund elements are added to the transaction first because `UpdateV2TransactionSet` takes
+	// a V2 transaction as an argument. The Siacoin basis is our target because the transaction is
+	// guaranteed to have a non-zero Siacoin basis while the Siafund basis will be zero when not
+	// sending Siafunds.
 	for _, sfe := range sfes {
 		addr, err := getAddress(sfe.SiafundOutput.Address)
 		if err != nil {
