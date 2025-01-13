@@ -1594,10 +1594,10 @@ func TestConstructSiafunds(t *testing.T) {
 	confirmed, err := wc.Events(0, 5)
 	if err != nil {
 		t.Fatal(err)
-	} else if len(confirmed) != 3 {
-		t.Fatalf("expected 3 confirmed events, got %v", len(confirmed)) // initial gift + sent transaction + siafund claim
+	} else if len(confirmed) != 2 {
+		t.Fatalf("expected 2 confirmed events, got %v", len(confirmed)) // initial gift + sent transaction
 	}
-	sent = confirmed[1] // confirmed[0] is the siafund claim
+	sent = confirmed[0]
 	switch {
 	case types.TransactionID(sent.ID) != resp.ID:
 		t.Fatalf("expected unconfirmed event to have transaction ID %q, got %q", resp.ID, sent.ID)
@@ -1607,16 +1607,6 @@ func TestConstructSiafunds(t *testing.T) {
 		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", resp.EstimatedFee, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
 	case sent.SiafundOutflow()-sent.SiafundInflow() != 1:
 		t.Fatalf("expected unconfirmed event to have siafund outflow of 1, got %v", sent.SiafundOutflow()-sent.SiafundInflow())
-	}
-
-	claim := confirmed[0]
-	switch {
-	case claim.Type != wallet.EventTypeSiafundClaim:
-		t.Fatalf("expected claim event to have type %q, got %q", wallet.EventTypeSiafundClaim, claim.Type)
-	case !claim.SiacoinOutflow().IsZero():
-		t.Fatalf("expected claim event to have siacoin outflow of 0, got %v", claim.SiacoinOutflow())
-	case !claim.SiacoinInflow().IsZero():
-		t.Fatalf("expected claim event to have siacoin inflow of 0, got %v", claim.SiacoinInflow())
 	}
 }
 
@@ -1913,10 +1903,11 @@ func TestConstructV2Siafunds(t *testing.T) {
 	confirmed, err := wc.Events(0, 5)
 	if err != nil {
 		t.Fatal(err)
-	} else if len(confirmed) != 3 {
-		t.Fatalf("expected 3 confirmed events, got %v", len(confirmed)) // initial gift + sent transaction + siafund claim
+	} else if len(confirmed) != 2 {
+		t.Fatalf("expected 2 confirmed events, got %v", len(confirmed)) // initial gift + sent transaction
 	}
-	sent = confirmed[1] // confirmed[0] is the siafund claim
+
+	sent = confirmed[0]
 	switch {
 	case types.TransactionID(sent.ID) != resp.ID:
 		t.Fatalf("expected unconfirmed event to have transaction ID %q, got %q", resp.ID, sent.ID)
@@ -1926,16 +1917,6 @@ func TestConstructV2Siafunds(t *testing.T) {
 		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", resp.EstimatedFee, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
 	case sent.SiafundOutflow()-sent.SiafundInflow() != 1:
 		t.Fatalf("expected unconfirmed event to have siafund outflow of 1, got %v", sent.SiafundOutflow()-sent.SiafundInflow())
-	}
-
-	claim := confirmed[0]
-	switch {
-	case claim.Type != wallet.EventTypeSiafundClaim:
-		t.Fatalf("expected claim event to have type %q, got %q", wallet.EventTypeSiafundClaim, claim.Type)
-	case !claim.SiacoinOutflow().IsZero():
-		t.Fatalf("expected claim event to have siacoin outflow of 0, got %v", claim.SiacoinOutflow())
-	case !claim.SiacoinInflow().IsZero():
-		t.Fatalf("expected claim event to have siacoin inflow of 0, got %v", claim.SiacoinInflow())
 	}
 }
 
