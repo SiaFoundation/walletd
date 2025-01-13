@@ -1755,10 +1755,8 @@ func TestFullIndex(t *testing.T) {
 	// check the events for the transaction
 	if events, err := wm.AddressEvents(addr2, 0, 100); err != nil {
 		t.Fatal(err)
-	} else if len(events) != 4 {
-		t.Fatalf("expected 4 events, got %v", len(events))
-	} else if events[0].Type != wallet.EventTypeSiafundClaim {
-		t.Fatalf("expected transaction event, got %v", events[0].Type)
+	} else if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %v", len(events))
 	}
 
 	// check the events for the first address
@@ -1996,10 +1994,8 @@ func TestEvents(t *testing.T) {
 	events, err = wm.AddressEvents(addr2, 0, 100)
 	if err != nil {
 		t.Fatal(err)
-	} else if len(events) != 4 {
+	} else if len(events) != 3 {
 		t.Fatalf("expected 4 events, got %v", len(events))
-	} else if events[0].Type != wallet.EventTypeSiafundClaim {
-		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	}
 
 	expected = events[0]
@@ -3853,6 +3849,493 @@ func TestEventTypes(t *testing.T) {
 		mineBlock(1, types.VoidAddress)
 		assertEvent(t, types.Hash256(types.SiafundOutputID(sfe[0].ID).V2ClaimOutputID()), wallet.EventTypeSiafundClaim, claimValue, types.ZeroCurrency, cm.Tip().Height+144)
 	})
+}
+
+func TestSiafundClaims(t *testing.T) {
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(pk.PublicKey())
+
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	network, genesis := testutil.Network()
+	// send the siafunds to the owned address
+	genesis.Transactions[0].SiafundOutputs[0].Address = addr
+	siafundValue := genesis.Transactions[0].SiafundOutputs[0].Value
+
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesis)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(store, genesisState)
+
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	uc := types.StandardUnlockConditions(pk.PublicKey())
+	err = wm.AddAddress(w.ID, wallet.Address{
+		Address: addr,
+		SpendPolicy: &types.SpendPolicy{
+			Type: types.PolicyTypeUnlockConditions(uc),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// rescan to index the genesis block
+	if err := wm.Scan(context.Background(), types.ChainIndex{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// claim the siafunds. Since tax revenue is 0, no claim event or utxo should be indexed.
+	siafunds, _, change, err := wm.SelectSiafundElements(w.ID, siafundValue)
+	if err != nil {
+		t.Fatal(err)
+	} else if change != 0 {
+		t.Fatalf("expected no change, got %v", change)
+	}
+	txn := types.Transaction{
+		SiafundOutputs: []types.SiafundOutput{
+			{Address: addr, Value: siafundValue},
+		},
+	}
+	for _, sfe := range siafunds {
+		txn.SiafundInputs = append(txn.SiafundInputs, types.SiafundInput{
+			ParentID:         sfe.ID,
+			UnlockConditions: uc,
+			ClaimAddress:     addr,
+		})
+		txn.Signatures = append(txn.Signatures, types.TransactionSignature{
+			ParentID:      types.Hash256(sfe.ID),
+			CoveredFields: types.CoveredFields{WholeTransaction: true},
+		})
+	}
+	cs := cm.TipState()
+	for i, sig := range txn.Signatures {
+		sigHash := cs.WholeSigHash(txn, sig.ParentID, 0, 0, nil)
+		sig := pk.SignHash(sigHash)
+		txn.Signatures[i].Signature = sig[:]
+	}
+	if _, err := cm.AddPoolTransactions([]types.Transaction{txn}); err != nil {
+		t.Fatal(err)
+	}
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, db)
+
+	siacoins, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(siacoins) != 0 {
+		t.Fatalf("expected no siacoin outputs, got %v", siacoins)
+	}
+
+	events, err := wm.WalletEvents(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 2 { // airdrop + siafund transaction
+		t.Fatalf("expected 2 events, got %v", len(events))
+	}
+
+	// fund the wallet with some siacoins
+	testutil.MineBlocks(t, cm, addr, 5)
+	testutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
+	waitForBlock(t, cm, db)
+
+	payout := types.Siacoins(100000)
+	fundAmount := taxAdjustedPayout(payout)
+	expectedTaxRevenue := fundAmount.Sub(payout)
+	fc := types.FileContract{
+		UnlockHash: addr,
+		Payout:     fundAmount,
+		ValidProofOutputs: []types.SiacoinOutput{
+			{Address: types.VoidAddress, Value: payout},
+		},
+		MissedProofOutputs: []types.SiacoinOutput{
+			{Address: types.VoidAddress, Value: payout},
+		},
+		WindowStart: cm.Tip().Height + 10,
+		WindowEnd:   cm.Tip().Height + 20,
+	}
+
+	fcTxn := types.Transaction{
+		FileContracts: []types.FileContract{fc},
+	}
+
+	siacoins, _, scChange, err := wm.SelectSiacoinElements(w.ID, fundAmount, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !scChange.IsZero() {
+		fcTxn.SiacoinOutputs = append(fcTxn.SiacoinOutputs, types.SiacoinOutput{
+			Address: addr,
+			Value:   scChange,
+		})
+	}
+
+	for _, sce := range siacoins {
+		fcTxn.SiacoinInputs = append(fcTxn.SiacoinInputs, types.SiacoinInput{
+			ParentID:         sce.ID,
+			UnlockConditions: uc,
+		})
+		fcTxn.Signatures = append(fcTxn.Signatures, types.TransactionSignature{
+			ParentID:      types.Hash256(sce.ID),
+			CoveredFields: types.CoveredFields{WholeTransaction: true},
+		})
+	}
+
+	cs = cm.TipState()
+	for i, sig := range fcTxn.Signatures {
+		sigHash := cs.WholeSigHash(fcTxn, sig.ParentID, 0, 0, nil)
+		sig := pk.SignHash(sigHash)
+		fcTxn.Signatures[i].Signature = sig[:]
+	}
+
+	if _, err := cm.AddPoolTransactions([]types.Transaction{fcTxn}); err != nil {
+		t.Fatal(err)
+	}
+
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, db)
+
+	cs = cm.TipState()
+	if !cs.SiafundTaxRevenue.Equals(expectedTaxRevenue) {
+		t.Fatalf("expected %v tax revenue, got %v", expectedTaxRevenue, cs.SiafundTaxRevenue)
+	}
+
+	// claim the siafunds again. A claim event should be created to account for the
+	// tax revenue.
+	siafunds, _, change, err = wm.SelectSiafundElements(w.ID, siafundValue)
+	if err != nil {
+		t.Fatal(err)
+	} else if change != 0 {
+		t.Fatalf("expected no change, got %v", change)
+	}
+	txn = types.Transaction{
+		SiafundOutputs: []types.SiafundOutput{
+			{Address: addr, Value: siafundValue},
+		},
+	}
+	for _, sfe := range siafunds {
+		txn.SiafundInputs = append(txn.SiafundInputs, types.SiafundInput{
+			ParentID:         sfe.ID,
+			UnlockConditions: uc,
+			ClaimAddress:     addr,
+		})
+		txn.Signatures = append(txn.Signatures, types.TransactionSignature{
+			ParentID:      types.Hash256(sfe.ID),
+			CoveredFields: types.CoveredFields{WholeTransaction: true},
+		})
+	}
+	cs = cm.TipState()
+	for i, sig := range txn.Signatures {
+		sigHash := cs.WholeSigHash(txn, sig.ParentID, 0, 0, nil)
+		sig := pk.SignHash(sigHash)
+		txn.Signatures[i].Signature = sig[:]
+	}
+	if _, err := cm.AddPoolTransactions([]types.Transaction{txn}); err != nil {
+		t.Fatal(err)
+	}
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, db)
+
+	events, err = wm.WalletEvents(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 10 { // airdrop + 2x siafund transaction + 5x miner payouts + 1x file contract + 1x siafund claim
+		t.Fatalf("expected 10 events, got %v", len(events))
+	}
+
+	// check the siafund claim event
+	expectedID := txn.SiafundInputs[0].ParentID.ClaimOutputID()
+	claimEvent := events[0]
+	switch {
+	case claimEvent.ID != types.Hash256(expectedID):
+		t.Fatalf("expected siafund claim output %q, got %q", expectedID, claimEvent.ID)
+	case claimEvent.Type != wallet.EventTypeSiafundClaim:
+		t.Fatalf("expected siafund claim event, got %v", claimEvent.Type)
+	case !claimEvent.SiacoinInflow().Equals(expectedTaxRevenue):
+		t.Fatalf("expected %v tax revenue, got %v", expectedTaxRevenue, claimEvent.SiacoinInflow())
+	case !claimEvent.SiacoinOutflow().IsZero():
+		t.Fatalf("expected no outflow, got %v", claimEvent.SiacoinOutflow())
+	}
+
+	// mine until the siafund claim output is mature
+	testutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
+	waitForBlock(t, cm, db)
+
+	// check that the output is now spendable
+	siacoins, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sce := range siacoins {
+		if sce.ID == expectedID && sce.SiacoinOutput.Value.Equals(expectedTaxRevenue) {
+			return
+		}
+	}
+	t.Fatalf("expected siafund claim output %q with value %v not found", expectedID, expectedTaxRevenue)
+}
+
+func TestV2SiafundClaims(t *testing.T) {
+	pk := types.GeneratePrivateKey()
+	addr := types.StandardAddress(pk.PublicKey())
+
+	log := zaptest.NewLogger(t)
+	dir := t.TempDir()
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bdb.Close()
+
+	network, genesis := testutil.V2Network()
+	// send the siafunds to the owned address
+	genesis.Transactions[0].SiafundOutputs[0].Address = addr
+	siafundValue := genesis.Transactions[0].SiafundOutputs[0].Value
+
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesis)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(store, genesisState)
+
+	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	// activate the v2 hardfork
+	testutil.MineBlocks(t, cm, types.VoidAddress, 2)
+
+	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sp := types.SpendPolicy{
+		Type: types.PolicyTypePublicKey(pk.PublicKey()),
+	}
+	err = wm.AddAddress(w.ID, wallet.Address{
+		Address:     addr,
+		SpendPolicy: &sp,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// rescan to index the genesis block
+	if err := wm.Scan(context.Background(), types.ChainIndex{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// claim the siafunds. Since tax revenue is 0, no claim event or utxo should be indexed.
+	siafunds, basis, change, err := wm.SelectSiafundElements(w.ID, siafundValue)
+	if err != nil {
+		t.Fatal(err)
+	} else if change != 0 {
+		t.Fatalf("expected no change, got %v", change)
+	}
+	txn := types.V2Transaction{
+		SiafundOutputs: []types.SiafundOutput{
+			{Address: addr, Value: siafundValue},
+		},
+	}
+	for _, sfe := range siafunds {
+		txn.SiafundInputs = append(txn.SiafundInputs, types.V2SiafundInput{
+			Parent: sfe,
+			SatisfiedPolicy: types.SatisfiedPolicy{
+				Policy: sp,
+			},
+			ClaimAddress: addr,
+		})
+	}
+	cs := cm.TipState()
+	sigHash := cs.InputSigHash(txn)
+	for i := range txn.SiafundInputs {
+		txn.SiafundInputs[i].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
+	}
+	if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
+		t.Fatal(err)
+	}
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, db)
+
+	siacoins, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(siacoins) != 0 {
+		t.Fatalf("expected no siacoin outputs, got %v", siacoins)
+	}
+
+	events, err := wm.WalletEvents(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 2 { // airdrop + siafund transaction
+		t.Fatalf("expected 2 events, got %v", len(events))
+	}
+
+	// fund the wallet with some siacoins
+	testutil.MineBlocks(t, cm, addr, 5)
+	testutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
+	waitForBlock(t, cm, db)
+
+	payout := types.Siacoins(100000)
+	cs = cm.TipState()
+	fc := types.V2FileContract{
+		RenterOutput: types.SiacoinOutput{
+			Address: types.VoidAddress,
+			Value:   payout,
+		},
+		ProofHeight:      cs.Index.Height + 10,
+		ExpirationHeight: cs.Index.Height + 20,
+		RenterPublicKey:  pk.PublicKey(),
+		HostPublicKey:    pk.PublicKey(),
+	}
+	sigHash = cs.ContractSigHash(fc)
+	fc.RenterSignature = pk.SignHash(sigHash)
+	fc.HostSignature = pk.SignHash(sigHash)
+
+	expectedTax := cs.V2FileContractTax(fc)
+	fundAmount := payout.Add(expectedTax)
+
+	fcTxn := types.V2Transaction{
+		FileContracts: []types.V2FileContract{fc},
+	}
+
+	siacoins, basis, scChange, err := wm.SelectSiacoinElements(w.ID, fundAmount, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !scChange.IsZero() {
+		fcTxn.SiacoinOutputs = append(fcTxn.SiacoinOutputs, types.SiacoinOutput{
+			Address: addr,
+			Value:   scChange,
+		})
+	}
+
+	for _, sce := range siacoins {
+		fcTxn.SiacoinInputs = append(fcTxn.SiacoinInputs, types.V2SiacoinInput{
+			Parent: sce,
+			SatisfiedPolicy: types.SatisfiedPolicy{
+				Policy: sp,
+			},
+		})
+	}
+
+	sigHash = cs.InputSigHash(fcTxn)
+	for i := range fcTxn.SiacoinInputs {
+		fcTxn.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
+	}
+
+	if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{fcTxn}); err != nil {
+		t.Fatal(err)
+	}
+
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, db)
+
+	cs = cm.TipState()
+	if !cs.SiafundTaxRevenue.Equals(expectedTax) {
+		t.Fatalf("expected %v tax revenue, got %v", expectedTax, cs.SiafundTaxRevenue)
+	}
+
+	// claim the siafunds again. A claim event should be created to account for the
+	// tax revenue.
+	siafunds, basis, change, err = wm.SelectSiafundElements(w.ID, siafundValue)
+	if err != nil {
+		t.Fatal(err)
+	} else if change != 0 {
+		t.Fatalf("expected no change, got %v", change)
+	}
+	txn = types.V2Transaction{
+		SiafundOutputs: []types.SiafundOutput{
+			{Address: addr, Value: siafundValue},
+		},
+	}
+	for _, sfe := range siafunds {
+		txn.SiafundInputs = append(txn.SiafundInputs, types.V2SiafundInput{
+			Parent:          sfe,
+			SatisfiedPolicy: types.SatisfiedPolicy{Policy: sp},
+			ClaimAddress:    addr,
+		})
+	}
+
+	cs = cm.TipState()
+	sigHash = cs.InputSigHash(txn)
+	for i := range txn.SiafundInputs {
+		txn.SiafundInputs[i].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
+	}
+	if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
+		t.Fatal(err)
+	}
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, db)
+
+	events, err = wm.WalletEvents(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(events) != 10 { // airdrop + 2x siafund transaction + 5x miner payouts + 1x file contract + 1x siafund claim
+		t.Fatalf("expected 10 events, got %v", len(events))
+	}
+
+	// check the siafund claim event
+	expectedID := txn.SiafundInputs[0].Parent.ID.V2ClaimOutputID()
+	claimEvent := events[0]
+	switch {
+	case claimEvent.ID != types.Hash256(expectedID):
+		t.Fatalf("expected siafund claim output %q, got %q", expectedID, claimEvent.ID)
+	case claimEvent.Type != wallet.EventTypeSiafundClaim:
+		t.Fatalf("expected siafund claim event, got %v", claimEvent.Type)
+	case !claimEvent.SiacoinInflow().Equals(expectedTax):
+		t.Fatalf("expected %v tax revenue, got %v", expectedTax, claimEvent.SiacoinInflow())
+	case !claimEvent.SiacoinOutflow().IsZero():
+		t.Fatalf("expected no outflow, got %v", claimEvent.SiacoinOutflow())
+	}
+
+	// mine until the siafund claim output is mature
+	testutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
+	waitForBlock(t, cm, db)
+
+	// check that the output is now spendable
+	siacoins, _, err = wm.UnspentSiacoinOutputs(w.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sce := range siacoins {
+		if sce.ID == expectedID && sce.SiacoinOutput.Value.Equals(expectedTax) {
+			return
+		}
+	}
+	t.Fatalf("expected siafund claim output %q with value %v not found", expectedID, expectedTax)
 }
 
 func TestReset(t *testing.T) {

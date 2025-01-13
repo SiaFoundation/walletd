@@ -94,7 +94,7 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 
 	// add new siacoin elements to the store
 	cau.ForEachSiacoinElement(func(se types.SiacoinElement, created, spent bool) {
-		if created && spent {
+		if (created && spent) || se.SiacoinOutput.Value.IsZero() {
 			return
 		}
 
@@ -113,7 +113,7 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 	})
 
 	cau.ForEachSiafundElement(func(se types.SiafundElement, created, spent bool) {
-		if created && spent {
+		if (created && spent) || se.SiafundOutput.Value == 0 {
 			return
 		}
 
