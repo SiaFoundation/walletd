@@ -28,7 +28,7 @@ func runCPUMiner(c *api.Client, minerAddr types.Address, n int) {
 		d.Mul(d, big.NewInt(int64(1+elapsed)))
 		fmt.Printf("\rMining block %4v...(%.2f blocks/day), difficulty %v)", cs.Index.Height+1, float64(blocksFound)*float64(24*time.Hour)/float64(elapsed), cs.Difficulty)
 
-		txns, v2txns, err := c.TxpoolTransactions()
+		_, txns, v2txns, err := c.TxpoolTransactions()
 		checkFatalError("failed to get pool transactions:", err)
 		b := types.Block{
 			ParentID:     cs.Index.ID,

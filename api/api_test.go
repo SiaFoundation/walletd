@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -367,7 +368,7 @@ func TestWallet(t *testing.T) {
 	txn.Signatures[0].Signature = sig[:]
 
 	// broadcast the transaction to the transaction pool
-	if err := c.TxpoolBroadcast([]types.Transaction{txn}, nil); err != nil {
+	if err := c.TxpoolBroadcast(cm.Tip(), []types.Transaction{txn}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1018,7 +1019,7 @@ func TestP2P(t *testing.T) {
 			return err
 		}
 
-		txns, v2txns, err := c.TxpoolTransactions()
+		_, txns, v2txns, err := c.TxpoolTransactions()
 		if err != nil {
 			return err
 		}
@@ -1114,7 +1115,7 @@ func TestP2P(t *testing.T) {
 		}
 		sig := key.SignHash(cs.WholeSigHash(txn, types.Hash256(sce.ID), 0, 0, nil))
 		txn.Signatures[0].Signature = sig[:]
-		if err := c.TxpoolBroadcast([]types.Transaction{txn}, nil); err != nil {
+		if err := c.TxpoolBroadcast(cs.Index, []types.Transaction{txn}, nil); err != nil {
 			return err
 		} else if err := addBlock(); err != nil {
 			return err
@@ -1165,7 +1166,7 @@ func TestP2P(t *testing.T) {
 			return err
 		}
 		txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{key.SignHash(cs.InputSigHash(txn))}
-		if err := c.TxpoolBroadcast(nil, []types.V2Transaction{txn}); err != nil {
+		if err := c.TxpoolBroadcast(cs.Index, nil, []types.V2Transaction{txn}); err != nil {
 			return err
 		} else if err := addBlock(); err != nil {
 			return err
@@ -1283,6 +1284,639 @@ func TestConsensusUpdates(t *testing.T) {
 		} else if cau.State.Network.Name != n.Name { // TODO: better comparison. reflect.DeepEqual is failing in CI, but passing local.
 			t.Fatalf("expected network to be %q, got %q", n.Name, cau.State.Network.Name)
 		}
+	}
+}
+
+func TestConstructSiacoins(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	n, genesisBlock := testNetwork()
+	senderPrivateKey := types.GeneratePrivateKey()
+	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
+	senderAddr := senderPolicy.Address()
+
+	receiverPrivateKey := types.GeneratePrivateKey()
+	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
+	receiverAddr := receiverPolicy.Address()
+
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(100),
+		Address: senderAddr,
+	}
+
+	// create wallets
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	peerStore, err := sqlite.NewPeerStore(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	syncerListener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syncerListener.Close()
+
+	// create the syncer
+	s := syncer.New(syncerListener, cm, peerStore, gateway.Header{
+		GenesisID:  genesisBlock.ID(),
+		UniqueID:   gateway.GenerateUniqueID(),
+		NetAddress: syncerListener.Addr().String(),
+	})
+
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	c := runServer(t, cm, s, wm)
+
+	w, err := c.AddWallet(api.WalletUpdateRequest{
+		Name: "primary",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wc := c.Wallet(w.ID)
+	err = wc.AddAddress(wallet.Address{
+		Address:     senderAddr,
+		SpendPolicy: &senderPolicy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Rescan(0); err != nil {
+		t.Fatal(err)
+	}
+
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, ws)
+
+	// try to construct a transaction with more siafunds than the wallet holds.
+	// this will lock all of the wallet's siacoins
+	resp, err := wc.Construct([]types.SiacoinOutput{
+		{Value: types.Siacoins(1), Address: receiverAddr},
+	}, []types.SiafundOutput{
+		{Value: 100000, Address: senderAddr},
+	}, senderAddr)
+	if !strings.Contains(err.Error(), "insufficient funds") {
+		t.Fatal(err)
+	}
+
+	// construct a transaction with a single siacoin output
+	// this will fail if the utxos were not unlocked
+	resp, err = wc.Construct([]types.SiacoinOutput{
+		{Value: types.Siacoins(1), Address: receiverAddr},
+	}, nil, senderAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	switch {
+	case resp.Transaction.SiacoinOutputs[0].Address != receiverAddr:
+		t.Fatalf("expected transaction to have output address %q, got %q", receiverAddr, resp.Transaction.SiacoinOutputs[0].Address)
+	case !resp.Transaction.SiacoinOutputs[0].Value.Equals(types.Siacoins(1)):
+		t.Fatalf("expected transaction to have output value of %v, got %v", types.Siacoins(1), resp.Transaction.SiacoinOutputs[0].Value)
+	case resp.Transaction.SiacoinOutputs[1].Address != senderAddr:
+		t.Fatalf("expected transaction to have change address %q, got %q", senderAddr, resp.Transaction.SiacoinOutputs[1].Address)
+	case !resp.Transaction.SiacoinOutputs[1].Value.Equals(types.Siacoins(99).Sub(resp.EstimatedFee)):
+		t.Fatalf("expected transaction to have change value of %v, got %v", types.Siacoins(99).Sub(resp.EstimatedFee), resp.Transaction.SiacoinOutputs[1].Value)
+	}
+
+	cs, err := c.ConsensusTipState()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// sign the transaction
+	for i, sig := range resp.Transaction.Signatures {
+		sigHash := cs.WholeSigHash(resp.Transaction, sig.ParentID, 0, 0, nil)
+		sig := senderPrivateKey.SignHash(sigHash)
+		resp.Transaction.Signatures[i].Signature = sig[:]
+	}
+
+	if err := c.TxpoolBroadcast(resp.Basis, []types.Transaction{resp.Transaction}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	unconfirmed, err := wc.UnconfirmedEvents()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(unconfirmed) != 1 {
+		t.Fatalf("expected 1 unconfirmed event, got %v", len(unconfirmed))
+	}
+	expectedValue := types.Siacoins(1).Add(resp.EstimatedFee)
+	sent := unconfirmed[0]
+	switch {
+	case types.TransactionID(sent.ID) != resp.ID:
+		t.Fatalf("expected unconfirmed event to have transaction ID %q, got %q", resp.ID, sent.ID)
+	case sent.Type != wallet.EventTypeV1Transaction:
+		t.Fatalf("expected unconfirmed event to have type %q, got %q", wallet.EventTypeV1Transaction, sent.Type)
+	case !sent.SiacoinOutflow().Sub(sent.SiacoinInflow()).Equals(expectedValue):
+		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", expectedValue, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
+	}
+
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, ws)
+
+	confirmed, err := wc.Events(0, 5)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(confirmed) != 2 {
+		t.Fatalf("expected 2 confirmed events, got %v", len(confirmed)) // initial gift + sent transaction
+	}
+	sent = confirmed[0]
+	switch {
+	case types.TransactionID(sent.ID) != resp.ID:
+		t.Fatalf("expected confirmed event to have transaction ID %q, got %q", resp.ID, sent.ID)
+	case sent.Type != wallet.EventTypeV1Transaction:
+		t.Fatalf("expected confirmed event to have type %q, got %q", wallet.EventTypeV1Transaction, sent.Type)
+	case !sent.SiacoinOutflow().Sub(sent.SiacoinInflow()).Equals(expectedValue):
+		t.Fatalf("expected confirmed event to have outflow of %v, got %v", expectedValue, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
+	}
+}
+
+func TestConstructSiafunds(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	n, genesisBlock := testNetwork()
+	senderPrivateKey := types.GeneratePrivateKey()
+	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
+	senderAddr := senderPolicy.Address()
+
+	receiverPrivateKey := types.GeneratePrivateKey()
+	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
+	receiverAddr := receiverPolicy.Address()
+
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(100),
+		Address: senderAddr,
+	}
+	genesisBlock.Transactions[0].SiafundOutputs[0].Address = senderAddr
+
+	// create wallets
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	peerStore, err := sqlite.NewPeerStore(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	syncerListener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syncerListener.Close()
+
+	// create the syncer
+	s := syncer.New(syncerListener, cm, peerStore, gateway.Header{
+		GenesisID:  genesisBlock.ID(),
+		UniqueID:   gateway.GenerateUniqueID(),
+		NetAddress: syncerListener.Addr().String(),
+	})
+
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	c := runServer(t, cm, s, wm)
+
+	w, err := c.AddWallet(api.WalletUpdateRequest{
+		Name: "primary",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wc := c.Wallet(w.ID)
+	err = wc.AddAddress(wallet.Address{
+		Address:     senderAddr,
+		SpendPolicy: &senderPolicy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Rescan(0); err != nil {
+		t.Fatal(err)
+	}
+
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, ws)
+
+	resp, err := wc.Construct(nil, []types.SiafundOutput{
+		{Value: 1, Address: receiverAddr},
+	}, senderAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	switch {
+	case resp.Transaction.SiacoinOutputs[0].Address != senderAddr:
+		t.Fatalf("expected transaction to have change address %q, got %q", senderAddr, resp.Transaction.SiacoinOutputs[0].Address)
+	case !resp.Transaction.SiacoinOutputs[0].Value.Equals(types.Siacoins(100).Sub(resp.EstimatedFee)):
+		t.Fatalf("expected transaction to have change value of %v, got %v", types.Siacoins(99).Sub(resp.EstimatedFee), resp.Transaction.SiacoinOutputs[0].Value)
+	case resp.Transaction.SiafundOutputs[0].Address != receiverAddr:
+		t.Fatalf("expected transaction to have output address %q, got %q", receiverAddr, resp.Transaction.SiafundOutputs[0].Address)
+	case resp.Transaction.SiafundOutputs[0].Value != 1:
+		t.Fatalf("expected transaction to have output value of %v, got %v", types.Siacoins(1), resp.Transaction.SiafundOutputs[0].Value)
+	case resp.Transaction.SiafundOutputs[1].Address != senderAddr:
+		t.Fatalf("expected transaction to have change address %q, got %q", senderAddr, resp.Transaction.SiafundOutputs[1].Address)
+	case resp.Transaction.SiafundOutputs[1].Value != 9999:
+		t.Fatalf("expected transaction to have change value of %v, got %v", types.Siacoins(99).Sub(resp.EstimatedFee), resp.Transaction.SiafundOutputs[1].Value)
+	case resp.Transaction.SiafundInputs[0].ClaimAddress != senderAddr:
+		t.Fatalf("expected transaction to have siafund input claim address %q, got %q", senderAddr, resp.Transaction.SiafundInputs[0].ClaimAddress)
+	}
+
+	cs, err := c.ConsensusTipState()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// sign the transaction
+	for i, sig := range resp.Transaction.Signatures {
+		sigHash := cs.WholeSigHash(resp.Transaction, sig.ParentID, 0, 0, nil)
+		sig := senderPrivateKey.SignHash(sigHash)
+		resp.Transaction.Signatures[i].Signature = sig[:]
+	}
+
+	if err := c.TxpoolBroadcast(resp.Basis, []types.Transaction{resp.Transaction}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	unconfirmed, err := wc.UnconfirmedEvents()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(unconfirmed) != 1 {
+		t.Fatalf("expected 1 unconfirmed event, got %v", len(unconfirmed))
+	}
+	sent := unconfirmed[0]
+	switch {
+	case types.TransactionID(sent.ID) != resp.ID:
+		t.Fatalf("expected unconfirmed event to have transaction ID %q, got %q", resp.ID, sent.ID)
+	case sent.Type != wallet.EventTypeV1Transaction:
+		t.Fatalf("expected unconfirmed event to have type %q, got %q", wallet.EventTypeV1Transaction, sent.Type)
+	case !sent.SiacoinOutflow().Sub(sent.SiacoinInflow()).Equals(resp.EstimatedFee):
+		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", resp.EstimatedFee, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
+	case sent.SiafundOutflow()-sent.SiafundInflow() != 1:
+		t.Fatalf("expected unconfirmed event to have siafund outflow of 1, got %v", sent.SiafundOutflow()-sent.SiafundInflow())
+	}
+
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, ws)
+
+	confirmed, err := wc.Events(0, 5)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(confirmed) != 2 {
+		t.Fatalf("expected 2 confirmed events, got %v", len(confirmed)) // initial gift + sent transaction
+	}
+	sent = confirmed[0]
+	switch {
+	case types.TransactionID(sent.ID) != resp.ID:
+		t.Fatalf("expected unconfirmed event to have transaction ID %q, got %q", resp.ID, sent.ID)
+	case sent.Type != wallet.EventTypeV1Transaction:
+		t.Fatalf("expected unconfirmed event to have type %q, got %q", wallet.EventTypeV1Transaction, sent.Type)
+	case !sent.SiacoinOutflow().Sub(sent.SiacoinInflow()).Equals(resp.EstimatedFee):
+		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", resp.EstimatedFee, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
+	case sent.SiafundOutflow()-sent.SiafundInflow() != 1:
+		t.Fatalf("expected unconfirmed event to have siafund outflow of 1, got %v", sent.SiafundOutflow()-sent.SiafundInflow())
+	}
+}
+
+func TestConstructV2Siacoins(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	n, genesisBlock := testutil.V2Network()
+	senderPrivateKey := types.GeneratePrivateKey()
+	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
+	senderAddr := senderPolicy.Address()
+
+	receiverPrivateKey := types.GeneratePrivateKey()
+	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
+	receiverAddr := receiverPolicy.Address()
+
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(100),
+		Address: senderAddr,
+	}
+
+	// create wallets
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	peerStore, err := sqlite.NewPeerStore(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	syncerListener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syncerListener.Close()
+
+	// create the syncer
+	s := syncer.New(syncerListener, cm, peerStore, gateway.Header{
+		GenesisID:  genesisBlock.ID(),
+		UniqueID:   gateway.GenerateUniqueID(),
+		NetAddress: syncerListener.Addr().String(),
+	})
+
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	c := runServer(t, cm, s, wm)
+
+	w, err := c.AddWallet(api.WalletUpdateRequest{
+		Name: "primary",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wc := c.Wallet(w.ID)
+	err = wc.AddAddress(wallet.Address{
+		Address:     senderAddr,
+		SpendPolicy: &senderPolicy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Rescan(0); err != nil {
+		t.Fatal(err)
+	}
+
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, ws)
+
+	// try to construct a transaction with more siafunds than the wallet holds.
+	// this will lock all of the wallet's Siacoin UTXOs
+	resp, err := wc.ConstructV2([]types.SiacoinOutput{
+		{Value: types.Siacoins(1), Address: receiverAddr},
+	}, []types.SiafundOutput{
+		{Value: 100000, Address: senderAddr},
+	}, senderAddr)
+	if !strings.Contains(err.Error(), "insufficient funds") {
+		t.Fatal(err)
+	}
+
+	// this will fail if the utxos were not properly
+	// unlocked when the previous request failed
+	resp, err = wc.ConstructV2([]types.SiacoinOutput{
+		{Value: types.Siacoins(1), Address: receiverAddr},
+	}, nil, senderAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cs, err := c.ConsensusTipState()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	switch {
+	case resp.Transaction.SiacoinOutputs[0].Address != receiverAddr:
+		t.Fatalf("expected transaction to have output address %q, got %q", receiverAddr, resp.Transaction.SiacoinOutputs[0].Address)
+	case !resp.Transaction.SiacoinOutputs[0].Value.Equals(types.Siacoins(1)):
+		t.Fatalf("expected transaction to have output value of %v, got %v", types.Siacoins(1), resp.Transaction.SiacoinOutputs[0].Value)
+	case resp.Transaction.SiacoinOutputs[1].Address != senderAddr:
+		t.Fatalf("expected transaction to have change address %q, got %q", senderAddr, resp.Transaction.SiacoinOutputs[1].Address)
+	case !resp.Transaction.SiacoinOutputs[1].Value.Equals(types.Siacoins(99).Sub(resp.EstimatedFee)):
+		t.Fatalf("expected transaction to have change value of %v, got %v", types.Siacoins(99).Sub(resp.EstimatedFee), resp.Transaction.SiacoinOutputs[1].Value)
+	}
+
+	// sign the transaction
+	sigHash := cs.InputSigHash(resp.Transaction)
+	for i := range resp.Transaction.SiacoinInputs {
+		sig := senderPrivateKey.SignHash(sigHash)
+		resp.Transaction.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{sig}
+	}
+
+	if err := c.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{resp.Transaction}); err != nil {
+		t.Fatal(err)
+	}
+
+	unconfirmed, err := wc.UnconfirmedEvents()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(unconfirmed) != 1 {
+		t.Fatalf("expected 1 unconfirmed event, got %v", len(unconfirmed))
+	}
+	expectedValue := types.Siacoins(1).Add(resp.EstimatedFee)
+	sent := unconfirmed[0]
+	switch {
+	case types.TransactionID(sent.ID) != resp.ID:
+		t.Fatalf("expected unconfirmed event to have transaction ID %q, got %q", resp.ID, sent.ID)
+	case sent.Type != wallet.EventTypeV2Transaction:
+		t.Fatalf("expected unconfirmed event to have type %q, got %q", wallet.EventTypeV2Transaction, sent.Type)
+	case !sent.SiacoinOutflow().Sub(sent.SiacoinInflow()).Equals(expectedValue):
+		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", expectedValue, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
+	}
+
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, ws)
+
+	confirmed, err := wc.Events(0, 5)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(confirmed) != 2 {
+		t.Fatalf("expected 2 confirmed events, got %v", len(confirmed)) // initial gift + sent transaction
+	}
+	sent = confirmed[0]
+	switch {
+	case types.TransactionID(sent.ID) != resp.ID:
+		t.Fatalf("expected confirmed event to have transaction ID %q, got %q", resp.ID, sent.ID)
+	case sent.Type != wallet.EventTypeV2Transaction:
+		t.Fatalf("expected confirmed event to have type %q, got %q", wallet.EventTypeV2Transaction, sent.Type)
+	case !sent.SiacoinOutflow().Sub(sent.SiacoinInflow()).Equals(expectedValue):
+		t.Fatalf("expected confirmed event to have outflow of %v, got %v", expectedValue, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
+	}
+}
+
+func TestConstructV2Siafunds(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	n, genesisBlock := testutil.V2Network()
+	senderPrivateKey := types.GeneratePrivateKey()
+	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
+	senderAddr := senderPolicy.Address()
+
+	receiverPrivateKey := types.GeneratePrivateKey()
+	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
+	receiverAddr := receiverPolicy.Address()
+
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(100),
+		Address: senderAddr,
+	}
+	genesisBlock.Transactions[0].SiafundOutputs[0].Address = senderAddr
+
+	// create wallets
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	peerStore, err := sqlite.NewPeerStore(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	syncerListener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syncerListener.Close()
+
+	// create the syncer
+	s := syncer.New(syncerListener, cm, peerStore, gateway.Header{
+		GenesisID:  genesisBlock.ID(),
+		UniqueID:   gateway.GenerateUniqueID(),
+		NetAddress: syncerListener.Addr().String(),
+	})
+
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	c := runServer(t, cm, s, wm)
+
+	w, err := c.AddWallet(api.WalletUpdateRequest{
+		Name: "primary",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wc := c.Wallet(w.ID)
+	err = wc.AddAddress(wallet.Address{
+		Address:     senderAddr,
+		SpendPolicy: &senderPolicy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Rescan(0); err != nil {
+		t.Fatal(err)
+	}
+
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, ws)
+
+	resp, err := wc.ConstructV2(nil, []types.SiafundOutput{
+		{Value: 1, Address: receiverAddr},
+	}, senderAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cs, err := c.ConsensusTipState()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// sign the transaction
+	sigHash := cs.InputSigHash(resp.Transaction)
+	sig := senderPrivateKey.SignHash(sigHash)
+	for i := range resp.Transaction.SiafundInputs {
+		resp.Transaction.SiafundInputs[i].SatisfiedPolicy.Signatures = []types.Signature{sig}
+	}
+	for i := range resp.Transaction.SiafundInputs {
+		resp.Transaction.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{sig}
+	}
+
+	if err := c.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{resp.Transaction}); err != nil {
+		t.Fatal(err)
+	}
+
+	unconfirmed, err := wc.UnconfirmedEvents()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(unconfirmed) != 1 {
+		t.Fatalf("expected 1 unconfirmed event, got %v", len(unconfirmed))
+	}
+	sent := unconfirmed[0]
+	switch {
+	case types.TransactionID(sent.ID) != resp.ID:
+		t.Fatalf("expected unconfirmed event to have transaction ID %q, got %q", resp.ID, sent.ID)
+	case sent.Type != wallet.EventTypeV2Transaction:
+		t.Fatalf("expected unconfirmed event to have type %q, got %q", wallet.EventTypeV2Transaction, sent.Type)
+	case !sent.SiacoinOutflow().Sub(sent.SiacoinInflow()).Equals(resp.EstimatedFee):
+		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", resp.EstimatedFee, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
+	case sent.SiafundOutflow()-sent.SiafundInflow() != 1:
+		t.Fatalf("expected unconfirmed event to have siafund outflow of 1, got %v", sent.SiafundOutflow()-sent.SiafundInflow())
+	}
+
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, ws)
+
+	confirmed, err := wc.Events(0, 5)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(confirmed) != 2 {
+		t.Fatalf("expected 2 confirmed events, got %v", len(confirmed)) // initial gift + sent transaction
+	}
+
+	sent = confirmed[0]
+	switch {
+	case types.TransactionID(sent.ID) != resp.ID:
+		t.Fatalf("expected unconfirmed event to have transaction ID %q, got %q", resp.ID, sent.ID)
+	case sent.Type != wallet.EventTypeV2Transaction:
+		t.Fatalf("expected unconfirmed event to have type %q, got %q", wallet.EventTypeV2Transaction, sent.Type)
+	case !sent.SiacoinOutflow().Sub(sent.SiacoinInflow()).Equals(resp.EstimatedFee):
+		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", resp.EstimatedFee, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
+	case sent.SiafundOutflow()-sent.SiafundInflow() != 1:
+		t.Fatalf("expected unconfirmed event to have siafund outflow of 1, got %v", sent.SiafundOutflow()-sent.SiafundInflow())
 	}
 }
 
