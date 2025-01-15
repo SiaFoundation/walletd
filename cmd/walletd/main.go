@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -17,8 +18,14 @@ import (
 	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"gopkg.in/yaml.v3"
 	"lukechampine.com/flagg"
+)
+
+const (
+	apiPasswordEnvVar = "WALLETD_API_PASSWORD"
+	configFileEnvVar  = "WALLETD_CONFIG_FILE"
+	dataDirEnvVar     = "WALLETD_DATA_DIR"
+	logFileEnvVar     = "WALLETD_LOG_FILE_PATH"
 )
 
 const (
@@ -51,11 +58,11 @@ Runs a CPU miner. Not intended for production use.
 
 var cfg = config.Config{
 	Name:          "walletd",
-	Directory:     ".",
+	Directory:     os.Getenv(dataDirEnvVar),
 	AutoOpenWebUI: true,
 	HTTP: config.HTTP{
 		Address:         "localhost:9980",
-		Password:        os.Getenv("WALLETD_API_PASSWORD"),
+		Password:        os.Getenv(apiPasswordEnvVar),
 		PublicEndpoints: false,
 	},
 	Syncer: config.Syncer{
@@ -74,7 +81,7 @@ var cfg = config.Config{
 		File: config.LogFile{
 			Enabled: true,
 			Format:  "json",
-			Path:    os.Getenv("WALLETD_LOG_FILE"),
+			Path:    os.Getenv(logFileEnvVar),
 		},
 		StdOut: config.StdOut{
 			Enabled:    true,
@@ -113,27 +120,20 @@ func checkFatalError(context string, err error) {
 	os.Exit(1)
 }
 
-// tryLoadConfig loads the config file specified by the WALLETD_CONFIG_FILE. If
-// the config file does not exist, it will not be loaded.
-func tryLoadConfig() {
-	configPath := "walletd.yml"
-	if str := os.Getenv("WALLETD_CONFIG_FILE"); str != "" {
-		configPath = str
+// tryLoadConfig tries to load the config file. It will try multiple locations
+// based on GOOS starting with PWD/walletd.yml. If the file does not exist, it will
+// try the next location. If an error occurs while loading the file, it will
+// print the error and exit. If the config is successfully loaded, the path to
+// the config file is returned.
+func tryLoadConfig() string {
+	for _, fp := range tryConfigPaths() {
+		if err := config.LoadFile(fp, &cfg); err == nil {
+			return fp
+		} else if !errors.Is(err, os.ErrNotExist) {
+			checkFatalError("failed to load config file", err)
+		}
 	}
-
-	// If the config file doesn't exist, don't try to load it.
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return
-	}
-
-	f, err := os.Open(configPath)
-	checkFatalError("failed to open config file", err)
-	defer f.Close()
-
-	dec := yaml.NewDecoder(f)
-	dec.KnownFields(true)
-
-	checkFatalError("failed to decode config file", dec.Decode(&cfg))
+	return ""
 }
 
 // jsonEncoder returns a zapcore.Encoder that encodes logs as JSON intended for
@@ -180,10 +180,24 @@ func parseLogLevel(level string) zap.AtomicLevel {
 	panic("unreachable")
 }
 
+func initStdoutLog(colored bool, levelStr string) *zap.Logger {
+	level := parseLogLevel(levelStr)
+	core := zapcore.NewCore(humanEncoder(colored), zapcore.Lock(os.Stdout), level)
+	return zap.New(core, zap.AddCaller())
+}
+
 func main() {
-	// attempt to load the config file first, command line flags will override
-	// any values set in the config file
-	tryLoadConfig()
+	log := initStdoutLog(cfg.Log.StdOut.EnableANSI, cfg.Log.Level)
+	defer log.Sync()
+
+	// attempt to load the config file, command line flags will override any
+	// values set in the config file
+	configPath := tryLoadConfig()
+	if configPath != "" {
+		log.Info("loaded config file", zap.String("path", configPath))
+	}
+	// set the data directory to the default if it is not set
+	cfg.Directory = defaultDataDirectory(cfg.Directory)
 
 	indexModeStr := cfg.Index.Mode.String()
 
@@ -329,7 +343,7 @@ func main() {
 			return
 		}
 
-		buildConfig()
+		buildConfig(configPath)
 	case mineCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()
