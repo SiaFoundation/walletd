@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +28,58 @@ import (
 	"go.uber.org/zap"
 	"lukechampine.com/upnp"
 )
+
+func tryConfigPaths() []string {
+	if str := os.Getenv(configFileEnvVar); str != "" {
+		return []string{str}
+	}
+
+	paths := []string{
+		"walletd.yml",
+	}
+	if str := os.Getenv(dataDirEnvVar); str != "" {
+		paths = append(paths, filepath.Join(str, "walletd.yml"))
+	}
+
+	switch runtime.GOOS {
+	case "windows":
+		paths = append(paths, filepath.Join(os.Getenv("APPDATA"), "walletd", "walletd.yml"))
+	case "darwin":
+		paths = append(paths, filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "walletd", "walletd.yml"))
+	case "linux", "freebsd", "openbsd":
+		paths = append(paths,
+			filepath.Join(string(filepath.Separator), "etc", "walletd", "walletd.yml"),
+			filepath.Join(string(filepath.Separator), "var", "lib", "walletd", "walletd.yml"), // old default for the Linux service
+		)
+	}
+	return paths
+}
+
+func defaultDataDirectory(fp string) string {
+	// use the provided path if it's not empty
+	if fp != "" {
+		return fp
+	}
+
+	// check for databases in the current directory
+	if _, err := os.Stat("walletd.db"); err == nil {
+		return "."
+	} else if _, err := os.Stat("walletd.sqlite3"); err == nil {
+		return "."
+	}
+
+	// default to the operating system's application directory
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(os.Getenv("APPDATA"), "walletd")
+	case "darwin":
+		return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "walletd")
+	case "linux", "freebsd", "openbsd":
+		return filepath.Join(string(filepath.Separator), "var", "lib", "walletd")
+	default:
+		return "."
+	}
+}
 
 func setupUPNP(ctx context.Context, port uint16, log *zap.Logger) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
