@@ -172,7 +172,7 @@ func TestMigrationConsistency(t *testing.T) {
 		t.Fatalf("expected version %d, got %d", expectedVersion, v)
 	}
 
-	fp2 := filepath.Join(t.TempDir(), "hostd.sqlite3")
+	fp2 := filepath.Join(t.TempDir(), "walletd.sqlite3")
 	baseline, err := OpenDatabase(fp2, zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
