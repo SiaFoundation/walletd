@@ -126,7 +126,7 @@ CREATE TABLE global_settings (
 );`
 
 func TestMigrationConsistency(t *testing.T) {
-	fp := filepath.Join(t.TempDir(), "hostd.sqlite3")
+	fp := filepath.Join(t.TempDir(), "walletd.sqlite3")
 	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
 	if err != nil {
 		t.Fatal(err)
