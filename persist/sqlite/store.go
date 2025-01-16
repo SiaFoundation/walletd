@@ -136,8 +136,6 @@ func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
 	if err != nil {
 		return nil, err
-	} else if err := integrityCheck(db, log.Named("integrity")); err != nil {
-		return nil, fmt.Errorf("integrity check failed: %w", err)
 	}
 	store := &Store{
 		db:  db,
