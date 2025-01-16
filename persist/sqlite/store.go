@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-sqlite3"
 	"go.sia.tech/walletd/wallet"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
@@ -105,19 +106,47 @@ func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx *txn) error) error {
 	return nil
 }
 
+func integrityCheck(db *sql.DB, log *zap.Logger) error {
+	rows, err := db.Query("PRAGMA integrity_check")
+	if err != nil {
+		return fmt.Errorf("failed to run integrity check: %w", err)
+	}
+	defer rows.Close()
+	var hasErrors bool
+	for rows.Next() {
+		var result string
+		if err := rows.Scan(&result); err != nil {
+			return fmt.Errorf("failed to scan integrity check result: %w", err)
+		} else if result != "ok" {
+			log.Error("integrity check failed", zap.String("result", result))
+			hasErrors = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate integrity check results: %w", err)
+	} else if hasErrors {
+		return errors.New("integrity check failed")
+	}
+	return nil
+}
+
 // OpenDatabase creates a new SQLite store and initializes the database. If the
 // database does not exist, it is created.
 func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
 	db, err := sql.Open("sqlite3", sqliteFilepath(fp))
 	if err != nil {
 		return nil, err
+	} else if err := integrityCheck(db, log.Named("integrity")); err != nil {
+		return nil, fmt.Errorf("integrity check failed: %w", err)
 	}
 	store := &Store{
 		db:  db,
 		log: log,
 	}
 	if err := store.init(); err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
+		return nil, err
 	}
+	sqliteVersion, _, _ := sqlite3.Version()
+	log.Debug("database initialized", zap.String("sqliteVersion", sqliteVersion), zap.Int("schemaVersion", len(migrations)+1), zap.String("path", fp))
 	return store, nil
 }
