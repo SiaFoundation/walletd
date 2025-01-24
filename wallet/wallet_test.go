@@ -1654,7 +1654,7 @@ func TestFullIndex(t *testing.T) {
 	assertBalance(t, addr2, types.ZeroCurrency, types.ZeroCurrency, cm.TipState().SiafundCount())
 
 	// send half siacoins to the second address
-	utxos, err := wm.AddressSiacoinOutputs(addr, 0, 100)
+	utxos, _, err := wm.AddressSiacoinOutputs(addr, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1711,7 +1711,7 @@ func TestFullIndex(t *testing.T) {
 		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	}
 
-	sf, err := wm.AddressSiafundOutputs(addr2, 0, 100)
+	sf, _, err := wm.AddressSiafundOutputs(addr2, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1888,9 +1888,11 @@ func TestEvents(t *testing.T) {
 	assertBalance(t, addr2, types.ZeroCurrency, types.ZeroCurrency, cm.TipState().SiafundCount())
 
 	// send half siacoins to the second address
-	utxos, err := wm.AddressSiacoinOutputs(addr, 0, 100)
+	utxos, basis, err := wm.AddressSiacoinOutputs(addr, 0, 100)
 	if err != nil {
 		t.Fatal(err)
+	} else if basis != cm.Tip() {
+		t.Fatalf("expected basis to be the current tip")
 	}
 
 	policy := types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey()))
@@ -1912,10 +1914,10 @@ func TestEvents(t *testing.T) {
 	}
 	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(cm.TipState().InputSigHash(txn))}
 
-	if err := cm.AddBlocks([]types.Block{mineV2Block(cm.TipState(), []types.V2Transaction{txn}, types.VoidAddress)}); err != nil {
+	if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	waitForBlock(t, cm, db)
+	mineAndSync(t, cm, db, types.VoidAddress, 1)
 
 	assertBalance(t, addr, expectedBalance1.Div64(2), types.ZeroCurrency, 0)
 	assertBalance(t, addr2, expectedBalance1.Div64(2), types.ZeroCurrency, cm.TipState().SiafundCount())
@@ -1957,7 +1959,7 @@ func TestEvents(t *testing.T) {
 		t.Fatalf("expected event %v to match %v", expected, events2[0])
 	}
 
-	sf, err := wm.AddressSiafundOutputs(addr2, 0, 100)
+	sf, _, err := wm.AddressSiafundOutputs(addr2, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2687,9 +2689,11 @@ func TestScanV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	utxos, err := wm.AddressSiacoinOutputs(addr, 0, 100)
+	utxos, basis, err := wm.AddressSiacoinOutputs(addr, 0, 100)
 	if err != nil {
 		t.Fatal(err)
+	} else if basis != cm.Tip() {
+		t.Fatalf("expected basis to be the current tip")
 	}
 
 	// spend the payout
@@ -2708,10 +2712,10 @@ func TestScanV2(t *testing.T) {
 	}
 	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(cm.TipState().InputSigHash(txn))}
 
-	if err := cm.AddBlocks([]types.Block{mineV2Block(cm.TipState(), []types.V2Transaction{txn}, types.VoidAddress)}); err != nil {
+	if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	waitForBlock(t, cm, db)
+	mineAndSync(t, cm, db, types.VoidAddress, 1)
 
 	// check that the first address has a balance of zero
 	if err := checkBalance(expectedBalance2, types.ZeroCurrency); err != nil {
@@ -3307,12 +3311,14 @@ func TestEventTypes(t *testing.T) {
 	}
 	defer wm.Close()
 
-	spendableSiacoinUTXOs := func() []types.SiacoinElement {
+	spendableSiacoinUTXOs := func(t *testing.T) ([]types.SiacoinElement, types.ChainIndex) {
 		t.Helper()
 
-		sces, err := wm.AddressSiacoinOutputs(addr, 0, 100)
+		sces, basis, err := wm.AddressSiacoinOutputs(addr, 0, 100)
 		if err != nil {
 			t.Fatal(err)
+		} else if basis != cm.Tip() {
+			t.Fatalf("expected basis to be the current tip")
 		}
 		filtered := sces[:0]
 		height := cm.Tip().Height
@@ -3325,7 +3331,7 @@ func TestEventTypes(t *testing.T) {
 		sort.Slice(filtered, func(i, j int) bool {
 			return filtered[i].SiacoinOutput.Value.Cmp(filtered[j].SiacoinOutput.Value) < 0
 		})
-		return filtered
+		return filtered, basis
 	}
 
 	assertEvent := func(t *testing.T, id types.Hash256, eventType string, expectedInflow, expectedOutflow types.Currency, maturityHeight uint64) {
@@ -3364,7 +3370,7 @@ func TestEventTypes(t *testing.T) {
 
 	// v1 transaction
 	t.Run("v1 transaction", func(t *testing.T) {
-		sce := spendableSiacoinUTXOs()
+		sce, _ := spendableSiacoinUTXOs(t)
 
 		// v1 only supports unlock conditions
 		uc := types.StandardUnlockConditions(pk.PublicKey())
@@ -3406,7 +3412,7 @@ func TestEventTypes(t *testing.T) {
 		// v1 contract resolution - only one type of resolution is supported.
 		// The only difference is `missed == true` or `missed == false`
 
-		sce := spendableSiacoinUTXOs()
+		sce, _ := spendableSiacoinUTXOs(t)
 		uc := types.StandardUnlockConditions(pk.PublicKey())
 
 		// create a storage contract
@@ -3461,7 +3467,7 @@ func TestEventTypes(t *testing.T) {
 	})
 
 	t.Run("v2 transaction", func(t *testing.T) {
-		sce := spendableSiacoinUTXOs()
+		sce, basis := spendableSiacoinUTXOs(t)
 
 		// using the UnlockConditions policy for brevity
 		policy := types.SpendPolicy{
@@ -3486,7 +3492,7 @@ func TestEventTypes(t *testing.T) {
 		txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
 
 		// broadcast the transaction
-		if _, err := cm.AddV2PoolTransactions(cm.Tip(), []types.V2Transaction{txn}); err != nil {
+		if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 			t.Fatal(err)
 		}
 		// mine a block to confirm the transaction
@@ -3495,7 +3501,7 @@ func TestEventTypes(t *testing.T) {
 	})
 
 	t.Run("v2 contract resolution - expired", func(t *testing.T) {
-		sce := spendableSiacoinUTXOs()
+		sce, basis := spendableSiacoinUTXOs(t)
 
 		// using the UnlockConditions policy for brevity
 		policy := types.SpendPolicy{
@@ -3544,7 +3550,7 @@ func TestEventTypes(t *testing.T) {
 		txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
 
 		// broadcast the transaction
-		if _, err := cm.AddV2PoolTransactions(cm.Tip(), []types.V2Transaction{txn}); err != nil {
+		if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 			t.Fatal(err)
 		}
 		// current tip
@@ -3586,7 +3592,7 @@ func TestEventTypes(t *testing.T) {
 	})
 
 	t.Run("v2 contract resolution - storage proof", func(t *testing.T) {
-		sce := spendableSiacoinUTXOs()
+		sce, basis := spendableSiacoinUTXOs(t)
 
 		// using the UnlockConditions policy for brevity
 		policy := types.SpendPolicy{
@@ -3635,7 +3641,7 @@ func TestEventTypes(t *testing.T) {
 		txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
 
 		// broadcast the transaction
-		if _, err := cm.AddV2PoolTransactions(cm.Tip(), []types.V2Transaction{txn}); err != nil {
+		if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 			t.Fatal(err)
 		}
 		// current tip
@@ -3683,7 +3689,7 @@ func TestEventTypes(t *testing.T) {
 	})
 
 	t.Run("v2 contract resolution - renewal", func(t *testing.T) {
-		sces := spendableSiacoinUTXOs()
+		sces, basis := spendableSiacoinUTXOs(t)
 
 		// using the UnlockConditions policy for brevity
 		policy := types.SpendPolicy{
@@ -3732,7 +3738,7 @@ func TestEventTypes(t *testing.T) {
 		txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
 
 		// broadcast the transaction
-		if _, err := cm.AddV2PoolTransactions(cm.Tip(), []types.V2Transaction{txn}); err != nil {
+		if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 			t.Fatal(err)
 		}
 		// current tip
@@ -3778,7 +3784,7 @@ func TestEventTypes(t *testing.T) {
 		renewal.NewContract.RenterSignature = pk.SignHash(contractSigHash)
 		renewal.NewContract.HostSignature = pk.SignHash(contractSigHash)
 
-		sces = spendableSiacoinUTXOs()
+		sces, basis = spendableSiacoinUTXOs(t)
 		newContractValue := renterPayout.Add(cm.TipState().V2FileContractTax(renewal.NewContract))
 
 		// create the renewal transaction
@@ -3805,7 +3811,7 @@ func TestEventTypes(t *testing.T) {
 		resolutionTxn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(resolutionTxnSigHash)}
 
 		// broadcast the renewal
-		if _, err := cm.AddV2PoolTransactions(cm.Tip(), []types.V2Transaction{resolutionTxn}); err != nil {
+		if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{resolutionTxn}); err != nil {
 			t.Fatal(err)
 		}
 		mineBlock(1, types.VoidAddress)
@@ -3813,9 +3819,11 @@ func TestEventTypes(t *testing.T) {
 	})
 
 	t.Run("siafund claim", func(t *testing.T) {
-		sfe, err := wm.AddressSiafundOutputs(addr, 0, 100)
+		sfe, basis, err := wm.AddressSiafundOutputs(addr, 0, 100)
 		if err != nil {
 			t.Fatal(err)
+		} else if basis != cm.Tip() {
+			t.Fatalf("expected basis to be the current tip")
 		}
 
 		policy := types.SpendPolicy{
@@ -3842,7 +3850,7 @@ func TestEventTypes(t *testing.T) {
 		claimValue := cm.TipState().SiafundTaxRevenue
 
 		// broadcast the transaction
-		if _, err := cm.AddV2PoolTransactions(cm.Tip(), []types.V2Transaction{txn}); err != nil {
+		if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 			t.Fatal(err)
 		}
 		// mine a block to confirm the transaction

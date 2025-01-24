@@ -73,7 +73,7 @@ LIMIT $2 OFFSET $3`
 }
 
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
-func (s *Store) AddressSiacoinOutputs(address types.Address, index types.ChainIndex, offset, limit int) (siacoins []types.SiacoinElement, err error) {
+func (s *Store) AddressSiacoinOutputs(address types.Address, index types.ChainIndex, offset, limit int) (siacoins []types.SiacoinElement, basis types.ChainIndex, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address 
 		FROM siacoin_elements se
@@ -113,13 +113,18 @@ func (s *Store) AddressSiacoinOutputs(address types.Address, index types.ChainIn
 				siacoins[i].StateElement.MerkleProof = proof
 			}
 		}
+
+		basis, err = getScanBasis(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get basis: %w", err)
+		}
 		return nil
 	})
 	return
 }
 
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.
-func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, err error) {
+func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, basis types.ChainIndex, err error) {
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
 		FROM siafund_elements se
@@ -157,6 +162,11 @@ func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) 
 			for i, proof := range proofs {
 				siafunds[i].StateElement.MerkleProof = proof
 			}
+		}
+
+		basis, err = getScanBasis(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get basis: %w", err)
 		}
 		return nil
 	})
