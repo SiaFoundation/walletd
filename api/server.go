@@ -110,8 +110,8 @@ type (
 		AddressBalance(address types.Address) (wallet.Balance, error)
 		AddressEvents(address types.Address, offset, limit int) ([]wallet.Event, error)
 		AddressUnconfirmedEvents(address types.Address) ([]wallet.Event, error)
-		AddressSiacoinOutputs(address types.Address, offset, limit int) ([]types.SiacoinElement, error)
-		AddressSiafundOutputs(address types.Address, offset, limit int) ([]types.SiafundElement, error)
+		AddressSiacoinOutputs(address types.Address, offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error)
+		AddressSiafundOutputs(address types.Address, offset, limit int) ([]types.SiafundElement, types.ChainIndex, error)
 
 		Events(eventIDs []types.Hash256) ([]wallet.Event, error)
 
@@ -308,6 +308,22 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	}
 
 	jc.EmptyResonse()
+}
+
+func (s *server) txpoolV2TransactionsBasisHandler(jc jape.Context) {
+	var req TxpoolUpdateV2TransactionsRequest
+	if jc.Decode(&req) != nil {
+		return
+	}
+
+	txnset, err := s.cm.UpdateV2TransactionSet(req.Transactions, req.Basis, req.Target)
+	if jc.Check("couldn't update v2 transaction set", err) != nil {
+		return
+	}
+	jc.Encode(TxpoolUpdateV2TransactionsResponse{
+		Basis:        req.Target,
+		Transactions: txnset,
+	})
 }
 
 func (s *server) walletsHandler(jc jape.Context) {
@@ -532,12 +548,15 @@ func (s *server) walletsOutputsSiacoinHandler(jc jape.Context) {
 		return
 	}
 
-	scos, _, err := s.wm.UnspentSiacoinOutputs(id, offset, limit)
+	scos, basis, err := s.wm.UnspentSiacoinOutputs(id, offset, limit)
 	if jc.Check("couldn't load siacoin outputs", err) != nil {
 		return
 	}
 
-	jc.Encode(scos)
+	jc.Encode(SiacoinElementsResponse{
+		Basis:   basis,
+		Outputs: scos,
+	})
 }
 
 func (s *server) walletsOutputsSiafundHandler(jc jape.Context) {
@@ -551,11 +570,14 @@ func (s *server) walletsOutputsSiafundHandler(jc jape.Context) {
 		return
 	}
 
-	sfos, _, err := s.wm.UnspentSiafundOutputs(id, offset, limit)
+	sfos, basis, err := s.wm.UnspentSiafundOutputs(id, offset, limit)
 	if jc.Check("couldn't load siacoin outputs", err) != nil {
 		return
 	}
-	jc.Encode(sfos)
+	jc.Encode(SiafundElementsResponse{
+		Basis:   basis,
+		Outputs: sfos,
+	})
 }
 
 func (s *server) walletsReserveHandler(jc jape.Context) {
@@ -1111,11 +1133,14 @@ func (s *server) addressesAddrOutputsSCHandler(jc jape.Context) {
 		return
 	}
 
-	utxos, err := s.wm.AddressSiacoinOutputs(addr, offset, limit)
+	utxos, basis, err := s.wm.AddressSiacoinOutputs(addr, offset, limit)
 	if jc.Check("couldn't load utxos", err) != nil {
 		return
 	}
-	jc.Encode(utxos)
+	jc.Encode(SiacoinElementsResponse{
+		Basis:   basis,
+		Outputs: utxos,
+	})
 }
 
 func (s *server) addressesAddrOutputsSFHandler(jc jape.Context) {
@@ -1129,11 +1154,14 @@ func (s *server) addressesAddrOutputsSFHandler(jc jape.Context) {
 		return
 	}
 
-	utxos, err := s.wm.AddressSiafundOutputs(addr, offset, limit)
+	utxos, basis, err := s.wm.AddressSiafundOutputs(addr, offset, limit)
 	if jc.Check("couldn't load utxos", err) != nil {
 		return
 	}
-	jc.Encode(utxos)
+	jc.Encode(SiafundElementsResponse{
+		Basis:   basis,
+		Outputs: utxos,
+	})
 }
 
 func (s *server) eventsHandlerGET(jc jape.Context) {
@@ -1296,10 +1324,11 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		"GET /syncer/peers":            wrapPublicAuthHandler(srv.syncerPeersHandler),
 		"POST /syncer/broadcast/block": wrapPublicAuthHandler(srv.syncerBroadcastBlockHandler),
 
-		"GET /txpool/transactions": wrapPublicAuthHandler(srv.txpoolTransactionsHandler),
-		"GET /txpool/fee":          wrapPublicAuthHandler(srv.txpoolFeeHandler),
-		"POST /txpool/parents":     wrapPublicAuthHandler(srv.txpoolParentsHandler),
-		"POST /txpool/broadcast":   wrapPublicAuthHandler(srv.txpoolBroadcastHandler),
+		"GET /txpool/transactions":           wrapPublicAuthHandler(srv.txpoolTransactionsHandler),
+		"POST /txpool/transactions/v2/basis": wrapPublicAuthHandler(srv.txpoolV2TransactionsBasisHandler),
+		"GET /txpool/fee":                    wrapPublicAuthHandler(srv.txpoolFeeHandler),
+		"POST /txpool/parents":               wrapPublicAuthHandler(srv.txpoolParentsHandler),
+		"POST /txpool/broadcast":             wrapPublicAuthHandler(srv.txpoolBroadcastHandler),
 
 		"GET /addresses/:addr/balance":            wrapPublicAuthHandler(srv.addressesAddrBalanceHandler),
 		"GET /addresses/:addr/events":             wrapPublicAuthHandler(srv.addressesAddrEventsHandlerGET),
