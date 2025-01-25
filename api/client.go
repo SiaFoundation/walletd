@@ -62,6 +62,18 @@ func (c *Client) TxpoolTransactions() (basis types.ChainIndex, txns []types.Tran
 	return resp.Basis, resp.Transactions, resp.V2Transactions, err
 }
 
+// V2UpdateTransactionSetBasis updates a V2 transaction set's basis to the target index.
+func (c *Client) V2UpdateTransactionSetBasis(txnset []types.V2Transaction, from, to types.ChainIndex) (types.ChainIndex, []types.V2Transaction, error) {
+	req := TxpoolUpdateV2TransactionsRequest{
+		Basis:        from,
+		Target:       to,
+		Transactions: txnset,
+	}
+	var resp TxpoolUpdateV2TransactionsResponse
+	err := c.c.POST("/txpool/transactions/v2/basis", req, &resp)
+	return resp.Basis, resp.Transactions, err
+}
+
 // TxpoolParents returns the parents of a transaction that are currently in the
 // transaction pool.
 func (c *Client) TxpoolParents(txn types.Transaction) (resp []types.Transaction, err error) {
@@ -226,15 +238,17 @@ func (c *Client) AddressUnconfirmedEvents(addr types.Address) (resp []wallet.Eve
 }
 
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
-func (c *Client) AddressSiacoinOutputs(addr types.Address, offset, limit int) (resp []types.SiacoinElement, err error) {
-	err = c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siacoin?offset=%d&limit=%d", addr, offset, limit), &resp)
-	return
+func (c *Client) AddressSiacoinOutputs(addr types.Address, offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error) {
+	var resp SiacoinElementsResponse
+	err := c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siacoin?offset=%d&limit=%d", addr, offset, limit), &resp)
+	return resp.Outputs, resp.Basis, err
 }
 
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.
-func (c *Client) AddressSiafundOutputs(addr types.Address, offset, limit int) (resp []types.SiafundElement, err error) {
-	err = c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siafund?offset=%d&limit=%d", addr, offset, limit), &resp)
-	return
+func (c *Client) AddressSiafundOutputs(addr types.Address, offset, limit int) ([]types.SiafundElement, types.ChainIndex, error) {
+	var resp SiafundElementsResponse
+	err := c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siafund?offset=%d&limit=%d", addr, offset, limit), &resp)
+	return resp.Outputs, resp.Basis, err
 }
 
 // Event returns the event with the specified ID.
@@ -288,15 +302,17 @@ func (c *WalletClient) UnconfirmedEvents() (resp []wallet.Event, err error) {
 }
 
 // SiacoinOutputs returns the set of unspent outputs controlled by the wallet.
-func (c *WalletClient) SiacoinOutputs(offset, limit int) (sc []types.SiacoinElement, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/outputs/siacoin?offset=%d&limit=%d", c.id, offset, limit), &sc)
-	return
+func (c *WalletClient) SiacoinOutputs(offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error) {
+	var resp SiacoinElementsResponse
+	err := c.c.GET(fmt.Sprintf("/wallets/%v/outputs/siacoin?offset=%d&limit=%d", c.id, offset, limit), &resp)
+	return resp.Outputs, resp.Basis, err
 }
 
 // SiafundOutputs returns the set of unspent outputs controlled by the wallet.
-func (c *WalletClient) SiafundOutputs(offset, limit int) (sf []types.SiafundElement, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/outputs/siafund?offset=%d&limit=%d", c.id, offset, limit), &sf)
-	return
+func (c *WalletClient) SiafundOutputs(offset, limit int) ([]types.SiafundElement, types.ChainIndex, error) {
+	var resp SiafundElementsResponse
+	err := c.c.GET(fmt.Sprintf("/wallets/%v/outputs/siafund?offset=%d&limit=%d", c.id, offset, limit), &resp)
+	return resp.Outputs, resp.Basis, err
 }
 
 // Reserve reserves a set outputs for use in a transaction.
