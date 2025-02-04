@@ -98,6 +98,7 @@ type WalletFundSFRequest struct {
 
 // WalletFundResponse is the response type for /wallets/:id/fund.
 type WalletFundResponse struct {
+	Basis       types.ChainIndex    `json:"basis"`
 	Transaction types.Transaction   `json:"transaction"`
 	ToSign      []types.Hash256     `json:"toSign"`
 	DependsOn   []types.Transaction `json:"dependsOn"`
