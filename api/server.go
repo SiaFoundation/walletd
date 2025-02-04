@@ -624,7 +624,7 @@ func (s *server) walletsFundHandler(jc jape.Context) {
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&wfr) != nil {
 		return
 	}
-	utxos, _, change, err := s.wm.SelectSiacoinElements(id, wfr.Amount, false)
+	utxos, basis, change, err := s.wm.SelectSiacoinElements(id, wfr.Amount, false)
 	if jc.Check("couldn't get utxos to fund transaction", err) != nil {
 		return
 	}
@@ -652,6 +652,7 @@ func (s *server) walletsFundHandler(jc jape.Context) {
 	}
 
 	jc.Encode(WalletFundResponse{
+		Basis:       basis,
 		Transaction: txn,
 		ToSign:      toSign,
 		DependsOn:   s.cm.UnconfirmedParents(txn),
@@ -664,7 +665,7 @@ func (s *server) walletsFundSFHandler(jc jape.Context) {
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&wfr) != nil {
 		return
 	}
-	utxos, _, change, err := s.wm.SelectSiafundElements(id, wfr.Amount)
+	utxos, basis, change, err := s.wm.SelectSiafundElements(id, wfr.Amount)
 	if jc.Check("couldn't get utxos to fund transaction", err) != nil {
 		return
 	}
@@ -692,6 +693,7 @@ func (s *server) walletsFundSFHandler(jc jape.Context) {
 		toSign = append(toSign, types.Hash256(sce.ID))
 	}
 	jc.Encode(WalletFundResponse{
+		Basis:       basis,
 		Transaction: txn,
 		ToSign:      toSign,
 		DependsOn:   s.cm.UnconfirmedParents(txn),
