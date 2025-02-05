@@ -193,7 +193,7 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebu
 
 	s := syncer.New(syncerListener, cm, ps, header, syncer.WithLogger(log.Named("syncer")))
 	defer s.Close()
-	go s.Run(ctx)
+	go s.Run()
 
 	wm, err := wallet.NewManager(cm, store, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(cfg.Index.Mode), wallet.WithSyncBatchSize(cfg.Index.BatchSize))
 	if err != nil {
