@@ -13,31 +13,28 @@ import (
 // it is skipped.
 func (s *Store) Events(eventIDs []types.Hash256) (events []wallet.Event, err error) {
 	err = s.transaction(func(tx *txn) error {
+		var scanHeight uint64
+		err := tx.QueryRow(`SELECT COALESCE(last_indexed_height, 0) FROM global_settings`).Scan(&scanHeight)
+		if err != nil {
+			return fmt.Errorf("failed to get last indexed height: %w", err)
+		}
+
 		// sqlite doesn't have easy support for IN clauses, use a statement since
 		// the number of event IDs is likely to be small instead of dynamically
 		// building the query
-		const query = `
-WITH last_chain_index AS (
-	SELECT last_indexed_height+1 AS height FROM global_settings LIMIT 1
-)
-SELECT 
+		const query = `SELECT 
 	ev.id, 
 	ev.event_id, 
 	ev.maturity_height, 
 	ev.date_created, 
 	ci.height, 
 	ci.block_id, 
-	CASE 
-		WHEN last_chain_index.height < ci.height THEN 0
-		ELSE last_chain_index.height - ci.height
-	END AS confirmations,
 	ev.event_type, 
 	ev.event_data
 FROM events ev
 INNER JOIN event_addresses ea ON (ev.id = ea.event_id)
 INNER JOIN sia_addresses sa ON (ea.address_id = sa.id)
 INNER JOIN chain_indices ci ON (ev.chain_index_id = ci.id)
-CROSS JOIN last_chain_index
 WHERE ev.event_id = $1`
 
 		stmt, err := tx.Prepare(query)
@@ -48,7 +45,7 @@ WHERE ev.event_id = $1`
 
 		events = make([]wallet.Event, 0, len(eventIDs))
 		for _, id := range eventIDs {
-			event, _, err := scanEvent(stmt.QueryRow(encode(id)))
+			event, _, err := scanEvent(stmt.QueryRow(encode(id)), scanHeight)
 			if errors.Is(err, sql.ErrNoRows) {
 				continue
 			} else if err != nil {
@@ -74,11 +71,15 @@ func decodeEventData[T wallet.EventPayout |
 	return *v
 }
 
-func scanEvent(s scanner) (ev wallet.Event, eventID int64, err error) {
+func scanEvent(s scanner, scanHeight uint64) (ev wallet.Event, eventID int64, err error) {
 	var eventBuf []byte
-	err = s.Scan(&eventID, decode(&ev.ID), &ev.MaturityHeight, decode(&ev.Timestamp), &ev.Index.Height, decode(&ev.Index.ID), &ev.Confirmations, &ev.Type, &eventBuf)
+	err = s.Scan(&eventID, decode(&ev.ID), &ev.MaturityHeight, decode(&ev.Timestamp), &ev.Index.Height, decode(&ev.Index.ID), &ev.Type, &eventBuf)
 	if err != nil {
 		return
+	}
+
+	if scanHeight >= ev.Index.Height {
+		ev.Confirmations = 1 + scanHeight - ev.Index.Height
 	}
 
 	dec := types.NewBufDecoder(eventBuf)

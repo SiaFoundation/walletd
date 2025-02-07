@@ -27,28 +27,25 @@ func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, e
 // AddressEvents returns the events of a single address.
 func (s *Store) AddressEvents(address types.Address, offset, limit int) (events []wallet.Event, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `
-WITH last_chain_index AS (
-    SELECT last_indexed_height+1 AS height FROM global_settings LIMIT 1
-)
-SELECT 
+		var scanHeight uint64
+		err := tx.QueryRow(`SELECT COALESCE(last_indexed_height, 0) FROM global_settings`).Scan(&scanHeight)
+		if err != nil {
+			return fmt.Errorf("failed to get last indexed height: %w", err)
+		}
+
+		const query = `SELECT 
 	ev.id, 
 	ev.event_id, 
 	ev.maturity_height, 
 	ev.date_created, 
 	ci.height, 
 	ci.block_id,
-	CASE 
-		WHEN last_chain_index.height < ci.height THEN 0
-		ELSE last_chain_index.height - ci.height
-	END AS confirmations,
 	ev.event_type, 
 	ev.event_data
 FROM events ev INDEXED BY events_maturity_height_id_idx -- force the index to prevent temp-btree sorts
 INNER JOIN event_addresses ea ON (ev.id = ea.event_id)
 INNER JOIN sia_addresses sa ON (ea.address_id = sa.id)
 INNER JOIN chain_indices ci ON (ev.chain_index_id = ci.id)
-CROSS JOIN last_chain_index
 WHERE sa.sia_address = $1
 ORDER BY ev.maturity_height DESC, ev.id DESC
 LIMIT $2 OFFSET $3`
@@ -60,7 +57,7 @@ LIMIT $2 OFFSET $3`
 		defer rows.Close()
 
 		for rows.Next() {
-			event, _, err := scanEvent(rows)
+			event, _, err := scanEvent(rows, scanHeight)
 			if err != nil {
 				return fmt.Errorf("failed to scan event: %w", err)
 			}

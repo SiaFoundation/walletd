@@ -699,54 +699,28 @@ func fillElementProofs(tx *txn, indices []uint64) (proofs [][]types.Hash256, _ e
 }
 
 func getWalletEvents(tx *txn, id wallet.ID, offset, limit int) (events []wallet.Event, eventIDs []int64, err error) {
-	// the events query can be slow in full index mode for wallets with no
-	// events. Check if the wallet has events first.
-	const hasEventsQuery = `SELECT EXISTS (
-  SELECT 1
-  FROM event_addresses ea
-  INNER JOIN wallet_addresses wa ON ea.address_id = wa.address_id
-  WHERE wa.wallet_id=$1
-) AS has_events;`
-	var hasEvents bool
-	if err := tx.QueryRow(hasEventsQuery, id).Scan(&hasEvents); err != nil {
-		return nil, nil, err
-	} else if !hasEvents {
-		return nil, nil, nil
+	var scanHeight uint64
+	err = tx.QueryRow(`SELECT COALESCE(last_indexed_height, 0) FROM global_settings`).Scan(&scanHeight)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get last indexed height: %w", err)
 	}
 
-	const eventsQuery = `
-WITH last_chain_index AS (
-    SELECT last_indexed_height+1 AS height FROM global_settings LIMIT 1
-),
-event_ids AS (
-	SELECT
-		ev.id
-	FROM events ev
-	INNER JOIN event_addresses ea ON ev.id = ea.event_id
-	INNER JOIN wallet_addresses wa ON ea.address_id = wa.address_id
-	WHERE wa.wallet_id = $1
-	GROUP BY ev.id
-	ORDER BY ev.maturity_height DESC, ev.id DESC
-	LIMIT $2 OFFSET $3
-)
-SELECT
+	const eventsQuery = `SELECT
 	ev.id,
 	ev.event_id,
 	ev.maturity_height,
 	ev.date_created,
 	ci.height,
 	ci.block_id,
-	CASE
-		WHEN last_chain_index.height < ci.height THEN 0
-		ELSE last_chain_index.height - ci.height
-	END AS confirmations,
 	ev.event_type,
 	ev.event_data
-FROM events ev
-INNER JOIN event_ids ei ON ev.id = ei.id
+FROM events ev INDEXED BY events_maturity_height_id_idx -- force index to prevent temp-btree sorts
+INNER JOIN event_addresses ea ON ev.id = ea.event_id
+INNER JOIN wallet_addresses wa ON ea.address_id = wa.address_id
 INNER JOIN chain_indices ci ON ev.chain_index_id = ci.id
-CROSS JOIN last_chain_index
-ORDER BY ev.maturity_height DESC, ev.id DESC;`
+WHERE wa.wallet_id = $1
+ORDER BY ev.maturity_height DESC, ev.id DESC
+LIMIT $2 OFFSET $3;`
 
 	rows, err := tx.Query(eventsQuery, id, limit, offset)
 	if err != nil {
@@ -755,7 +729,7 @@ ORDER BY ev.maturity_height DESC, ev.id DESC;`
 	defer rows.Close()
 
 	for rows.Next() {
-		event, eventID, err := scanEvent(rows)
+		event, eventID, err := scanEvent(rows, scanHeight)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan event: %w", err)
 		}
