@@ -956,7 +956,7 @@ func TestP2P(t *testing.T) {
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: l1.Addr().String(),
 	})
-	go s1.Run(context.Background())
+	go s1.Run()
 	defer s1.Close()
 	c1 := runServer(t, cm1, s1, wm1)
 	w1, err := c1.AddWallet(api.WalletUpdateRequest{Name: "primary"})
@@ -999,7 +999,7 @@ func TestP2P(t *testing.T) {
 		UniqueID:   gateway.GenerateUniqueID(),
 		NetAddress: l2.Addr().String(),
 	}, syncer.WithLogger(zaptest.NewLogger(t)))
-	go s2.Run(context.Background())
+	go s2.Run()
 	defer s2.Close()
 	c2 := runServer(t, cm2, s2, wm2)
 
@@ -1964,7 +1964,7 @@ func TestDebugMine(t *testing.T) {
 		NetAddress: l.Addr().String(),
 	})
 	defer s.Close()
-	go s.Run(context.Background())
+	go s.Run()
 
 	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
@@ -2025,7 +2025,7 @@ func TestAPISecurity(t *testing.T) {
 		NetAddress: syncerListener.Addr().String(),
 	})
 	defer s.Close()
-	go s.Run(context.Background())
+	go s.Run()
 
 	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
@@ -2140,7 +2140,7 @@ func TestAPINoContent(t *testing.T) {
 		NetAddress: l.Addr().String(),
 	})
 	defer s.Close()
-	go s.Run(context.Background())
+	go s.Run()
 
 	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
 	if err != nil {
@@ -2207,7 +2207,7 @@ func TestV2TransactionUpdateBasis(t *testing.T) {
 		NetAddress: l.Addr().String(),
 	})
 	defer s.Close()
-	go s.Run(context.Background())
+	go s.Run()
 
 	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
 	if err != nil {

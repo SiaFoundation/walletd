@@ -93,43 +93,36 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 	}
 
 	// add new siacoin elements to the store
-	cau.ForEachSiacoinElement(func(se types.SiacoinElement, created, spent bool) {
-		if (created && spent) || se.SiacoinOutput.Value.IsZero() {
-			return
-		}
-
-		relevant, err := tx.AddressRelevant(se.SiacoinOutput.Address)
-		if err != nil {
+	for _, sced := range cau.SiacoinElementDiffs() {
+		sce := sced.SiacoinElement
+		if (sced.Created && sced.Spent) || sce.SiacoinOutput.Value.IsZero() {
+			continue
+		} else if relevant, err := tx.AddressRelevant(sce.SiacoinOutput.Address); err != nil {
 			panic(err)
 		} else if !relevant {
-			return
+			continue
 		}
-
-		if spent {
-			applied.SpentSiacoinElements = append(applied.SpentSiacoinElements, se)
+		if sced.Spent {
+			applied.SpentSiacoinElements = append(applied.SpentSiacoinElements, sce)
 		} else {
-			applied.CreatedSiacoinElements = append(applied.CreatedSiacoinElements, se)
+			applied.CreatedSiacoinElements = append(applied.CreatedSiacoinElements, sce)
 		}
-	})
-
-	cau.ForEachSiafundElement(func(se types.SiafundElement, created, spent bool) {
-		if (created && spent) || se.SiafundOutput.Value == 0 {
-			return
-		}
-
-		relevant, err := tx.AddressRelevant(se.SiafundOutput.Address)
-		if err != nil {
+	}
+	for _, sfed := range cau.SiafundElementDiffs() {
+		sfe := sfed.SiafundElement
+		if (sfed.Created && sfed.Spent) || sfe.SiafundOutput.Value == 0 {
+			continue
+		} else if relevant, err := tx.AddressRelevant(sfe.SiafundOutput.Address); err != nil {
 			panic(err)
 		} else if !relevant {
-			return
+			continue
 		}
-
-		if spent {
-			applied.SpentSiafundElements = append(applied.SpentSiafundElements, se)
+		if sfed.Spent {
+			applied.SpentSiafundElements = append(applied.SpentSiafundElements, sfe)
 		} else {
-			applied.CreatedSiafundElements = append(applied.CreatedSiafundElements, se)
+			applied.CreatedSiafundElements = append(applied.CreatedSiafundElements, sfe)
 		}
-	})
+	}
 
 	// add events
 	relevant := func(addr types.Address) bool {
@@ -176,47 +169,38 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 		}
 	}
 
-	cru.ForEachSiacoinElement(func(se types.SiacoinElement, created, spent bool) {
-		if created && spent {
-			return
-		}
-
-		relevant, err := tx.AddressRelevant(se.SiacoinOutput.Address)
-		if err != nil {
+	for _, sced := range cru.SiacoinElementDiffs() {
+		sce := sced.SiacoinElement
+		if (sced.Created && sced.Spent) || sce.SiacoinOutput.Value.IsZero() {
+			continue
+		} else if relevant, err := tx.AddressRelevant(sce.SiacoinOutput.Address); err != nil {
 			panic(err)
 		} else if !relevant {
-			return
+			continue
 		}
-
-		if spent {
+		if sced.Spent {
 			// re-add any spent siacoin elements
-			reverted.UnspentSiacoinElements = append(reverted.UnspentSiacoinElements, se)
+			reverted.UnspentSiacoinElements = append(reverted.UnspentSiacoinElements, sce)
 		} else {
 			// delete any created siacoin elements
-			reverted.DeletedSiacoinElements = append(reverted.DeletedSiacoinElements, se)
+			reverted.DeletedSiacoinElements = append(reverted.DeletedSiacoinElements, sce)
 		}
-	})
-
-	cru.ForEachSiafundElement(func(se types.SiafundElement, created, spent bool) {
-		if created && spent {
-			return
-		}
-
-		relevant, err := tx.AddressRelevant(se.SiafundOutput.Address)
-		if err != nil {
+	}
+	for _, sfed := range cru.SiafundElementDiffs() {
+		sfe := sfed.SiafundElement
+		if (sfed.Created && sfed.Spent) || sfe.SiafundOutput.Value == 0 {
+			continue
+		} else if relevant, err := tx.AddressRelevant(sfe.SiafundOutput.Address); err != nil {
 			panic(err)
 		} else if !relevant {
-			return
+			continue
 		}
-
-		if spent {
-			// re-add any spent siafund elements
-			reverted.UnspentSiafundElements = append(reverted.UnspentSiafundElements, se)
+		if sfed.Spent {
+			reverted.UnspentSiafundElements = append(reverted.UnspentSiafundElements, sfe)
 		} else {
-			// delete any created siafund elements
-			reverted.DeletedSiafundElements = append(reverted.DeletedSiafundElements, se)
+			reverted.DeletedSiafundElements = append(reverted.DeletedSiafundElements, sfe)
 		}
-	})
+	}
 
 	if err := tx.RevertIndex(revertedIndex, reverted); err != nil {
 		return fmt.Errorf("failed to revert index: %w", err)

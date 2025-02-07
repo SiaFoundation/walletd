@@ -3566,11 +3566,8 @@ func TestEventTypes(t *testing.T) {
 		}
 
 		// get the confirmed file contract element
-		var fce types.V2FileContractElement
-		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ bool, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
-			fce = ele
-		})
-		for _, cau := range applied {
+		fce := applied[0].V2FileContractElementDiffs()[0].V2FileContractElement
+		for _, cau := range applied[1:] {
 			cau.UpdateElementProof(&fce.StateElement)
 		}
 
@@ -3657,12 +3654,8 @@ func TestEventTypes(t *testing.T) {
 		}
 
 		// get the confirmed file contract element
-		var fce types.V2FileContractElement
-		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ bool, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
-			fce = ele
-		})
-		// update its proof
-		for _, cau := range applied {
+		fce := applied[0].V2FileContractElementDiffs()[0].V2FileContractElement
+		for _, cau := range applied[1:] {
 			cau.UpdateElementProof(&fce.StateElement)
 		}
 		// get the proof index element
@@ -3754,11 +3747,8 @@ func TestEventTypes(t *testing.T) {
 		}
 
 		// get the confirmed file contract element
-		var fce types.V2FileContractElement
-		applied[0].ForEachV2FileContractElement(func(ele types.V2FileContractElement, _ bool, _ *types.V2FileContractElement, _ types.V2FileContractResolutionType) {
-			fce = ele
-		})
-		for _, cau := range applied {
+		fce := applied[0].V2FileContractElementDiffs()[0].V2FileContractElement
+		for _, cau := range applied[1:] {
 			cau.UpdateElementProof(&fce.StateElement)
 		}
 
@@ -4445,11 +4435,11 @@ func TestReset(t *testing.T) {
 
 	var siacoinElements []types.SiacoinElement
 	for _, cau := range applied {
-		cau.ForEachSiacoinElement(func(sce types.SiacoinElement, created, spent bool) {
-			if created && sce.SiacoinOutput.Address == addr {
-				siacoinElements = append(siacoinElements, sce)
+		for _, sced := range cau.SiacoinElementDiffs() {
+			if sced.Created && sced.SiacoinElement.SiacoinOutput.Address == addr {
+				siacoinElements = append(siacoinElements, sced.SiacoinElement)
 			}
-		})
+		}
 	}
 
 	var expectedSiacoins, expectedImmature types.Currency
