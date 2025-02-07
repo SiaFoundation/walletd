@@ -106,30 +106,6 @@ func doTransaction(db *sql.DB, log *zap.Logger, fn func(tx *txn) error) error {
 	return nil
 }
 
-func integrityCheck(db *sql.DB, log *zap.Logger) error {
-	rows, err := db.Query("PRAGMA integrity_check")
-	if err != nil {
-		return fmt.Errorf("failed to run integrity check: %w", err)
-	}
-	defer rows.Close()
-	var hasErrors bool
-	for rows.Next() {
-		var result string
-		if err := rows.Scan(&result); err != nil {
-			return fmt.Errorf("failed to scan integrity check result: %w", err)
-		} else if result != "ok" {
-			log.Error("integrity check failed", zap.String("result", result))
-			hasErrors = true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to iterate integrity check results: %w", err)
-	} else if hasErrors {
-		return errors.New("integrity check failed")
-	}
-	return nil
-}
-
 // OpenDatabase creates a new SQLite store and initializes the database. If the
 // database does not exist, it is created.
 func OpenDatabase(fp string, log *zap.Logger) (*Store, error) {
