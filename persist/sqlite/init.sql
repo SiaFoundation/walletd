@@ -67,11 +67,12 @@ CREATE INDEX events_maturity_height_id_idx ON events (maturity_height DESC, id D
 CREATE TABLE event_addresses (
 	event_id INTEGER NOT NULL REFERENCES events (id) ON DELETE CASCADE,
 	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
+	event_maturity_height INTEGER NOT NULL, -- flattened from events to improve query performance
 	PRIMARY KEY (event_id, address_id)
 );
 CREATE INDEX event_addresses_event_id_idx ON event_addresses (event_id);
 CREATE INDEX event_addresses_address_id_idx ON event_addresses (address_id);
-CREATE INDEX event_addresses_event_id_address_id_idx ON event_addresses (event_id, address_id);
+CREATE INDEX event_addresses_event_id_address_id_idx ON event_addresses (address_id, event_maturity_height DESC, event_id DESC);
 
 CREATE TABLE wallets (
 	id INTEGER PRIMARY KEY,
