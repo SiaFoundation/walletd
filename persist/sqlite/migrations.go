@@ -7,6 +7,27 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion6(tx *txn, _ *zap.Logger) error {
+	const query = `
+CREATE TABLE event_addresses_new (
+	event_id INTEGER NOT NULL REFERENCES events (id) ON DELETE CASCADE,
+	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
+	event_maturity_height INTEGER NOT NULL, -- flattened from events to improve query performance
+	PRIMARY KEY (event_id, address_id)
+);
+INSERT INTO event_addresses_new (event_id, address_id, event_maturity_height) SELECT ea.event_id, ea.address_id, ev.maturity_height FROM event_addresses ea INNER JOIN events ev ON ea.event_id = ev.id;
+
+DROP TABLE event_addresses;
+
+ALTER TABLE event_addresses_new RENAME TO event_addresses;
+CREATE INDEX event_addresses_event_id_idx ON event_addresses (event_id);
+CREATE INDEX event_addresses_address_id_idx ON event_addresses (address_id);
+CREATE INDEX event_addresses_event_id_address_id_event_maturity_height_event_id_idx ON event_addresses (address_id, event_maturity_height DESC, event_id DESC);
+`
+	_, err := tx.Exec(query)
+	return err
+}
+
 // migrateVersion5 resets the database to trigger a full resync to switch
 // events from JSON to Sia encoding
 func migrateVersion5(tx *txn, _ *zap.Logger) error {
@@ -66,7 +87,7 @@ CREATE INDEX siacoin_elements_address_id_spent_index_id_idx ON siacoin_elements(
 	siafund_value INTEGER NOT NULL,
 	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
 	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
-	spent_index_id INTEGER REFERENCES chain_indices (id) /* soft delete */	
+	spent_index_id INTEGER REFERENCES chain_indices (id) /* soft delete */
 );
 CREATE INDEX siafund_elements_address_id_idx ON siafund_elements (address_id);
 CREATE INDEX siafund_elements_chain_index_id_idx ON siafund_elements (chain_index_id);
@@ -163,4 +184,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion3,
 	migrateVersion4,
 	migrateVersion5,
+	migrateVersion6,
 }

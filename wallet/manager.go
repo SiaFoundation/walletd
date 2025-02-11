@@ -629,7 +629,9 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 
 	go func() {
 		ctx, cancel, err := m.tg.AddWithContext(context.Background())
-		if err != nil {
+		if errors.Is(err, threadgroup.ErrClosed) {
+			return
+		} else if err != nil {
 			log.Panic("failed to add to threadgroup", zap.Error(err))
 		}
 		defer cancel()

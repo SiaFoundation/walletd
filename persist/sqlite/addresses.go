@@ -24,47 +24,47 @@ func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, e
 	return
 }
 
+func getAddressEvents(tx *txn, address types.Address, offset, limit int) (eventIDs []int64, err error) {
+	const query = `SELECT DISTINCT ea.event_id
+FROM event_addresses ea
+INNER JOIN sia_addresses sa ON ea.address_id = sa.id
+WHERE sa.sia_address = $1
+ORDER BY ea.event_maturity_height DESC, ea.event_id DESC
+LIMIT $2 OFFSET $3;`
+
+	rows, err := tx.Query(query, encode(address), limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		eventIDs = append(eventIDs, id)
+	}
+	return eventIDs, rows.Err()
+}
+
 // AddressEvents returns the events of a single address.
 func (s *Store) AddressEvents(address types.Address, offset, limit int) (events []wallet.Event, err error) {
 	err = s.transaction(func(tx *txn) error {
-		var scanHeight uint64
-		err := tx.QueryRow(`SELECT COALESCE(last_indexed_height, 0) FROM global_settings`).Scan(&scanHeight)
-		if err != nil {
-			return fmt.Errorf("failed to get last indexed height: %w", err)
-		}
-
-		const query = `SELECT 
-	ev.id, 
-	ev.event_id, 
-	ev.maturity_height, 
-	ev.date_created, 
-	ci.height, 
-	ci.block_id,
-	ev.event_type, 
-	ev.event_data
-FROM events ev INDEXED BY events_maturity_height_id_idx -- force the index to prevent temp-btree sorts
-INNER JOIN event_addresses ea ON (ev.id = ea.event_id)
-INNER JOIN sia_addresses sa ON (ea.address_id = sa.id)
-INNER JOIN chain_indices ci ON (ev.chain_index_id = ci.id)
-WHERE sa.sia_address = $1
-ORDER BY ev.maturity_height DESC, ev.id DESC
-LIMIT $2 OFFSET $3`
-
-		rows, err := tx.Query(query, encode(address), limit, offset)
+		dbIDs, err := getAddressEvents(tx, address, offset, limit)
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
 
-		for rows.Next() {
-			event, _, err := scanEvent(rows, scanHeight)
-			if err != nil {
-				return fmt.Errorf("failed to scan event: %w", err)
-			}
-			event.Relevant = []types.Address{address}
-			events = append(events, event)
+		events, err = getEventsByID(tx, dbIDs)
+		if err != nil {
+			return fmt.Errorf("failed to get events by ID: %w", err)
 		}
-		return rows.Err()
+
+		for i := range events {
+			events[i].Relevant = []types.Address{address}
+		}
+		return nil
 	})
 	return
 }
@@ -72,7 +72,7 @@ LIMIT $2 OFFSET $3`
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
 func (s *Store) AddressSiacoinOutputs(address types.Address, index types.ChainIndex, offset, limit int) (siacoins []types.SiacoinElement, basis types.ChainIndex, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address 
+		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address
 		FROM siacoin_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE sa.sia_address=$1 AND se.maturity_height <= $2 AND se.spent_index_id IS NULL
@@ -123,7 +123,7 @@ func (s *Store) AddressSiacoinOutputs(address types.Address, index types.ChainIn
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.
 func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, basis types.ChainIndex, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
+		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address
 		FROM siafund_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE sa.sia_address = $1 AND se.spent_index_id IS NULL
@@ -197,7 +197,7 @@ func (s *Store) AnnotateV1Events(index types.ChainIndex, timestamp time.Time, v1
 			return se, nil
 		}
 
-		siafundElementStmt, err := tx.Prepare(`SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address 
+		siafundElementStmt, err := tx.Prepare(`SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address
 		FROM siafund_elements se
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE se.id=$1`)
