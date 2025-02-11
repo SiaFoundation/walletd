@@ -72,7 +72,7 @@ CREATE TABLE event_addresses (
 );
 CREATE INDEX event_addresses_event_id_idx ON event_addresses (event_id);
 CREATE INDEX event_addresses_address_id_idx ON event_addresses (address_id);
-CREATE INDEX event_addresses_event_id_address_id_idx ON event_addresses (address_id, event_maturity_height DESC, event_id DESC);
+CREATE INDEX event_addresses_event_id_address_id_event_maturity_height_event_id_idx ON event_addresses (address_id, event_maturity_height DESC, event_id DESC);
 
 CREATE TABLE wallets (
 	id INTEGER PRIMARY KEY,
