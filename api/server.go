@@ -802,17 +802,23 @@ func (s *server) walletsConstructHandler(jc jape.Context) {
 		})
 	}
 
-	knownAddresses := make(map[types.Address]wallet.Address)
-	getAddress := func(addr types.Address) (wallet.Address, error) {
+	knownAddresses := make(map[types.Address]types.UnlockConditions)
+	getAddressUnlockConditions := func(addr types.Address) (types.UnlockConditions, error) {
 		if a, ok := knownAddresses[addr]; ok {
 			return a, nil
 		}
 		a, err := s.wm.WalletAddress(walletID, addr)
 		if err != nil {
-			return wallet.Address{}, err
+			return types.UnlockConditions{}, err
+		} else if a.SpendPolicy == nil {
+			return types.UnlockConditions{}, fmt.Errorf("address %q has no spend policy", addr)
 		}
-		knownAddresses[addr] = a
-		return a, nil
+		uc, ok := a.SpendPolicy.Type.(types.PolicyTypeUnlockConditions)
+		if !ok {
+			return types.UnlockConditions{}, fmt.Errorf("address %q only unlock conditions are suppored in v1 transactions", addr)
+		}
+		knownAddresses[addr] = types.UnlockConditions(uc)
+		return knownAddresses[addr], nil
 	}
 
 	resp := WalletConstructResponse{
@@ -829,24 +835,15 @@ func (s *server) walletsConstructHandler(jc jape.Context) {
 	}
 
 	for _, sce := range sces {
-		addr, err := getAddress(sce.SiacoinOutput.Address)
+		uc, err := getAddressUnlockConditions(sce.SiacoinOutput.Address)
 		if err != nil {
 			jc.Error(fmt.Errorf("failed to get address: %w", err), http.StatusInternalServerError)
 			return
 		}
 
 		sci := types.SiacoinInput{
-			ParentID: sce.ID,
-		}
-
-		if addr.SpendPolicy != nil {
-			// best effort to fill unlock conditions
-			uc, ok := addr.SpendPolicy.Type.(types.PolicyTypeUnlockConditions)
-			if !ok {
-				jc.Error(fmt.Errorf("address %q only unlock conditions are suppored in v1 transactions", addr.Address), http.StatusBadRequest)
-				return
-			}
-			sci.UnlockConditions = types.UnlockConditions(uc)
+			ParentID:         sce.ID,
+			UnlockConditions: uc,
 		}
 
 		txn.SiacoinInputs = append(txn.SiacoinInputs, sci)
@@ -859,24 +856,16 @@ func (s *server) walletsConstructHandler(jc jape.Context) {
 	}
 
 	for _, sfe := range sfes {
-		addr, err := getAddress(sfe.SiafundOutput.Address)
+		uc, err := getAddressUnlockConditions(sfe.SiafundOutput.Address)
 		if err != nil {
 			jc.Error(fmt.Errorf("failed to get address: %w", err), http.StatusInternalServerError)
 			return
 		}
 
 		sfi := types.SiafundInput{
-			ParentID:     sfe.ID,
-			ClaimAddress: wcr.ChangeAddress,
-		}
-		if addr.SpendPolicy != nil {
-			// best effort to fill unlock conditions
-			uc, ok := addr.SpendPolicy.Type.(types.PolicyTypeUnlockConditions)
-			if !ok {
-				jc.Error(fmt.Errorf("address %q only unlock conditions are suppored in v1 transactions", addr.Address), http.StatusBadRequest)
-				return
-			}
-			sfi.UnlockConditions = types.UnlockConditions(uc)
+			ParentID:         sfe.ID,
+			UnlockConditions: uc,
+			ClaimAddress:     wcr.ChangeAddress,
 		}
 		txn.SiafundInputs = append(txn.SiafundInputs, sfi)
 		txn.Signatures = append(txn.Signatures, types.TransactionSignature{
@@ -995,17 +984,22 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 		})
 	}
 
-	knownAddresses := make(map[types.Address]wallet.Address)
-	getAddress := func(addr types.Address) (wallet.Address, error) {
+	knownAddresses := make(map[types.Address]types.SpendPolicy)
+	getAddressSpendPolicy := func(addr types.Address) (types.SpendPolicy, error) {
 		if a, ok := knownAddresses[addr]; ok {
 			return a, nil
 		}
 		a, err := s.wm.WalletAddress(walletID, addr)
 		if err != nil {
-			return wallet.Address{}, err
+			return types.SpendPolicy{}, err
 		}
-		knownAddresses[addr] = a
-		return a, nil
+
+		if a.SpendPolicy == nil {
+			return types.SpendPolicy{}, fmt.Errorf("address %q has no spend policy", addr)
+		} else {
+			knownAddresses[addr] = *a.SpendPolicy
+		}
+		return knownAddresses[addr], nil
 	}
 
 	resp := WalletConstructV2Response{
@@ -1026,7 +1020,7 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 	// guaranteed to have a non-zero Siacoin basis while the Siafund basis will be zero when not
 	// sending Siafunds.
 	for _, sfe := range sfes {
-		addr, err := getAddress(sfe.SiafundOutput.Address)
+		sp, err := getAddressSpendPolicy(sfe.SiafundOutput.Address)
 		if err != nil {
 			jc.Error(fmt.Errorf("failed to get address: %w", err), http.StatusInternalServerError)
 			return
@@ -1035,13 +1029,9 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 		sfi := types.V2SiafundInput{
 			Parent:       sfe,
 			ClaimAddress: wcr.ChangeAddress,
-		}
-
-		if addr.SpendPolicy != nil {
-			// best effort to fill spend policy
-			sfi.SatisfiedPolicy = types.SatisfiedPolicy{
-				Policy: *addr.SpendPolicy,
-			}
+			SatisfiedPolicy: types.SatisfiedPolicy{
+				Policy: sp,
+			},
 		}
 		txn.SiafundInputs = append(txn.SiafundInputs, sfi)
 	}
@@ -1056,7 +1046,7 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 	}
 
 	for _, sce := range sces {
-		addr, err := getAddress(sce.SiacoinOutput.Address)
+		sp, err := getAddressSpendPolicy(sce.SiacoinOutput.Address)
 		if err != nil {
 			jc.Error(fmt.Errorf("failed to get address: %w", err), http.StatusInternalServerError)
 			return
@@ -1064,13 +1054,9 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 
 		sci := types.V2SiacoinInput{
 			Parent: sce,
-		}
-
-		if addr.SpendPolicy != nil {
-			// best effort to fill spend policy
-			sci.SatisfiedPolicy = types.SatisfiedPolicy{
-				Policy: *addr.SpendPolicy,
-			}
+			SatisfiedPolicy: types.SatisfiedPolicy{
+				Policy: sp,
+			},
 		}
 		txn.SiacoinInputs = append(txn.SiacoinInputs, sci)
 	}
