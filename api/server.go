@@ -815,7 +815,7 @@ func (s *server) walletsConstructHandler(jc jape.Context) {
 		}
 		uc, ok := a.SpendPolicy.Type.(types.PolicyTypeUnlockConditions)
 		if !ok {
-			return types.UnlockConditions{}, fmt.Errorf("address %q only unlock conditions are suppored in v1 transactions", addr)
+			return types.UnlockConditions{}, fmt.Errorf("address %q has v2-only spend policy", addr)
 		}
 		knownAddresses[addr] = types.UnlockConditions(uc)
 		return knownAddresses[addr], nil
