@@ -803,22 +803,25 @@ func (s *server) walletsConstructHandler(jc jape.Context) {
 	}
 
 	knownAddresses := make(map[types.Address]types.UnlockConditions)
-	getAddressUnlockConditions := func(addr types.Address) (types.UnlockConditions, error) {
+	getAddressUnlockConditions := func(jc jape.Context, addr types.Address) (types.UnlockConditions, bool) {
 		if a, ok := knownAddresses[addr]; ok {
-			return a, nil
+			return a, true
 		}
 		a, err := s.wm.WalletAddress(walletID, addr)
 		if err != nil {
-			return types.UnlockConditions{}, err
+			jc.Error(fmt.Errorf("failed to get address: %w", err), http.StatusInternalServerError)
+			return types.UnlockConditions{}, false
 		} else if a.SpendPolicy == nil {
-			return types.UnlockConditions{}, fmt.Errorf("address %q has no spend policy", addr)
+			jc.Error(fmt.Errorf("address %q has no spend policy", addr), http.StatusBadRequest)
+			return types.UnlockConditions{}, false
 		}
 		uc, ok := a.SpendPolicy.Type.(types.PolicyTypeUnlockConditions)
 		if !ok {
-			return types.UnlockConditions{}, fmt.Errorf("address %q has v2-only spend policy", addr)
+			jc.Error(fmt.Errorf("address %q has v2-only spend policy", addr), http.StatusBadRequest)
+			return types.UnlockConditions{}, false
 		}
 		knownAddresses[addr] = types.UnlockConditions(uc)
-		return knownAddresses[addr], nil
+		return knownAddresses[addr], true
 	}
 
 	resp := WalletConstructResponse{
@@ -835,9 +838,8 @@ func (s *server) walletsConstructHandler(jc jape.Context) {
 	}
 
 	for _, sce := range sces {
-		uc, err := getAddressUnlockConditions(sce.SiacoinOutput.Address)
-		if err != nil {
-			jc.Error(fmt.Errorf("failed to get address: %w", err), http.StatusInternalServerError)
+		uc, ok := getAddressUnlockConditions(jc, sce.SiacoinOutput.Address)
+		if !ok {
 			return
 		}
 
@@ -856,9 +858,8 @@ func (s *server) walletsConstructHandler(jc jape.Context) {
 	}
 
 	for _, sfe := range sfes {
-		uc, err := getAddressUnlockConditions(sfe.SiafundOutput.Address)
-		if err != nil {
-			jc.Error(fmt.Errorf("failed to get address: %w", err), http.StatusInternalServerError)
+		uc, ok := getAddressUnlockConditions(jc, sfe.SiafundOutput.Address)
+		if !ok {
 			return
 		}
 
@@ -985,21 +986,22 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 	}
 
 	knownAddresses := make(map[types.Address]types.SpendPolicy)
-	getAddressSpendPolicy := func(addr types.Address) (types.SpendPolicy, error) {
+	getAddressSpendPolicy := func(jc jape.Context, addr types.Address) (types.SpendPolicy, bool) {
 		if a, ok := knownAddresses[addr]; ok {
-			return a, nil
+			return a, true
 		}
 		a, err := s.wm.WalletAddress(walletID, addr)
 		if err != nil {
-			return types.SpendPolicy{}, err
+			jc.Error(fmt.Errorf("failed to get address: %w", err), http.StatusInternalServerError)
+			return types.SpendPolicy{}, false
 		}
 
 		if a.SpendPolicy == nil {
-			return types.SpendPolicy{}, fmt.Errorf("address %q has no spend policy", addr)
-		} else {
-			knownAddresses[addr] = *a.SpendPolicy
+			jc.Error(fmt.Errorf("address %q has no spend policy", addr), http.StatusBadRequest)
+			return types.SpendPolicy{}, false
 		}
-		return knownAddresses[addr], nil
+		knownAddresses[addr] = *a.SpendPolicy
+		return knownAddresses[addr], true
 	}
 
 	resp := WalletConstructV2Response{
@@ -1020,9 +1022,8 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 	// guaranteed to have a non-zero Siacoin basis while the Siafund basis will be zero when not
 	// sending Siafunds.
 	for _, sfe := range sfes {
-		sp, err := getAddressSpendPolicy(sfe.SiafundOutput.Address)
-		if err != nil {
-			jc.Error(fmt.Errorf("failed to get address: %w", err), http.StatusInternalServerError)
+		sp, ok := getAddressSpendPolicy(jc, sfe.SiafundOutput.Address)
+		if !ok {
 			return
 		}
 
@@ -1046,9 +1047,8 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 	}
 
 	for _, sce := range sces {
-		sp, err := getAddressSpendPolicy(sce.SiacoinOutput.Address)
-		if err != nil {
-			jc.Error(fmt.Errorf("failed to get address: %w", err), http.StatusInternalServerError)
+		sp, ok := getAddressSpendPolicy(jc, sce.SiacoinOutput.Address)
+		if !ok {
 			return
 		}
 
