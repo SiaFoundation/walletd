@@ -1361,9 +1361,9 @@ func TestConstructSiacoins(t *testing.T) {
 	}
 
 	wc := c.Wallet(w.ID)
+	// add an address with no spend policy
 	err = wc.AddAddress(wallet.Address{
-		Address:     senderAddr,
-		SpendPolicy: &senderPolicy,
+		Address: senderAddr,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1375,6 +1375,25 @@ func TestConstructSiacoins(t *testing.T) {
 
 	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
 	waitForBlock(t, cm, ws)
+
+	// try to construct a valid transaction with no spend policy
+	_, err = wc.Construct([]types.SiacoinOutput{
+		{Value: types.Siacoins(1), Address: receiverAddr},
+	}, nil, senderAddr)
+	if !strings.Contains(err.Error(), "no spend policy") {
+		t.Fatalf("expected error to contain %q, got %q", "no spend policy", err)
+	}
+
+	// add the spend policy
+	err = wc.AddAddress(wallet.Address{
+		Address: senderAddr,
+		SpendPolicy: &types.SpendPolicy{
+			Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey())),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// try to construct a transaction with more siafunds than the wallet holds.
 	// this will lock all of the wallet's siacoins
@@ -1684,9 +1703,9 @@ func TestConstructV2Siacoins(t *testing.T) {
 	}
 
 	wc := c.Wallet(w.ID)
+	// add an address without a spend policy
 	err = wc.AddAddress(wallet.Address{
-		Address:     senderAddr,
-		SpendPolicy: &senderPolicy,
+		Address: senderAddr,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1699,9 +1718,26 @@ func TestConstructV2Siacoins(t *testing.T) {
 	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
 	waitForBlock(t, cm, ws)
 
+	// try to construct a transaction
+	resp, err := wc.ConstructV2([]types.SiacoinOutput{
+		{Value: types.Siacoins(1), Address: receiverAddr},
+	}, nil, senderAddr)
+	if !strings.Contains(err.Error(), "no spend policy") {
+		t.Fatalf("expected spend policy error, got %q", err)
+	}
+
+	// add a spend policy to the address
+	err = wc.AddAddress(wallet.Address{
+		Address:     senderAddr,
+		SpendPolicy: &senderPolicy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// try to construct a transaction with more siafunds than the wallet holds.
 	// this will lock all of the wallet's Siacoin UTXOs
-	resp, err := wc.ConstructV2([]types.SiacoinOutput{
+	resp, err = wc.ConstructV2([]types.SiacoinOutput{
 		{Value: types.Siacoins(1), Address: receiverAddr},
 	}, []types.SiafundOutput{
 		{Value: 100000, Address: senderAddr},
