@@ -117,6 +117,16 @@ type (
 
 		SiacoinElement(types.SiacoinOutputID) (types.SiacoinElement, error)
 		SiafundElement(types.SiafundOutputID) (types.SiafundElement, error)
+		// SiacoinElementSpentEvent returns the event of a spent siacoin element.
+		// If the element is not spent, the return value will be (Event{}, false, nil).
+		// If the element is not found, the error will be ErrNotFound. An element
+		// is only tracked for 144 blocks after it is spent.
+		SiacoinElementSpentEvent(types.SiacoinOutputID) (wallet.Event, bool, error)
+		// SiafundElementSpentEvent returns the event of a spent siafund element.
+		// If the element is not spent, the second return value will be (Event{}, false, nil).
+		// If the element is not found, the error will be ErrNotFound. An element
+		// is only tracked for 144 blocks after it is spent.
+		SiafundElementSpentEvent(types.SiafundOutputID) (wallet.Event, bool, error)
 
 		Reserve([]types.Hash256) error
 		Release([]types.Hash256)
@@ -578,6 +588,52 @@ func (s *server) walletsOutputsSiafundHandler(jc jape.Context) {
 		Basis:   basis,
 		Outputs: sfos,
 	})
+}
+
+func (s *server) outputsSiacoinSpentHandlerGET(jc jape.Context) {
+	var id types.SiacoinOutputID
+	if jc.DecodeParam("id", &id) != nil {
+		return
+	}
+
+	event, spent, err := s.wm.SiacoinElementSpentEvent(id)
+	if errors.Is(err, wallet.ErrNotFound) {
+		jc.Error(err, http.StatusNotFound)
+	} else if jc.Check("couldn't load siacoin element", err) != nil {
+		return
+	}
+
+	resp := ElementSpentResponse{
+		Spent: spent,
+	}
+	if spent {
+		resp.Event = &event
+	}
+
+	jc.Encode(resp)
+}
+
+func (s *server) outputsSiafundSpentHandlerGET(jc jape.Context) {
+	var id types.SiafundOutputID
+	if jc.DecodeParam("id", &id) != nil {
+		return
+	}
+
+	event, spent, err := s.wm.SiafundElementSpentEvent(id)
+	if errors.Is(err, wallet.ErrNotFound) {
+		jc.Error(err, http.StatusNotFound)
+	} else if jc.Check("couldn't load siafund element", err) != nil {
+		return
+	}
+
+	resp := ElementSpentResponse{
+		Spent: spent,
+	}
+	if spent {
+		resp.Event = &event
+	}
+
+	jc.Encode(resp)
 }
 
 func (s *server) walletsReserveHandler(jc jape.Context) {
@@ -1324,8 +1380,10 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		"GET /addresses/:addr/outputs/siacoin":    wrapPublicAuthHandler(srv.addressesAddrOutputsSCHandler),
 		"GET /addresses/:addr/outputs/siafund":    wrapPublicAuthHandler(srv.addressesAddrOutputsSFHandler),
 
-		"GET /outputs/siacoin/:id": wrapPublicAuthHandler(srv.outputsSiacoinHandlerGET),
-		"GET /outputs/siafund/:id": wrapPublicAuthHandler(srv.outputsSiafundHandlerGET),
+		"GET /outputs/siacoin/:id":       wrapPublicAuthHandler(srv.outputsSiacoinHandlerGET),
+		"GET /outputs/siacoin/:id/spent": wrapPublicAuthHandler(srv.outputsSiacoinSpentHandlerGET),
+		"GET /outputs/siafund/:id":       wrapPublicAuthHandler(srv.outputsSiafundHandlerGET),
+		"GET /outputs/siafund/:id/spent": wrapPublicAuthHandler(srv.outputsSiafundSpentHandlerGET),
 
 		"GET /events/:id": wrapPublicAuthHandler(srv.eventsHandlerGET),
 

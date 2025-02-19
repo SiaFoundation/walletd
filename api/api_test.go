@@ -1819,6 +1819,209 @@ func TestConstructV2Siacoins(t *testing.T) {
 	}
 }
 
+func TestSpentElement(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	n, genesisBlock := testutil.V2Network()
+	senderPrivateKey := types.GeneratePrivateKey()
+	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
+	senderAddr := senderPolicy.Address()
+
+	receiverPrivateKey := types.GeneratePrivateKey()
+	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
+	receiverAddr := receiverPolicy.Address()
+
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(100),
+		Address: senderAddr,
+	}
+	genesisBlock.Transactions[0].SiafundOutputs[0].Address = senderAddr
+
+	// create wallets
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	peerStore, err := sqlite.NewPeerStore(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	syncerListener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syncerListener.Close()
+
+	// create the syncer
+	s := syncer.New(syncerListener, cm, peerStore, gateway.Header{
+		GenesisID:  genesisBlock.ID(),
+		UniqueID:   gateway.GenerateUniqueID(),
+		NetAddress: syncerListener.Addr().String(),
+	})
+
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	c := runServer(t, cm, s, wm)
+
+	// trigger initial scan
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, ws)
+
+	sce, basis, err := c.AddressSiacoinOutputs(senderAddr, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(sce) != 1 {
+		t.Fatalf("expected 1 siacoin element, got %v", len(sce))
+	}
+
+	// check if the element is spent
+	spent, err := c.SpentSiacoinElement(sce[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if spent.Spent {
+		t.Fatal("expected siacoin element to be unspent")
+	} else if spent.Event != nil {
+		t.Fatalf("expected siacoin element to have no event, got %v", spent.Event)
+	}
+
+	// spend the element
+	txn := types.V2Transaction{
+		SiacoinInputs: []types.V2SiacoinInput{
+			{
+				Parent: sce[0],
+				SatisfiedPolicy: types.SatisfiedPolicy{
+					Policy: senderPolicy,
+				},
+			},
+		},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{
+				Value:   sce[0].SiacoinOutput.Value,
+				Address: receiverAddr,
+			},
+		},
+	}
+	cs, err := c.ConsensusTipState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{
+		senderPrivateKey.SignHash(cs.InputSigHash(txn)),
+	}
+
+	if err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
+		t.Fatal(err)
+	}
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, ws)
+
+	// check if the element is spent
+	spent, err = c.SpentSiacoinElement(sce[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if !spent.Spent {
+		t.Fatal("expected siacoin element to be spent")
+	} else if types.TransactionID(spent.Event.ID) != txn.ID() {
+		t.Fatalf("expected siacoin element to have event %q, got %q", txn.ID(), spent.Event.ID)
+	} else if spent.Event.Type != wallet.EventTypeV2Transaction {
+		t.Fatalf("expected siacoin element to have type %q, got %q", wallet.EventTypeV2Transaction, spent.Event.Type)
+	}
+
+	// mine until the utxo is pruned
+	testutil.MineBlocks(t, cm, types.VoidAddress, 144)
+	waitForBlock(t, cm, ws)
+
+	_, err = c.SpentSiacoinElement(sce[0].ID)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected error to contain %q, got %q", "not found", err)
+	}
+
+	sfe, basis, err := c.AddressSiafundOutputs(senderAddr, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(sfe) != 1 {
+		t.Fatalf("expected 1 siafund element, got %v", len(sfe))
+	}
+
+	// check if the siafund element is spent
+	// check if the element is spent
+	spent, err = c.SpentSiafundElement(sfe[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if spent.Spent {
+		t.Fatal("expected siafund element to be unspent")
+	} else if spent.Event != nil {
+		t.Fatalf("expected siafund element to have no event, got %v", spent.Event)
+	}
+
+	// spend the element
+	txn = types.V2Transaction{
+		SiafundInputs: []types.V2SiafundInput{
+			{
+				Parent: sfe[0],
+				SatisfiedPolicy: types.SatisfiedPolicy{
+					Policy: senderPolicy,
+				},
+				ClaimAddress: senderAddr,
+			},
+		},
+		SiafundOutputs: []types.SiafundOutput{
+			{
+				Address: receiverAddr,
+				Value:   sfe[0].SiafundOutput.Value,
+			},
+		},
+	}
+	cs, err = c.ConsensusTipState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	txn.SiafundInputs[0].SatisfiedPolicy.Signatures = []types.Signature{
+		senderPrivateKey.SignHash(cs.InputSigHash(txn)),
+	}
+
+	if err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
+		t.Fatal(err)
+	}
+
+	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	waitForBlock(t, cm, ws)
+
+	// check if the element is spent
+	spent, err = c.SpentSiafundElement(sfe[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	} else if !spent.Spent {
+		t.Fatal("expected siafund element to be spent")
+	} else if types.TransactionID(spent.Event.ID) != txn.ID() {
+		t.Fatalf("expected siafund element to have event %q, got %q", txn.ID(), spent.Event.ID)
+	} else if spent.Event.Type != wallet.EventTypeV2Transaction {
+		t.Fatalf("expected siafund element to have type %q, got %q", wallet.EventTypeV2Transaction, spent.Event.Type)
+	}
+
+	// mine until the utxo is pruned
+	testutil.MineBlocks(t, cm, types.VoidAddress, 144)
+	waitForBlock(t, cm, ws)
+
+	_, err = c.SpentSiafundElement(sfe[0].ID)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("expected error to contain %q, got %q", "not found", err)
+	}
+}
+
 func TestConstructV2Siafunds(t *testing.T) {
 	log := zaptest.NewLogger(t)
 
