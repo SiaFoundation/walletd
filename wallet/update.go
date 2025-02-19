@@ -27,11 +27,15 @@ type (
 		Balance
 	}
 
+	// SpentSiacoinElement pairs a spent siacoin element with the ID of the
+	// transaction that spent it.
 	SpentSiacoinElement struct {
 		types.SiacoinElement
 		EventID types.TransactionID
 	}
 
+	// SpentSiafundElement pairs a spent siafund element with the ID of the
+	// transaction that spent it.
 	SpentSiafundElement struct {
 		types.SiafundElement
 		EventID types.TransactionID
