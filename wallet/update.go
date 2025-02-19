@@ -27,15 +27,25 @@ type (
 		Balance
 	}
 
+	SpentSiacoinElement struct {
+		types.SiacoinElement
+		EventID types.TransactionID
+	}
+
+	SpentSiafundElement struct {
+		types.SiafundElement
+		EventID types.TransactionID
+	}
+
 	// AppliedState contains all state changes made to a store after applying a chain
 	// update.
 	AppliedState struct {
 		NumLeaves              uint64
 		Events                 []Event
 		CreatedSiacoinElements []types.SiacoinElement
-		SpentSiacoinElements   []types.SiacoinElement
+		SpentSiacoinElements   []SpentSiacoinElement
 		CreatedSiafundElements []types.SiafundElement
-		SpentSiafundElements   []types.SiafundElement
+		SpentSiafundElements   []SpentSiafundElement
 	}
 
 	// RevertedState contains all state changes made to a store after reverting
@@ -92,6 +102,26 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 		NumLeaves: cau.State.Elements.NumLeaves,
 	}
 
+	spentEventIDs := make(map[types.Hash256]types.TransactionID)
+	for _, txn := range cau.Block.Transactions {
+		txnID := txn.ID()
+		for _, input := range txn.SiacoinInputs {
+			spentEventIDs[types.Hash256(input.ParentID)] = txnID
+		}
+		for _, input := range txn.SiafundInputs {
+			spentEventIDs[types.Hash256(input.ParentID)] = txnID
+		}
+	}
+	for _, txn := range cau.Block.V2Transactions() {
+		txnID := txn.ID()
+		for _, input := range txn.SiacoinInputs {
+			spentEventIDs[types.Hash256(input.Parent.ID)] = txnID
+		}
+		for _, input := range txn.SiafundInputs {
+			spentEventIDs[types.Hash256(input.Parent.ID)] = txnID
+		}
+	}
+
 	// add new siacoin elements to the store
 	for _, sced := range cau.SiacoinElementDiffs() {
 		sce := sced.SiacoinElement
@@ -103,7 +133,14 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 			continue
 		}
 		if sced.Spent {
-			applied.SpentSiacoinElements = append(applied.SpentSiacoinElements, sce)
+			spentTxnID, ok := spentEventIDs[types.Hash256(sce.ID)]
+			if !ok {
+				panic(fmt.Errorf("missing transaction ID for spent siacoin element %v", sce.ID))
+			}
+			applied.SpentSiacoinElements = append(applied.SpentSiacoinElements, SpentSiacoinElement{
+				SiacoinElement: sce,
+				EventID:        spentTxnID,
+			})
 		} else {
 			applied.CreatedSiacoinElements = append(applied.CreatedSiacoinElements, sce)
 		}
@@ -118,7 +155,14 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 			continue
 		}
 		if sfed.Spent {
-			applied.SpentSiafundElements = append(applied.SpentSiafundElements, sfe)
+			spentTxnID, ok := spentEventIDs[types.Hash256(sfe.ID)]
+			if !ok {
+				panic(fmt.Errorf("missing transaction ID for spent siafund element %v", sfe.ID))
+			}
+			applied.SpentSiafundElements = append(applied.SpentSiafundElements, SpentSiafundElement{
+				SiafundElement: sfe,
+				EventID:        spentTxnID,
+			})
 		} else {
 			applied.CreatedSiafundElements = append(applied.CreatedSiafundElements, sfe)
 		}

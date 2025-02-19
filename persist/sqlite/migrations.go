@@ -7,6 +7,19 @@ import (
 	"go.uber.org/zap"
 )
 
+// migrateVersion7 adds spent_event_id columns to siacoin_elements and
+// siafund_elements to track the event that spent the element.
+func migrateVersion7(tx *txn, _ *zap.Logger) error {
+	const query = `ALTER TABLE siacoin_elements ADD COLUMN spent_event_id INTEGER REFERENCES events (id);
+CREATE INDEX siacoin_elements_spent_event_id_idx ON siacoin_elements (spent_event_id);
+ALTER TABLE siafund_elements ADD COLUMN spent_event_id INTEGER REFERENCES events (id);
+CREATE INDEX siafund_elements_spent_event_id_idx ON siafund_elements (spent_event_id);`
+	_, err := tx.Exec(query)
+	return err
+}
+
+// migrateVersion6 flattens the maturity height from events into event_addresses
+// to improve query performance.
 func migrateVersion6(tx *txn, _ *zap.Logger) error {
 	const query = `
 CREATE TABLE event_addresses_new (
@@ -185,4 +198,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion4,
 	migrateVersion5,
 	migrateVersion6,
+	migrateVersion7,
 }

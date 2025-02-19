@@ -18,16 +18,18 @@ CREATE TABLE siacoin_elements (
 	siacoin_value BLOB NOT NULL,
 	merkle_proof BLOB NOT NULL,
 	leaf_index INTEGER UNIQUE NOT NULL,
-	maturity_height INTEGER NOT NULL, /* stored as int64 for easier querying */
+	maturity_height INTEGER NOT NULL, -- stored as int64 for easier querying
 	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
-	matured BOOLEAN NOT NULL, /* tracks whether the value has been added to the address balance */
+	matured BOOLEAN NOT NULL, -- tracks whether the value has been added to the address balance 
 	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
-	spent_index_id INTEGER REFERENCES chain_indices (id) /* soft delete */
+	spent_index_id INTEGER REFERENCES chain_indices (id), -- soft delete
+	spent_event_id INTEGER REFERENCES events (id) -- atomic swap tracking 
 );
 CREATE INDEX siacoin_elements_address_id_idx ON siacoin_elements (address_id);
 CREATE INDEX siacoin_elements_maturity_height_matured_idx ON siacoin_elements (maturity_height, matured);
 CREATE INDEX siacoin_elements_chain_index_id_idx ON siacoin_elements (chain_index_id);
 CREATE INDEX siacoin_elements_spent_index_id_idx ON siacoin_elements (spent_index_id);
+CREATE INDEX siacoin_elements_spent_event_id_idx ON siacoin_elements (spent_event_id);
 CREATE INDEX siacoin_elements_address_id_spent_index_id_idx ON siacoin_elements(address_id, spent_index_id);
 
 CREATE TABLE siafund_elements (
@@ -38,11 +40,13 @@ CREATE TABLE siafund_elements (
 	siafund_value INTEGER NOT NULL,
 	address_id INTEGER NOT NULL REFERENCES sia_addresses (id),
 	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
-	spent_index_id INTEGER REFERENCES chain_indices (id) /* soft delete */	
+	spent_index_id INTEGER REFERENCES chain_indices (id), -- soft delete
+	spent_event_id INTEGER REFERENCES events (id) -- atomic swap tracking
 );
 CREATE INDEX siafund_elements_address_id_idx ON siafund_elements (address_id);
 CREATE INDEX siafund_elements_chain_index_id_idx ON siafund_elements (chain_index_id);
 CREATE INDEX siafund_elements_spent_index_id_idx ON siafund_elements (spent_index_id);
+CREATE INDEX siafund_elements_spent_event_id_idx ON siafund_elements (spent_event_id);
 CREATE INDEX siafund_elements_address_id_spent_index_id_idx ON siafund_elements(address_id, spent_index_id);
 
 CREATE TABLE state_tree (

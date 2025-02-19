@@ -695,7 +695,7 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 					default:
 					}
 				default:
-					log.Panic("failed to sync store", zap.Error(err))
+					panic("failed to sync store: " + err.Error())
 				}
 			}
 			m.mu.Unlock()
