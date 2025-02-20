@@ -735,9 +735,10 @@ func revertSpentSiacoinElements(tx *txn, elements []types.SiacoinElement) error 
 			balanceChanges[addrRef.ID] = addrRef.Balance
 		}
 
-		if res, err := stmt.Exec(encode(se.ID)); err != nil {
+		var dummy types.Hash256
+		if err := stmt.QueryRow(encode(se.ID)).Scan(decode(&dummy)); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
-		} else if n, _ := res.RowsAffected(); n == 0 {
+		} else if errors.Is(err, sql.ErrNoRows) {
 			continue // skip if the element does not exist
 		}
 
@@ -786,7 +787,7 @@ func spendSiacoinElements(tx *txn, elements []wallet.SpentSiacoinElement, indexI
 	}
 	defer getEventIDStmt.Close()
 
-	stmt, err := tx.Prepare(`UPDATE siacoin_elements SET spent_index_id=$1, spent_event_id=$2 WHERE id=$3 AND spent_index_id IS NULL`)
+	stmt, err := tx.Prepare(`UPDATE siacoin_elements SET spent_index_id=$1, spent_event_id=$2 WHERE id=$3 AND spent_index_id IS NULL RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
@@ -806,9 +807,10 @@ func spendSiacoinElements(tx *txn, elements []wallet.SpentSiacoinElement, indexI
 			return fmt.Errorf("failed to get event ID: %w", err)
 		}
 
-		if res, err := stmt.Exec(indexID, eventDBID, encode(se.ID)); err != nil {
+		var dummy types.Hash256
+		if err := stmt.QueryRow(indexID, eventDBID, encode(se.ID)).Scan(decode(&dummy)); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
-		} else if n, _ := res.RowsAffected(); n == 0 {
+		} else if errors.Is(err, sql.ErrNoRows) {
 			continue // skip if the element does not exist
 		}
 
@@ -1015,9 +1017,10 @@ func spendSiafundElements(tx *txn, elements []wallet.SpentSiafundElement, indexI
 			return fmt.Errorf("failed to get event ID: %w", err)
 		}
 
-		if res, err := stmt.Exec(indexID, eventDBID, encode(se.ID)); err != nil {
+		var dummy types.Hash256
+		if err := stmt.QueryRow(indexID, eventDBID, encode(se.ID)).Scan(decode(&dummy)); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
-		} else if n, _ := res.RowsAffected(); n == 0 {
+		} else if errors.Is(err, sql.ErrNoRows) {
 			continue // skip if the element does not exist
 		}
 
@@ -1064,7 +1067,7 @@ func revertSpentSiafundElements(tx *txn, elements []types.SiafundElement) error 
 	}
 	defer done()
 
-	stmt, err := tx.Prepare(`UPDATE siafund_elements SET spent_index_id=NULL, spent_event_id=NULL WHERE id=$1 AND spent_index_id IS NOT NULL`)
+	stmt, err := tx.Prepare(`UPDATE siafund_elements SET spent_index_id=NULL, spent_event_id=NULL WHERE id=$1 AND spent_index_id IS NOT NULL RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
@@ -1079,9 +1082,10 @@ func revertSpentSiafundElements(tx *txn, elements []types.SiafundElement) error 
 			balanceChanges[addrRef.ID] = addrRef.Balance
 		}
 
-		if res, err := stmt.Exec(encode(se.ID)); err != nil {
+		var dummy types.Hash256
+		if err := stmt.QueryRow(encode(se.ID)).Scan(decode(&dummy)); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
-		} else if n, _ := res.RowsAffected(); n == 0 {
+		} else if errors.Is(err, sql.ErrNoRows) {
 			continue // skip if the element does not exist
 		}
 
