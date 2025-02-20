@@ -84,7 +84,7 @@ Flags:
   -debug
         enable debug mode with additional profiling and mining endpoints
   -dir string
-        directory to store node state in (default "/Users/n8maninger/Downloads/walletd-tmp")
+        directory to store node state in (default "/Users/username/Library/Application Support/walletd")
   -http string
         address to serve API on (default "localhost:9980")
   -http.public
