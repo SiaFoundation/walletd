@@ -100,8 +100,15 @@ Flags:
 ```
 
 ### YAML
-All configuration settings can be set in a YAML file. The file should be named 
-`walletd.yml` in the working directory. All fields are optional.
+All configuration settings can be set in a YAML file. The default location of that file is
+- `/etc/walletd/walletd.yml` on Linux
+- `~/Library/Application Support/walletd/walletd.yml` on macOS
+- `%APPDATA%\SiaFoundation\walletd.yml` on Windows
+- `/data/walletd.yml` in the Docker container
+
+It can be generated using the `walletd config` command. Alternatively a local
+configuration can be created manually by creating a file name `walletd.yml` in
+the working directory. All fields are optional.
 ```yaml
 directory: /etc/walletd
 autoOpenWebUI: true
