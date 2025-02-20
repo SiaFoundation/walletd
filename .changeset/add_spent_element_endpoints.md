@@ -12,6 +12,6 @@ Added two new endpoints `[GET] /outputs/siacoin/:id/spent` and `[GET] /outputs/s
 $ curl http://localhost:9980/api/outputs/siacoin/9b89152bb967130326702c9bfb51109e9f80274ec314ba58d9ef49b881340f2f/spent
 {
     spent: true,
-    transaction: {}
+    event: {}
 }
 ```

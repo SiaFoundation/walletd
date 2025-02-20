@@ -599,6 +599,7 @@ func (s *server) outputsSiacoinSpentHandlerGET(jc jape.Context) {
 	event, spent, err := s.wm.SiacoinElementSpentEvent(id)
 	if errors.Is(err, wallet.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
+		return
 	} else if jc.Check("couldn't load siacoin element", err) != nil {
 		return
 	}
@@ -622,6 +623,7 @@ func (s *server) outputsSiafundSpentHandlerGET(jc jape.Context) {
 	event, spent, err := s.wm.SiafundElementSpentEvent(id)
 	if errors.Is(err, wallet.ErrNotFound) {
 		jc.Error(err, http.StatusNotFound)
+		return
 	} else if jc.Check("couldn't load siafund element", err) != nil {
 		return
 	}
