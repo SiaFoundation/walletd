@@ -13,14 +13,14 @@ The V2 hardfork is scheduled to modernize Sia's consensus protocol, which has be
 - Improved transfer speeds - enables hot storage
 
 #### Phase 1 - Allow Height
-- **Activation Height:** `513400` (March 10th, 2025)
+- **Activation Height:** `52600` (June 6th, 2025)
 - **New Features:** V2 transactions, contracts, and RHP4
 - **V1 Support:** Both V1 and V2 will be supported during this phase
 - **Purpose:** This period gives time for integrators to transition from V1 to V2
 - **Requirements:** Users will need to update to support the hardfork before this block height
 
 #### Phase 2 - Require Height
-- **Activation Height:** `526000` (June 6th, 2025)
+- **Activation Height:** `530000` (July 6th, 2025)
 - **New Features:** The consensus database can be trimmed to only store the Merkle proofs
 - **V1 Support:** V1 will be disabled, including RHP2 and RHP3. Only V2 transactions will be accepted
 - **Requirements:** Developers will need to update their apps to support V2 transactions and RHP4 before this block height
