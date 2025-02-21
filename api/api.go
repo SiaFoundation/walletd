@@ -187,3 +187,10 @@ type SiafundElementsResponse struct {
 	Basis   types.ChainIndex       `json:"basis"`
 	Outputs []types.SiafundElement `json:"outputs"`
 }
+
+// ElementSpentResponse is the response type for /outputs/siacoin/:id/spent and
+// /outputs/siafund/:id/spent.
+type ElementSpentResponse struct {
+	Spent bool          `json:"spent"`
+	Event *wallet.Event `json:"event,omitempty"`
+}

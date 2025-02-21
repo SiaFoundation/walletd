@@ -122,6 +122,10 @@ func (ut *updateTx) ApplyIndex(index types.ChainIndex, state wallet.AppliedState
 		return fmt.Errorf("failed to insert chain index: %w", err)
 	}
 
+	if err := addEvents(tx, state.Events, indexID); err != nil {
+		return fmt.Errorf("failed to add events: %w", err)
+	}
+
 	if err := spendSiacoinElements(tx, state.SpentSiacoinElements, indexID); err != nil {
 		return fmt.Errorf("failed to spend siacoin elements: %w", err)
 	} else if err := addSiacoinElements(tx, state.CreatedSiacoinElements, indexID, ut.indexMode, log.Named("addSiacoinElements")); err != nil {
@@ -134,9 +138,6 @@ func (ut *updateTx) ApplyIndex(index types.ChainIndex, state wallet.AppliedState
 		return fmt.Errorf("failed to add siafund elements: %w", err)
 	}
 
-	if err := addEvents(tx, state.Events, indexID); err != nil {
-		return fmt.Errorf("failed to add events: %w", err)
-	}
 	return nil
 }
 
@@ -719,7 +720,7 @@ func revertSpentSiacoinElements(tx *txn, elements []types.SiacoinElement) error 
 	}
 	defer done()
 
-	stmt, err := tx.Prepare(`UPDATE siacoin_elements SET spent_index_id=NULL WHERE id=$1 AND spent_index_id IS NOT NULL RETURNING id`)
+	stmt, err := tx.Prepare(`UPDATE siacoin_elements SET spent_index_id=NULL, spent_event_id=NULL WHERE id=$1 AND spent_index_id IS NOT NULL RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
@@ -769,7 +770,7 @@ func revertSpentSiacoinElements(tx *txn, elements []types.SiacoinElement) error 
 	return nil
 }
 
-func spendSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64) error {
+func spendSiacoinElements(tx *txn, elements []wallet.SpentSiacoinElement, indexID int64) error {
 	if len(elements) == 0 {
 		return nil
 	}
@@ -780,7 +781,13 @@ func spendSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int6
 	}
 	defer done()
 
-	stmt, err := tx.Prepare(`UPDATE siacoin_elements SET spent_index_id=$1 WHERE id=$2 AND spent_index_id IS NULL RETURNING id`)
+	getEventIDStmt, err := tx.Prepare(`SELECT id FROM events WHERE event_id=$1`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer getEventIDStmt.Close()
+
+	stmt, err := tx.Prepare(`UPDATE siacoin_elements SET spent_index_id=$1, spent_event_id=$2 WHERE id=$3 AND spent_index_id IS NULL RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
@@ -795,8 +802,13 @@ func spendSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int6
 			balanceChanges[addrRef.ID] = addrRef.Balance
 		}
 
+		var eventDBID int64
+		if err := getEventIDStmt.QueryRow(encode(se.EventID)).Scan(&eventDBID); err != nil {
+			return fmt.Errorf("failed to get event ID: %w", err)
+		}
+
 		var dummy types.Hash256
-		if err := stmt.QueryRow(indexID, encode(se.ID)).Scan(decode(&dummy)); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err := stmt.QueryRow(indexID, eventDBID, encode(se.ID)).Scan(decode(&dummy)); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		} else if errors.Is(err, sql.ErrNoRows) {
 			continue // skip if the element does not exist
@@ -968,7 +980,7 @@ func removeSiafundElements(tx *txn, elements []types.SiafundElement) error {
 	return nil
 }
 
-func spendSiafundElements(tx *txn, elements []types.SiafundElement, indexID int64) error {
+func spendSiafundElements(tx *txn, elements []wallet.SpentSiafundElement, indexID int64) error {
 	if len(elements) == 0 {
 		return nil
 	}
@@ -979,7 +991,13 @@ func spendSiafundElements(tx *txn, elements []types.SiafundElement, indexID int6
 	}
 	defer done()
 
-	stmt, err := tx.Prepare(`UPDATE siafund_elements SET spent_index_id=$1 WHERE id=$2 AND spent_index_id IS NULL RETURNING id`)
+	getEventIDStmt, err := tx.Prepare(`SELECT id FROM events WHERE event_id=$1`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer getEventIDStmt.Close()
+
+	stmt, err := tx.Prepare(`UPDATE siafund_elements SET spent_index_id=$1, spent_event_id=$2 WHERE id=$3 AND spent_index_id IS NULL RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
@@ -994,8 +1012,13 @@ func spendSiafundElements(tx *txn, elements []types.SiafundElement, indexID int6
 			balanceChanges[addrRef.ID] = addrRef.Balance
 		}
 
+		var eventDBID int64
+		if err := getEventIDStmt.QueryRow(encode(se.EventID)).Scan(&eventDBID); err != nil {
+			return fmt.Errorf("failed to get event ID: %w", err)
+		}
+
 		var dummy types.Hash256
-		if err := stmt.QueryRow(indexID, encode(se.ID)).Scan(decode(&dummy)); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err := stmt.QueryRow(indexID, eventDBID, encode(se.ID)).Scan(decode(&dummy)); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		} else if errors.Is(err, sql.ErrNoRows) {
 			continue // skip if the element does not exist
@@ -1044,7 +1067,7 @@ func revertSpentSiafundElements(tx *txn, elements []types.SiafundElement) error 
 	}
 	defer done()
 
-	stmt, err := tx.Prepare(`UPDATE siafund_elements SET spent_index_id=NULL WHERE id=$1 AND spent_index_id IS NOT NULL RETURNING id`)
+	stmt, err := tx.Prepare(`UPDATE siafund_elements SET spent_index_id=NULL, spent_event_id=NULL WHERE id=$1 AND spent_index_id IS NOT NULL RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
@@ -1167,7 +1190,7 @@ func revertEvents(tx *txn, index types.ChainIndex) error {
 }
 
 func revertSpentOrphanedSiacoinElements(tx *txn, index types.ChainIndex, log *zap.Logger) (map[int64]wallet.Balance, error) {
-	rows, err := tx.Query(`UPDATE siacoin_elements SET spent_index_id=NULL WHERE id IN (SELECT se.id FROM siacoin_elements se
+	rows, err := tx.Query(`UPDATE siacoin_elements SET spent_index_id=NULL, spent_event_id=NULL WHERE id IN (SELECT se.id FROM siacoin_elements se
 INNER JOIN chain_indices ci ON (ci.id=se.spent_index_id)
 WHERE ci.height=$1 AND ci.block_id<>$2)
 RETURNING address_id, siacoin_value`, index.Height, encode(index.ID))
@@ -1228,7 +1251,7 @@ RETURNING id, address_id, siacoin_value, matured, spent_index_id IS NOT NULL`, i
 }
 
 func revertSpentOrphanedSiafundElements(tx *txn, index types.ChainIndex, log *zap.Logger) (map[int64]uint64, error) {
-	rows, err := tx.Query(`UPDATE siafund_elements SET spent_index_id=NULL WHERE id IN (SELECT se.id FROM siafund_elements se
+	rows, err := tx.Query(`UPDATE siafund_elements SET spent_index_id=NULL, spent_event_id=NULL WHERE id IN (SELECT se.id FROM siafund_elements se
 INNER JOIN chain_indices ci ON (ci.id=se.spent_index_id)
 WHERE ci.height=$1 AND ci.block_id<>$2)
 RETURNING id, address_id, siafund_value`, index.Height, encode(index.ID))

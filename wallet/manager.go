@@ -92,6 +92,16 @@ type (
 
 		SiacoinElement(types.SiacoinOutputID) (types.SiacoinElement, error)
 		SiafundElement(types.SiafundOutputID) (types.SiafundElement, error)
+		// SiacoinElementSpentEvent returns the event of a spent siacoin element.
+		// If the element is not spent, the return value will be (Event{}, false, nil).
+		// If the element is not found, the error will be ErrNotFound. An element
+		// is only tracked for 144 blocks after it is spent.
+		SiacoinElementSpentEvent(types.SiacoinOutputID) (Event, bool, error)
+		// SiafundElementSpentEvent returns the event of a spent siafund element.
+		// If the element is not spent, the second return value will be (Event{}, false, nil).
+		// If the element is not found, the error will be ErrNotFound. An element
+		// is only tracked for 144 blocks after it is spent.
+		SiafundElementSpentEvent(types.SiafundOutputID) (Event, bool, error)
 
 		SetIndexMode(IndexMode) error
 		LastCommittedIndex() (types.ChainIndex, error)
@@ -560,6 +570,22 @@ func (m *Manager) SiafundElement(id types.SiafundOutputID) (types.SiafundElement
 	return m.store.SiafundElement(id)
 }
 
+// SiacoinElementSpentEvent returns the event of a spent siacoin element.
+// If the element is not spent, the return value will be (Event{}, false, nil).
+// If the element is not found, the error will be ErrNotFound. An element
+// is only tracked for 144 blocks after it is spent.
+func (m *Manager) SiacoinElementSpentEvent(id types.SiacoinOutputID) (Event, bool, error) {
+	return m.store.SiacoinElementSpentEvent(id)
+}
+
+// SiafundElementSpentEvent returns the event of a spent siafund element.
+// If the element is not spent, the second return value will be (Event{}, false, nil).
+// If the element is not found, the error will be ErrNotFound. An element
+// is only tracked for 144 blocks after it is spent.
+func (m *Manager) SiafundElementSpentEvent(id types.SiafundOutputID) (Event, bool, error) {
+	return m.store.SiafundElementSpentEvent(id)
+}
+
 // Close closes the wallet manager.
 func (m *Manager) Close() error {
 	m.tg.Stop()
@@ -695,7 +721,7 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 					default:
 					}
 				default:
-					log.Panic("failed to sync store", zap.Error(err))
+					panic("failed to sync store: " + err.Error())
 				}
 			}
 			m.mu.Unlock()

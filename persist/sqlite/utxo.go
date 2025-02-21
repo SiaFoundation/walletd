@@ -70,3 +70,60 @@ WHERE se.id=$1 AND spent_index_id IS NULL`
 	}
 	return
 }
+
+// SiacoinElementSpentEvent returns the event that spent a Siacoin UTXO.
+func (s *Store) SiacoinElementSpentEvent(id types.SiacoinOutputID) (ev wallet.Event, spent bool, err error) {
+	err = s.transaction(func(tx *txn) error {
+		const query = `SELECT spent_event_id FROM siacoin_elements WHERE id=$1`
+
+		var spentEventID sql.NullInt64
+		err = tx.QueryRow(query, encode(id)).Scan(&spentEventID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return wallet.ErrNotFound
+		} else if err != nil {
+			return fmt.Errorf("failed to query spent event ID: %w", err)
+		} else if !spentEventID.Valid {
+			return nil
+		}
+
+		spent = true
+		events, err := getEventsByID(tx, []int64{spentEventID.Int64})
+		if err != nil {
+			return fmt.Errorf("failed to get events by ID: %w", err)
+		} else if len(events) != 1 {
+			panic("expected exactly one event") // should never happen
+		}
+		ev = events[0]
+		return nil
+	})
+	return
+}
+
+// SiafundElementSpentEvent returns the event that spent a Siafund UTXO.
+func (s *Store) SiafundElementSpentEvent(id types.SiafundOutputID) (ev wallet.Event, spent bool, err error) {
+	err = s.transaction(func(tx *txn) error {
+		const query = `SELECT spent_event_id FROM siafund_elements WHERE id=$1`
+
+		var spentEventID sql.NullInt64
+		err = tx.QueryRow(query, encode(id)).Scan(&spentEventID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return wallet.ErrNotFound
+		} else if err != nil {
+			return fmt.Errorf("failed to query spent event ID: %w", err)
+		} else if !spentEventID.Valid {
+			return nil
+		}
+
+		spent = true
+		events, err := getEventsByID(tx, []int64{spentEventID.Int64})
+		if err != nil {
+			return fmt.Errorf("failed to get events by ID: %w", err)
+		} else if len(events) != 1 {
+			panic("expected exactly one event") // should never happen
+		}
+		ev = events[0]
+		return nil
+	})
+
+	return
+}

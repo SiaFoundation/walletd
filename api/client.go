@@ -257,6 +257,20 @@ func (c *Client) Event(id types.Hash256) (resp wallet.Event, err error) {
 	return
 }
 
+// SpentSiacoinElement returns whether a siacoin output has been spent and the
+// event that spent it.
+func (c *Client) SpentSiacoinElement(id types.SiacoinOutputID) (resp ElementSpentResponse, err error) {
+	err = c.c.GET(fmt.Sprintf("/outputs/siacoin/%v/spent", id), &resp)
+	return
+}
+
+// SpentSiafundElement returns whether a siafund output has been spent and the
+// event that spent it.
+func (c *Client) SpentSiafundElement(id types.SiafundOutputID) (resp ElementSpentResponse, err error) {
+	err = c.c.GET(fmt.Sprintf("/outputs/siafund/%v/spent", id), &resp)
+	return
+}
+
 // A WalletClient provides methods for interacting with a particular wallet on a
 // walletd API server.
 type WalletClient struct {
