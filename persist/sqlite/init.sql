@@ -111,6 +111,11 @@ CREATE TABLE syncer_bans (
 );
 CREATE INDEX syncer_bans_expiration_index_idx ON syncer_bans (expiration);
 
+CREATE TABLE signing_keys (
+	public_key BLOB PRIMARY KEY,
+	private_key BLOB UNIQUE NOT NULL
+);
+
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations
