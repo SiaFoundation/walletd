@@ -22,6 +22,7 @@ import (
 	"go.sia.tech/walletd/api"
 	"go.sia.tech/walletd/build"
 	"go.sia.tech/walletd/config"
+	"go.sia.tech/walletd/keys"
 	"go.sia.tech/walletd/persist/sqlite"
 	"go.sia.tech/walletd/wallet"
 	"go.sia.tech/web/walletd"
@@ -201,6 +202,9 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebu
 	}
 	defer wm.Close()
 
+	km := keys.NewManager(store)
+	defer km.Close()
+
 	apiOpts := []api.ServerOption{
 		api.WithLogger(log.Named("api")),
 		api.WithPublicEndpoints(cfg.HTTP.PublicEndpoints),
@@ -209,7 +213,7 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebu
 	if enableDebug {
 		apiOpts = append(apiOpts, api.WithDebug())
 	}
-	api := api.NewServer(cm, s, wm, apiOpts...)
+	api := api.NewServer(cm, s, wm, km, apiOpts...)
 	web := walletd.Handler()
 	server := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
