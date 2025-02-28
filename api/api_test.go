@@ -1232,6 +1232,62 @@ func TestP2P(t *testing.T) {
 	}
 }
 
+func TestConsensus(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	n, genesisBlock := testNetwork()
+	giftPrivateKey := types.GeneratePrivateKey()
+	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(1),
+		Address: giftAddress,
+	}
+
+	dbstore, tipState, err := chain.NewDBStore(chain.NewMemDB(), n, genesisBlock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cm := chain.NewManager(dbstore, tipState)
+
+	ws, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "wallets.db"), log.Named("sqlite3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	wm, err := wallet.NewManager(cm, ws, wallet.WithLogger(log.Named("wallet")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wm.Close()
+
+	c := runServer(t, cm, nil, wm)
+
+	// mine a block
+	minedBlock, ok := coreutils.MineBlock(cm, types.Address{}, time.Minute)
+	if !ok {
+		t.Fatal(err)
+	} else if err := cm.AddBlocks([]types.Block{minedBlock}); err != nil {
+		t.Fatal(err)
+	}
+
+	// block should be tip now
+	ci, err := c.ConsensusTip()
+	if err != nil {
+		t.Fatal(err)
+	} else if ci.ID != minedBlock.ID() {
+		t.Fatalf("expected consensus tip to be %v, got %v", minedBlock.ID(), ci.ID)
+	}
+
+	// fetch block
+	b, err := c.ConsensusBlocksID(minedBlock.ID())
+	if err != nil {
+		t.Fatal(err)
+	} else if b.ID() != minedBlock.ID() {
+		t.Fatal("mismatch")
+	}
+}
+
 func TestConsensusUpdates(t *testing.T) {
 	log := zaptest.NewLogger(t)
 
