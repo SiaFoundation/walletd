@@ -95,6 +95,12 @@ func (c *Client) ConsensusNetwork() (resp *consensus.Network, err error) {
 	return
 }
 
+// ConsensusBlocksID returns the block with the given id.
+func (c *Client) ConsensusBlocksID(bid types.BlockID) (resp types.Block, err error) {
+	err = c.c.GET(fmt.Sprintf("/consensus/blocks/%v", bid), &resp)
+	return
+}
+
 // ConsensusIndex returns the consensus index at the specified height.
 func (c *Client) ConsensusIndex(height uint64) (resp types.ChainIndex, err error) {
 	err = c.c.GET(fmt.Sprintf("/consensus/index/%d", height), &resp)
