@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"strings"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/internal/threadgroup"
@@ -158,7 +159,7 @@ func NewManager(store Store, secret string) (*Manager, error) {
 
 		decrypted, err := aead.Open(nil, buf[:aead.NonceSize()], buf[aead.NonceSize():], nil)
 		if err != nil {
-			if err.Error() == "message authentication failed" {
+			if strings.Contains(err.Error(), "message authentication failed") {
 				return nil, ErrIncorrectSecret
 			}
 			return nil, fmt.Errorf("failed to verify encryption key: %w", err)

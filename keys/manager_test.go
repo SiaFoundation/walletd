@@ -55,7 +55,12 @@ func TestKeyManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m, err = keys.NewManager(store, "foobar")
+	_, err = keys.NewManager(store, "foobar")
+	if !errors.Is(err, keys.ErrIncorrectSecret) {
+		t.Fatalf("expected %v, got %v", keys.ErrIncorrectSecret, err)
+	}
+
+	m, err = keys.NewManager(store, "foo")
 	if err != nil {
 		t.Fatal(err)
 	}
