@@ -22,6 +22,7 @@ import (
 	"go.sia.tech/walletd/api"
 	"go.sia.tech/walletd/build"
 	"go.sia.tech/walletd/config"
+	"go.sia.tech/walletd/keys"
 	"go.sia.tech/walletd/persist/sqlite"
 	"go.sia.tech/walletd/wallet"
 	"go.sia.tech/web/walletd"
@@ -208,6 +209,15 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebu
 	}
 	if enableDebug {
 		apiOpts = append(apiOpts, api.WithDebug())
+	}
+	if cfg.KeyStore.Enabled {
+		km, err := keys.NewManager(store, cfg.KeyStore.Secret)
+		if err != nil {
+			return fmt.Errorf("failed to create key manager: %w", err)
+		}
+		defer km.Close()
+
+		apiOpts = append(apiOpts, api.WithKeyManager(km))
 	}
 	api := api.NewServer(cm, s, wm, apiOpts...)
 	web := walletd.Handler()

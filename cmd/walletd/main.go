@@ -22,10 +22,11 @@ import (
 )
 
 const (
-	apiPasswordEnvVar = "WALLETD_API_PASSWORD"
-	configFileEnvVar  = "WALLETD_CONFIG_FILE"
-	dataDirEnvVar     = "WALLETD_DATA_DIR"
-	logFileEnvVar     = "WALLETD_LOG_FILE_PATH"
+	apiPasswordEnvVar    = "WALLETD_API_PASSWORD"
+	configFileEnvVar     = "WALLETD_CONFIG_FILE"
+	dataDirEnvVar        = "WALLETD_DATA_DIR"
+	logFileEnvVar        = "WALLETD_LOG_FILE_PATH"
+	keystoreSecretEnvVar = "WALLETD_KEYSTORE_SECRET"
 )
 
 const (
@@ -75,6 +76,10 @@ var cfg = config.Config{
 	Index: config.Index{
 		Mode:      wallet.IndexModePersonal,
 		BatchSize: 1000,
+	},
+	KeyStore: config.KeyStore{
+		Enabled: false,
+		Secret:  os.Getenv(keystoreSecretEnvVar),
 	},
 	Log: config.Log{
 		Level: "info",
@@ -211,6 +216,7 @@ func main() {
 	rootCmd.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store node state in")
 	rootCmd.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 	rootCmd.BoolVar(&cfg.HTTP.PublicEndpoints, "http.public", cfg.HTTP.PublicEndpoints, "disables auth on endpoints that should be publicly accessible when running walletd as a service")
+	rootCmd.BoolVar(&cfg.KeyStore.Enabled, "keystore", cfg.KeyStore.Enabled, "enables the keystore")
 
 	rootCmd.StringVar(&cfg.Syncer.Address, "addr", cfg.Syncer.Address, "p2p address to listen on")
 	rootCmd.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network to connect to")
@@ -255,6 +261,10 @@ func main() {
 		mustSetAPIPassword()
 
 		checkFatalError("failed to parse index mode", cfg.Index.Mode.UnmarshalText([]byte(indexModeStr)))
+
+		if cfg.KeyStore.Enabled && cfg.KeyStore.Secret == "" {
+			checkFatalError("keystore is enabled but no secret was provided", errors.New("missing keystore secret"))
+		}
 
 		var logCores []zapcore.Core
 		if cfg.Log.StdOut.Enabled {

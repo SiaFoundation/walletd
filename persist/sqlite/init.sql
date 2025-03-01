@@ -111,11 +111,17 @@ CREATE TABLE syncer_bans (
 );
 CREATE INDEX syncer_bans_expiration_index_idx ON syncer_bans (expiration);
 
+CREATE TABLE signing_keys (
+	public_key BLOB PRIMARY KEY,
+	private_key BLOB UNIQUE NOT NULL
+);
+
 CREATE TABLE global_settings (
 	id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0), -- enforce a single row
 	db_version INTEGER NOT NULL, -- used for migrations
 	index_mode INTEGER, -- the mode of the data store
 	last_indexed_height INTEGER NOT NULL, -- the height of the last chain index that was processed
 	last_indexed_id BLOB NOT NULL, -- the block ID of the last chain index that was processed
-	element_num_leaves INTEGER NOT NULL -- the number of leaves in the state tree
+	element_num_leaves INTEGER NOT NULL, -- the number of leaves in the state tree
+	key_salt BLOB -- the salt used for deriving keys
 );

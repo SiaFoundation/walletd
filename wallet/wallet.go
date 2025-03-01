@@ -77,6 +77,20 @@ type (
 		Metadata    json.RawMessage    `json:"metadata"`
 	}
 
+	// An UnspentSiacoinElement is an unspent siacoin output paired
+	// with the number of confirmations.
+	UnspentSiacoinElement struct {
+		types.SiacoinElement
+		Confirmations uint64 `json:"confirmations"`
+	}
+
+	// An UnspentSiafundElement is an unspent siafund output paired
+	// with the number of confirmations.
+	UnspentSiafundElement struct {
+		types.SiafundElement
+		Confirmations uint64 `json:"confirmations"`
+	}
+
 	// A ChainUpdate is a set of changes to the consensus state.
 	ChainUpdate interface {
 		SiacoinElementDiffs() []consensus.SiacoinElementDiff

@@ -64,6 +64,7 @@ The priority of configuration settings is as follows:
 + `WALLETD_API_PASSWORD` - The password required to access the API.
 + `WALLETD_CONFIG_FILE` - The path to the YAML configuration file. Defaults to `walletd.yml` in the working directory.
 + `WALLETD_LOG_FILE` - The path to the log file.
++ `WALLETD_KEYSTORE_SECRET` - The secret to use for encrypting stored ed25519 signing keys. 
 
 ### Command Line Flags
 ```
@@ -97,6 +98,8 @@ Flags:
         network to connect to (default "mainnet")
   -upnp
         attempt to forward ports and discover IP with UPnP
+  -keystore
+        enables the optional ed25519 key store. 
 ```
 
 ### YAML
@@ -123,6 +126,8 @@ syncer:
   enableUPnP: false
   peers: []
   address: :9981
+keystore:
+  enabled: false
 index:
   mode: personal # personal, full, none ("full" will index the entire blockchain, "personal" will only index addresses that are registered in the wallet, "none" will treat the database as read-only and not index any new data)
   batchSize: 64 # max number of blocks to index at a time (increasing this will increase scan speed, but also increase memory and cpu usage)
