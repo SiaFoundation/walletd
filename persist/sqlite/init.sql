@@ -122,5 +122,6 @@ CREATE TABLE global_settings (
 	index_mode INTEGER, -- the mode of the data store
 	last_indexed_height INTEGER NOT NULL, -- the height of the last chain index that was processed
 	last_indexed_id BLOB NOT NULL, -- the block ID of the last chain index that was processed
-	element_num_leaves INTEGER NOT NULL -- the number of leaves in the state tree
+	element_num_leaves INTEGER NOT NULL, -- the number of leaves in the state tree
+	key_salt BLOB -- the salt used for deriving keys
 );

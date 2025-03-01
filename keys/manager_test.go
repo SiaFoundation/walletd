@@ -19,7 +19,10 @@ func TestKeyManager(t *testing.T) {
 	}
 	defer store.Close()
 
-	m := keys.NewManager(store)
+	m, err := keys.NewManager(store, "foo")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer m.Close()
 
 	sk := types.GeneratePrivateKey()
@@ -46,6 +49,23 @@ func TestKeyManager(t *testing.T) {
 	_, err = m.Sign(types.GeneratePrivateKey().PublicKey(), hash)
 	if !errors.Is(err, keys.ErrNotFound) {
 		t.Fatalf("expected %v, got %v", keys.ErrNotFound, err)
+	}
+
+	if err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err = keys.NewManager(store, "foobar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+
+	sig, err = m.Sign(sk.PublicKey(), hash)
+	if err != nil {
+		t.Fatal(err)
+	} else if !sk.PublicKey().VerifyHash(hash, sig) {
+		t.Fatal("signature failed to verify")
 	}
 
 	// delete the key

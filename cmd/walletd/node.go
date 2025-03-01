@@ -202,9 +202,6 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebu
 	}
 	defer wm.Close()
 
-	km := keys.NewManager(store)
-	defer km.Close()
-
 	apiOpts := []api.ServerOption{
 		api.WithLogger(log.Named("api")),
 		api.WithPublicEndpoints(cfg.HTTP.PublicEndpoints),
@@ -213,7 +210,16 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebu
 	if enableDebug {
 		apiOpts = append(apiOpts, api.WithDebug())
 	}
-	api := api.NewServer(cm, s, wm, km, apiOpts...)
+	if cfg.KeyStore.Enabled {
+		km, err := keys.NewManager(store, cfg.KeyStore.Secret)
+		if err != nil {
+			return fmt.Errorf("failed to create key manager: %w", err)
+		}
+		defer km.Close()
+
+		apiOpts = append(apiOpts, api.WithKeyManager(km))
+	}
+	api := api.NewServer(cm, s, wm, apiOpts...)
 	web := walletd.Handler()
 	server := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

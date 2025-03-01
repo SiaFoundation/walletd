@@ -40,6 +40,13 @@ func WithDebug() ServerOption {
 	}
 }
 
+// WithKeyManager sets the key manager used by the server.
+func WithKeyManager(ks SigningKeyManager) ServerOption {
+	return func(s *server) {
+		s.km = ks
+	}
+}
+
 // WithPublicEndpoints sets whether the server should disable authentication
 // on endpoints that are safe for use when running walletd as a service.
 func WithPublicEndpoints(public bool) ServerOption {
@@ -1262,6 +1269,7 @@ func (s *server) outputsSiafundHandlerGET(jc jape.Context) {
 
 func (s *server) keysEd25519GenerateHandlerPOST(jc jape.Context) {
 	sk := types.GeneratePrivateKey()
+	defer clear(sk)
 	if jc.Check("failed to add key", s.km.Add(sk)) != nil {
 		return
 	}
@@ -1272,6 +1280,7 @@ func (s *server) keysEd25519GenerateHandlerPOST(jc jape.Context) {
 
 func (s *server) keysEd25519HandlerPUT(jc jape.Context) {
 	var req AddSigningKeyRequest
+	defer clear(req.PrivateKey)
 	if jc.Decode(&req) != nil {
 		return
 	} else if jc.Check("failed to add key", s.km.Add(req.PrivateKey)) != nil {
@@ -1368,7 +1377,7 @@ func (s *server) pprofHandler(jc jape.Context) {
 }
 
 // NewServer returns an HTTP handler that serves the walletd API.
-func NewServer(cm ChainManager, s Syncer, wm WalletManager, km SigningKeyManager, opts ...ServerOption) http.Handler {
+func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption) http.Handler {
 	srv := server{
 		log:             zap.NewNop(),
 		debugEnabled:    false,
@@ -1378,7 +1387,6 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, km SigningKeyManager
 		cm: cm,
 		s:  s,
 		wm: wm,
-		km: km,
 	}
 	for _, opt := range opts {
 		opt(&srv)
@@ -1477,7 +1485,7 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, km SigningKeyManager
 		"POST /wallets/:id/fundsf":                   wrapAuthHandler(srv.walletsFundSFHandler),
 	}
 
-	if !srv.publicEndpoints {
+	if srv.km != nil && !srv.publicEndpoints {
 		// key management endpoints are disabled on public nodes
 		handlers["POST /keys/generate/ed25519"] = wrapAuthHandler(srv.keysEd25519GenerateHandlerPOST)
 		handlers["PUT /keys/ed25519"] = wrapAuthHandler(srv.keysEd25519HandlerPUT)

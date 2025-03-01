@@ -38,11 +38,14 @@ func startWalletServer(tb testing.TB, cn *testutil.ConsensusNode, log *zap.Logge
 	}
 	tb.Cleanup(func() { wm.Close() })
 
-	km := keys.NewManager(cn.Store)
+	km, err := keys.NewManager(cn.Store, "foo")
+	if err != nil {
+		tb.Fatal("failed to create key manager:", err)
+	}
 	tb.Cleanup(func() { km.Close() })
 
 	server := &http.Server{
-		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, km, api.WithDebug(), api.WithLogger(log)),
+		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, api.WithKeyManager(km), api.WithDebug(), api.WithLogger(log)),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
@@ -1239,25 +1242,28 @@ func TestAPISecurity(t *testing.T) {
 	}
 	defer wm.Close()
 
-	km := keys.NewManager(cn.Store)
+	km, err := keys.NewManager(cn.Store, "foo")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer km.Close()
 
 	httpListener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal("failed to listen:", err)
 	}
-	t.Cleanup(func() { httpListener.Close() })
+	defer httpListener.Close()
 
 	server := &http.Server{
-		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, km, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t)), api.WithBasicAuth("test")),
+		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithKeyManager(km), api.WithLogger(zaptest.NewLogger(t)), api.WithBasicAuth("test")),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
-	t.Cleanup(func() { server.Close() })
+	defer server.Close()
 	go server.Serve(httpListener)
 
 	replaceHandler := func(apiOpts ...api.ServerOption) {
-		server.Handler = api.NewServer(cn.Chain, cn.Syncer, wm, km, apiOpts...)
+		server.Handler = api.NewServer(cn.Chain, cn.Syncer, wm, apiOpts...)
 	}
 
 	// create a client with correct credentials
@@ -1266,9 +1272,21 @@ func TestAPISecurity(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// check that the signing key endpoints are working
+	if _, err := c.GenerateSigningKey(); err != nil {
+		t.Fatal(err)
+	}
+
 	// create a client with incorrect credentials
 	c = api.NewClient("http://"+httpListener.Addr().String(), "wrong")
 	if _, err := c.ConsensusTip(); err == nil {
+		t.Fatal("expected auth error")
+	} else if err.Error() == "unauthorized" {
+		t.Fatal("expected auth error, got", err)
+	}
+
+	// check that the signing key endpoints are working
+	if _, err := c.GenerateSigningKey(); err == nil {
 		t.Fatal("expected auth error")
 	} else if err.Error() == "unauthorized" {
 		t.Fatal("expected auth error, got", err)

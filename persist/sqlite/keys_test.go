@@ -1,9 +1,9 @@
 package sqlite
 
 import (
+	"bytes"
 	"errors"
 	"path/filepath"
-	"slices"
 	"testing"
 
 	"go.sia.tech/core/types"
@@ -21,24 +21,20 @@ func TestSigningKeys(t *testing.T) {
 
 	sk := types.GeneratePrivateKey()
 
-	err = store.AddSigningKey(types.PrivateKey(frand.Bytes(8)))
-	if !errors.Is(err, keys.ErrInvalidSize) {
-		t.Fatal(err)
-	}
-
 	_, err = store.GetSigningKey(sk.PublicKey())
 	if !errors.Is(err, keys.ErrNotFound) {
 		t.Fatal(err)
 	}
 
-	if err = store.AddSigningKey(sk); err != nil {
+	expected := frand.Bytes(64) // mock encrypted key
+	if err = store.AddSigningKey(sk.PublicKey(), expected); err != nil {
 		t.Fatal(err)
 	}
 
-	sk2, err := store.GetSigningKey(sk.PublicKey())
+	buf, err := store.GetSigningKey(sk.PublicKey())
 	if err != nil {
 		t.Fatal(err)
-	} else if !slices.Equal(sk, sk2) {
+	} else if !bytes.Equal(expected, buf) {
 		t.Fatal("keys don't match")
 	}
 }
