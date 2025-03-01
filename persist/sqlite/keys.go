@@ -41,8 +41,8 @@ func (s *Store) DeleteSigningKey(pk types.PublicKey) error {
 	})
 }
 
-// KeySalt returns the salt used to derive the key encryption
-// key. If no salt has been set, KeySalt returns [keys.ErrNotFound].
+// GetKeySalt returns the salt used to derive the key encryption
+// key. If no salt has been set, it returns [keys.ErrNotFound].
 func (s *Store) GetKeySalt() (salt []byte, err error) {
 	err = s.transaction(func(tx *txn) error {
 		err := s.db.QueryRow("SELECT key_salt FROM global_settings").Scan(&salt)
