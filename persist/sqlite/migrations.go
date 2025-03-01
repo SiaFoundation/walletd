@@ -11,7 +11,8 @@ func migrateVersion8(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`CREATE TABLE signing_keys (
 	public_key BLOB PRIMARY KEY,
 	private_key BLOB UNIQUE NOT NULL
-);`)
+);
+ALTER TABLE global_settings ADD COLUMN key_salt BLOB;`)
 	return err
 }
 
