@@ -6,8 +6,8 @@ toolchain go1.23.2
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.24
-	go.sia.tech/core v0.10.2
-	go.sia.tech/coreutils v0.11.1
+	go.sia.tech/core v0.10.3
+	go.sia.tech/coreutils v0.12.0
 	go.sia.tech/jape v0.12.1
 	go.sia.tech/web/walletd v0.29.0
 	go.uber.org/zap v1.27.0
@@ -24,14 +24,14 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/onsi/ginkgo/v2 v2.12.0 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
-	github.com/quic-go/quic-go v0.49.0 // indirect
+	github.com/quic-go/quic-go v0.50.0 // indirect
 	github.com/quic-go/webtransport-go v0.8.1-0.20241018022711-4ac2c9250e66 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
-	go.sia.tech/mux v1.3.0 // indirect
+	go.sia.tech/mux v1.4.0 // indirect
 	go.sia.tech/web v0.0.0-20240610131903-5611d44a533e // indirect
 	go.uber.org/mock v0.5.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.33.0 // indirect
+	golang.org/x/crypto v0.34.0 // indirect
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/net v0.34.0 // indirect
