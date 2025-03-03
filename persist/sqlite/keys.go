@@ -42,27 +42,24 @@ func (s *Store) DeleteSigningKey(pk types.PublicKey) error {
 }
 
 // GetKeySalt returns the salt used to derive the key encryption
-// key. If no salt has been set, it returns [keys.ErrNotFound].
+// key. If no salt has been set, GetKeySalt returns (nil, nil).
 func (s *Store) GetKeySalt() (salt []byte, err error) {
 	err = s.transaction(func(tx *txn) error {
 		err := s.db.QueryRow("SELECT key_salt FROM global_settings").Scan(&salt)
-		if errors.Is(err, sql.ErrNoRows) {
-			return keys.ErrNotFound
-		}
 		return err
 	})
 	return
 }
 
 // SetKeySalt sets the salt used to derive the key encryption key.
-// If a salt has already been set, [keys.ErrKeySaltSet] is returned.
+// If a salt has already been set, [keys.ErrSaltSet] is returned.
 func (s *Store) SetKeySalt(salt []byte) error {
 	return s.transaction(func(tx *txn) error {
 		res, err := tx.Exec("UPDATE global_settings SET key_salt = ? WHERE key_salt IS NULL", salt)
 		if err != nil {
 			return err
 		} else if n, _ := res.RowsAffected(); n == 0 {
-			return errors.New("key salt already set")
+			return keys.ErrSaltSet
 		}
 		return nil
 	})

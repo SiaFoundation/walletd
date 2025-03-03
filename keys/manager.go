@@ -19,10 +19,8 @@ var (
 	ErrInvalidSize = errors.New("invalid key size")
 	// ErrNotFound is returned when a signing key is not found.
 	ErrNotFound = errors.New("not found")
-
-	// ErrKeySaltSet is returned when the key salt is already set.
-	ErrKeySaltSet = errors.New("key salt already set")
-
+	// ErrSaltSet is returned when the key salt is already set.
+	ErrSaltSet = errors.New("salt already set")
 	// ErrIncorrectSecret is returned when the secret is incorrect.
 	ErrIncorrectSecret = errors.New("incorrect secret")
 )
@@ -43,11 +41,11 @@ type (
 		DeleteSigningKey(types.PublicKey) error
 
 		// KeySalt returns the salt used to derive the key encryption
-		// key. If no salt has been set, KeySalt returns [keys.ErrNotFound].
+		// key. If no salt has been set, KeySalt should return (nil, nil).
 		GetKeySalt() ([]byte, error)
 
 		// SetKeySalt sets the salt used to derive the key encryption key.
-		// If a salt has already been set, [keys.ErrKeySaltSet] is returned.
+		// If a salt has already been set, [keys.ErrSaltSet] is returned.
 		SetKeySalt([]byte) error
 
 		// GetBytesForVerify returns random encrypted bytes for verifying
@@ -137,14 +135,15 @@ func (m *Manager) Close() error {
 // the secret using Argon2ID.
 func NewManager(store Store, secret string) (*Manager, error) {
 	salt, err := store.GetKeySalt()
-	if errors.Is(err, ErrNotFound) {
+	if err != nil {
+		return nil, fmt.Errorf("failed to get key salt: %w", err)
+	} else if len(salt) == 0 {
 		salt = frand.Bytes(32)
 		if err := store.SetKeySalt(salt); err != nil {
 			return nil, fmt.Errorf("failed to set key salt: %w", err)
 		}
-	} else if err != nil {
-		return nil, fmt.Errorf("failed to get key salt: %w", err)
 	}
+
 	encryptionKey := argon2.IDKey([]byte(secret), salt, 3, 64*1024, 4, 32)
 	aead, err := chacha20poly1305.NewX(encryptionKey)
 	if err != nil {
