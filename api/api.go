@@ -194,3 +194,56 @@ type ElementSpentResponse struct {
 	Spent bool          `json:"spent"`
 	Event *wallet.Event `json:"event,omitempty"`
 }
+
+type MiningGetBlockTemplateRequest struct {
+	Mode         string   `json:"mode,omitempty"`         // unused
+	Capabilities []string `json:"capabilities,omitempty"` // unused
+
+	// Optional long polling.
+	LongPollID string `json:"longpollid,omitempty"`
+
+	// Optional template tweaking.  SigOpLimit and SizeLimit can be int64
+	// or bool.
+	SigOpLimit interface{} `json:"sigoplimit,omitempty"` // unused
+	SizeLimit  interface{} `json:"sizelimit,omitempty"`  // unused
+	MaxVersion uint32      `json:"maxversion,omitempty"` // unused
+
+	// Basic pool extension from BIP 0023.
+	Target string `json:"target,omitempty"` // unused
+
+	// Block proposal from BIP 0023.  Data is only provided when Mode is
+	// "proposal".
+	Data   string   `json:"data,omitempty"`   // unused
+	WorkID string   `json:"workid,omitempty"` // unused
+	Rules  []string `json:"rules,omitempty"`  // unused
+}
+
+type MiningGetBlockTemplateResponse struct {
+	Transactions []MiningGetBlockTemplateResponseTxn `json:"transactions"`
+	MinerPayout  []MiningGetBlockTemplateResponseTxn `json:"minerpayout"`
+	PreviousHash string                              `json:"previousblockhash"`
+
+	// Optional long polling from BIP 0022.
+	LongPollID string `json:"longpollid"`
+
+	// Basic pool extension from BIP 0023.
+	Target string `json:"target"`
+	Height uint32 `json:"height"`
+
+	// Mutations from BIP 0023.
+	Timestamp int32 `json:"curtime"`
+
+	// Block proposal from BIP 0023.
+	Version uint32 `json:"version"`
+	Bits    string `json:"bits"`
+}
+
+type MiningGetBlockTemplateResponseTxn struct {
+	Data    string  `json:"data"`
+	Hash    string  `json:"hash"`
+	TxID    string  `json:"txid"`
+	Depends []int64 `json:"depends"`
+	Fee     int64   `json:"fee"`
+	SigOps  int64   `json:"sigops"`
+	TxType  string  `json:"txtype"`
+}
