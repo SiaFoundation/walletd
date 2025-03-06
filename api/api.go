@@ -196,26 +196,8 @@ type ElementSpentResponse struct {
 }
 
 type MiningGetBlockTemplateRequest struct {
-	Mode         string   `json:"mode,omitempty"`         // unused
-	Capabilities []string `json:"capabilities,omitempty"` // unused
-
-	// Optional long polling.
-	LongPollID string `json:"longpollid,omitempty"`
-
-	// Optional template tweaking.  SigOpLimit and SizeLimit can be int64
-	// or bool.
-	SigOpLimit interface{} `json:"sigoplimit,omitempty"` // unused
-	SizeLimit  interface{} `json:"sizelimit,omitempty"`  // unused
-	MaxVersion uint32      `json:"maxversion,omitempty"` // unused
-
-	// Basic pool extension from BIP 0023.
-	Target string `json:"target,omitempty"` // unused
-
-	// Block proposal from BIP 0023.  Data is only provided when Mode is
-	// "proposal".
-	Data   string   `json:"data,omitempty"`   // unused
-	WorkID string   `json:"workid,omitempty"` // unused
-	Rules  []string `json:"rules,omitempty"`  // unused
+	PayoutAddress types.Address `json:"payoutAddress,omitempty"`
+	LongPollID    string        `json:"longpollid,omitempty"`
 }
 
 type MiningGetBlockTemplateResponse struct {
@@ -246,4 +228,8 @@ type MiningGetBlockTemplateResponseTxn struct {
 	Fee     int64   `json:"fee"`
 	SigOps  int64   `json:"sigops"`
 	TxType  string  `json:"txtype"`
+}
+
+type MiningSubmitBlockRequest struct {
+	Params []string `json:"params"`
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -234,6 +235,58 @@ func (s *server) consensusUpdatesIndexHandler(jc jape.Context) {
 		})
 	}
 	jc.Encode(res)
+}
+
+func (s *server) miningGetBlockTemplateHandler(jc jape.Context) {
+	var req MiningGetBlockTemplateRequest
+	if jc.Decode(&req) != nil {
+		return
+	}
+
+	// TODO: add polling
+
+	template, err := generateBlockTemplate(s.cm, req.PayoutAddress)
+	if jc.Check("failed to generate block template", err) != nil {
+		return
+	}
+	jc.Encode(template)
+}
+
+func (s *server) miningSubmitBlockTemplateHandler(jc jape.Context) {
+	var req MiningSubmitBlockRequest
+	rawBlock, err := hex.DecodeString(req.Params[0])
+	if jc.Decode(&req) != nil {
+		return
+	} else if len(req.Params) < 1 {
+		jc.Error(errors.New("expected block hex in request params array"), http.StatusBadRequest)
+		return
+	} else if jc.Check("couldn't decode block hex", err) != nil {
+		return
+	}
+
+	// decode block
+	var block types.Block
+	isV2 := s.cm.Tip().Height >= s.cm.TipState().Network.HardforkV2.AllowHeight
+	dec := types.NewBufDecoder(rawBlock)
+	if !isV2 {
+		(*types.V1Block)(&block).DecodeFrom(dec)
+	} else {
+		(*types.V2Block)(&block).DecodeFrom(dec)
+	}
+	if jc.Check("couldn't decode block", dec.Err()) != nil {
+		return
+	}
+
+	// verify and broadcast block
+	if jc.Check("failed to add block to chain manager", s.cm.AddBlocks([]types.Block{block})) != nil {
+		return
+	}
+	if !isV2 {
+		s.s.BroadcastHeader(block.Header())
+	} else {
+		s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(block, s.cm.PoolTransactions(), s.cm.V2PoolTransactions()))
+	}
+	jc.EmptyResonse()
 }
 
 func (s *server) syncerPeersHandler(jc jape.Context) {
@@ -1380,6 +1433,9 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		"GET /consensus/blocks/:id":     wrapPublicAuthHandler(srv.consensusBlocksIDHandler),
 		"GET /consensus/updates/:index": wrapPublicAuthHandler(srv.consensusUpdatesIndexHandler),
 		"GET /consensus/index/:height":  wrapPublicAuthHandler(srv.consensusIndexHeightHandler),
+
+		"POST /mining/getblocktemplate": wrapAuthHandler(srv.miningGetBlockTemplateHandler),
+		"POST /mining/submitblock":      wrapAuthHandler(srv.miningSubmitBlockTemplateHandler),
 
 		"POST /syncer/connect":         wrapAuthHandler(srv.syncerConnectHandler),
 		"GET /syncer/peers":            wrapPublicAuthHandler(srv.syncerPeersHandler),
