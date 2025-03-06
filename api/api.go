@@ -195,11 +195,15 @@ type ElementSpentResponse struct {
 	Event *wallet.Event `json:"event,omitempty"`
 }
 
+// MiningGetBlockTemplateRequest is the request type for
+// /mining/getblocktemplate.
 type MiningGetBlockTemplateRequest struct {
 	PayoutAddress types.Address `json:"payoutAddress,omitempty"`
 	LongPollID    string        `json:"longpollid,omitempty"`
 }
 
+// MiningGetBlockTemplateResponse is the response type for
+// /mining/getblocktemplate.
 type MiningGetBlockTemplateResponse struct {
 	Transactions []MiningGetBlockTemplateResponseTxn `json:"transactions"`
 	MinerPayout  []MiningGetBlockTemplateResponseTxn `json:"minerpayout"`
@@ -220,6 +224,7 @@ type MiningGetBlockTemplateResponse struct {
 	Bits    string `json:"bits"`
 }
 
+// MiningGetBlockTemplateResponseTxn is a transaction in a block template.
 type MiningGetBlockTemplateResponseTxn struct {
 	Data    string  `json:"data"`
 	Hash    string  `json:"hash"`
@@ -230,6 +235,8 @@ type MiningGetBlockTemplateResponseTxn struct {
 	TxType  string  `json:"txtype"`
 }
 
+// MiningSubmitBlockRequest is the request type for /mining/submitblock.
 type MiningSubmitBlockRequest struct {
+	// should contain only the hex-encoded block
 	Params []string `json:"params"`
 }
