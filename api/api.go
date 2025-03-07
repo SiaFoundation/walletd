@@ -205,9 +205,9 @@ type MiningGetBlockTemplateRequest struct {
 // MiningGetBlockTemplateResponse is the response type for
 // /mining/getblocktemplate.
 type MiningGetBlockTemplateResponse struct {
-	Transactions []MiningGetBlockTemplateResponseTxn `json:"transactions"`
-	MinerPayout  []MiningGetBlockTemplateResponseTxn `json:"minerpayout"`
-	PreviousHash string                              `json:"previousblockhash"`
+	Transactions      []MiningGetBlockTemplateResponseTxn `json:"transactions"`
+	MinerPayout       []MiningGetBlockTemplateResponseTxn `json:"minerpayout"`
+	PreviousBlockHash string                              `json:"previousblockhash"`
 
 	// Optional long polling from BIP 0022.
 	LongPollID string `json:"longpollid"`

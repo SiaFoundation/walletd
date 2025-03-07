@@ -56,29 +56,31 @@ func generateBlockTemplate(cm ChainManager, addr types.Address) (MiningGetBlockT
 			TxType: "1", // types.Transaction encoding
 		})
 	}
-	for _, txn := range block.V2.Transactions {
-		buf.Reset()
-		txn.EncodeTo(enc)
-		if err := enc.Flush(); err != nil {
-			return MiningGetBlockTemplateResponse{}, err
+	if block.V2 != nil {
+		for _, txn := range block.V2.Transactions {
+			buf.Reset()
+			txn.EncodeTo(enc)
+			if err := enc.Flush(); err != nil {
+				return MiningGetBlockTemplateResponse{}, err
+			}
+			txns = append(txns, MiningGetBlockTemplateResponseTxn{
+				Data:   hex.EncodeToString(buf.Bytes()),
+				TxID:   txn.ID().String(),
+				TxType: "2", // types.V2Transaction encoding
+			})
 		}
-		txns = append(txns, MiningGetBlockTemplateResponseTxn{
-			Data:   hex.EncodeToString(buf.Bytes()),
-			TxID:   txn.ID().String(),
-			TxType: "2", // types.V2Transaction encoding
-		})
 	}
 
 	return MiningGetBlockTemplateResponse{
-		Transactions: txns,
-		MinerPayout:  []MiningGetBlockTemplateResponseTxn{minerPayout},
-		PreviousHash: block.ParentID.String(),
-		LongPollID:   hex.EncodeToString(frand.Bytes(16)),
-		Target:       cs.ChildTarget.String(),
-		Height:       uint32(cs.Index.Height) + 1,
-		Timestamp:    int32(block.Timestamp.Unix()),
-		Version:      version,
-		Bits:         compressDifficulty(cs.Difficulty),
+		Transactions:      txns,
+		MinerPayout:       []MiningGetBlockTemplateResponseTxn{minerPayout},
+		PreviousBlockHash: block.ParentID.String(),
+		LongPollID:        hex.EncodeToString(frand.Bytes(16)),
+		Target:            cs.ChildTarget.String(),
+		Height:            uint32(cs.Index.Height) + 1,
+		Timestamp:         int32(block.Timestamp.Unix()),
+		Version:           version,
+		Bits:              compressDifficulty(cs.Difficulty),
 	}, nil
 }
 
@@ -177,6 +179,9 @@ retry:
 		b.V2 = &types.V2BlockData{
 			Height: cs.Index.Height + 1,
 		}
+	}
+	if cs.Index.Height >= cs.Network.HardforkV2.RequireHeight {
+		txns = nil // ignore potential v1 transactions
 	}
 
 	var weight uint64

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -163,6 +165,32 @@ func (c *Client) ConsensusTipState() (resp consensus.State, err error) {
 func (c *Client) ConsensusTip() (resp types.ChainIndex, err error) {
 	err = c.c.GET("/consensus/tip", &resp)
 	return
+}
+
+// MiningGetBlockTemplate returns a block template for mining.
+func (c *Client) MiningGetBlockTemplate(payoutAddr types.Address, longPollID string) (resp MiningGetBlockTemplateResponse, err error) {
+	err = c.c.POST("/mining/getblocktemplate", MiningGetBlockTemplateRequest{
+		LongPollID:    longPollID,
+		PayoutAddress: payoutAddr,
+	}, &resp)
+	return
+}
+
+// MiningSubmitBlock submits a mined block to the network.
+func (c *Client) MiningSubmitBlock(b types.Block) error {
+	buf := new(bytes.Buffer)
+	enc := types.NewEncoder(buf)
+	if b.V2 == nil {
+		types.V1Block(b).EncodeTo(enc)
+	} else {
+		types.V2Block(b).EncodeTo(enc)
+	}
+	if err := enc.Flush(); err != nil {
+		return fmt.Errorf("failed to encode block: %w", err)
+	}
+	return c.c.POST("/mining/submitblock", MiningSubmitBlockRequest{
+		Params: []string{hex.EncodeToString(buf.Bytes())},
+	}, nil)
 }
 
 // SyncerPeers returns the current peers of the syncer.
