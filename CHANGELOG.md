@@ -1,3 +1,44 @@
+## 2.1.0 (2025-03-07)
+
+### Features
+
+#### Add ed25519 key store
+
+Adds an optional ed25519 key store for integrators to store arbitrary private keys for signing transactions. It allows for both generating private keys on the server and importing private keys. Keys are stored encrypted using a user-provided secret.
+
+The store is disabled by default. It can be enabled through the config file or the CLI flag `--keystore`. If the store is enabled, an encryption key must also be provided through the environment variable `WALLETD_KEYSTORE_SECRET`.
+
+*The endpoint will return 404 if the `--public` CLI flag is set. It is only recommended for use on localhost. It is not used by the UI.*
+
+```go
+
+client := api.NewClient(walletAddr, walletdPassword)
+
+pubKey, err := client.GenerateSigningKey()
+if err != nil {
+    panic(err)
+}
+
+sig, err := client.SignHash(pubKey, hash)
+if err != nil {
+    panic(err)
+}
+```
+
+#### Added Spent Element Endpoints
+
+Added two new endpoints `[GET] /outputs/siacoin/:id/spent` and `[GET] /outputs/siafund/:id/spent`. These endpoints will return a boolean, indicating whether the UTXO was spent, and the transaction it was spent in. These endpoints are designed to make verifying Atomic swaps easier.
+
+##### Example Usage
+
+````
+$ curl http://localhost:9980/api/outputs/siacoin/9b89152bb967130326702c9bfb51109e9f80274ec314ba58d9ef49b881340f2f/spent
+{
+    spent: true,
+    event: {}
+}
+```
+
 ## 2.0.0 (2025-02-21)
 
 ### Breaking Changes
