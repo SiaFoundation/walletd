@@ -241,6 +241,9 @@ func (s *server) miningGetBlockTemplateHandler(jc jape.Context) {
 	var req MiningGetBlockTemplateRequest
 	if jc.Decode(&req) != nil {
 		return
+	} else if req.PayoutAddress == types.VoidAddress {
+		jc.Error(errors.New("payout address can't be empty"), http.StatusBadRequest)
+		return
 	}
 
 	// TODO: add polling
@@ -254,13 +257,14 @@ func (s *server) miningGetBlockTemplateHandler(jc jape.Context) {
 
 func (s *server) miningSubmitBlockTemplateHandler(jc jape.Context) {
 	var req MiningSubmitBlockRequest
-	rawBlock, err := hex.DecodeString(req.Params[0])
 	if jc.Decode(&req) != nil {
 		return
 	} else if len(req.Params) < 1 {
 		jc.Error(errors.New("expected block hex in request params array"), http.StatusBadRequest)
 		return
-	} else if jc.Check("couldn't decode block hex", err) != nil {
+	}
+	rawBlock, err := hex.DecodeString(req.Params[0])
+	if jc.Check("couldn't decode block hex", err) != nil {
 		return
 	}
 
