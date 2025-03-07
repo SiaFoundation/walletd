@@ -240,3 +240,24 @@ type MiningSubmitBlockRequest struct {
 	// should contain only the hex-encoded block
 	Params []string `json:"params"`
 }
+
+// An AddSigningKeyRequest is a request to add an ed25519 signing key to the
+// key store.
+type AddSigningKeyRequest struct {
+	PrivateKey types.PrivateKey `json:"privateKey"`
+}
+
+// An AddSigningKeyResponse is the response to an AddSigningKeyRequest.
+type AddSigningKeyResponse struct {
+	PublicKey types.PublicKey `json:"publicKey"`
+}
+
+// A SignHashRequest is a request to sign a hash with a key.
+type SignHashRequest struct {
+	Hash types.Hash256 `json:"hash"`
+}
+
+// A SignHashResponse is the response to a SignHashRequest.
+type SignHashResponse struct {
+	Signature types.Signature `json:"signature"`
+}

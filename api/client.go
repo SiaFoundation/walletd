@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -303,6 +304,36 @@ func (c *Client) SpentSiacoinElement(id types.SiacoinOutputID) (resp ElementSpen
 func (c *Client) SpentSiafundElement(id types.SiafundOutputID) (resp ElementSpentResponse, err error) {
 	err = c.c.GET(fmt.Sprintf("/outputs/siafund/%v/spent", id), &resp)
 	return
+}
+
+// GenerateSigningKey generates a new ed25519 private key
+// on the server and adds it to the key store. Returns the
+// public key.
+func (c *Client) GenerateSigningKey() (types.PublicKey, error) {
+	var resp AddSigningKeyResponse
+	err := c.c.POST("/keys/generate/ed25519", nil, &resp)
+	return resp.PublicKey, err
+}
+
+// ImportSigningKey imports an ed25519 signing key into the key store.
+// Returns the public key.
+func (c *Client) ImportSigningKey(sk types.PrivateKey) (types.PublicKey, error) {
+	var resp AddSigningKeyResponse
+	err := c.c.POST("/keys/ed25519", AddSigningKeyRequest{PrivateKey: sk}, &resp)
+	return resp.PublicKey, err
+}
+
+// DeleteSigningKey deletes an ed25519 signing key from the key store.
+func (c *Client) DeleteSigningKey(pk types.PublicKey) error {
+	return c.c.DELETE(fmt.Sprintf("/keys/ed25519/%s", pk))
+}
+
+// SignHash signs a hash with the specified key. If the key is not found, it
+// returns 404 and [keys.ErrNotFound].
+func (c *Client) SignHash(key types.PublicKey, hash types.Hash256) (types.Signature, error) {
+	var resp SignHashResponse
+	err := c.c.POST(fmt.Sprintf("/keys/ed25519/%s/sign", url.PathEscape(key.String())), SignHashRequest{hash}, &resp)
+	return resp.Signature, err
 }
 
 // A WalletClient provides methods for interacting with a particular wallet on a

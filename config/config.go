@@ -25,6 +25,12 @@ type (
 		Peers      []string `yaml:"peers,omitempty"`
 	}
 
+	// KeyStore contains the configuration for the key store.
+	KeyStore struct {
+		Enabled bool   `yaml:"enabled,omitempty"`
+		Secret  string `yaml:"secret,omitempty"`
+	}
+
 	// Consensus contains the configuration for the consensus set.
 	Consensus struct {
 		Network string `yaml:"network,omitempty"`
@@ -71,6 +77,7 @@ type (
 		Syncer    Syncer    `yaml:"syncer,omitempty"`
 		Log       Log       `yaml:"log,omitempty"`
 		Index     Index     `yaml:"index,omitempty"`
+		KeyStore  KeyStore  `yaml:"keystore,omitempty"`
 	}
 )
 
