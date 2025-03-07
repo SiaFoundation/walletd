@@ -195,7 +195,7 @@ type ElementSpentResponse struct {
 	Event *wallet.Event `json:"event,omitempty"`
 }
 
-// An AddSigningKeyRequest is a request to add an ed25519 signing key to
+// An AddSigningKeyRequest is a request to add an ed25519 signing key to the
 // key store.
 type AddSigningKeyRequest struct {
 	PrivateKey types.PrivateKey `json:"privateKey"`

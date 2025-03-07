@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
+	"go.sia.tech/coreutils"
 	"go.sia.tech/jape"
 	"go.sia.tech/walletd/api"
 	"go.sia.tech/walletd/internal/testutil"
@@ -493,6 +494,45 @@ func TestAddresses(t *testing.T) {
 		t.Fatalf("balance should be %d, got %d", expectedBalance, balance.Siacoins)
 	} else if !balance.ImmatureSiacoins.IsZero() {
 		t.Fatal("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
+	}
+}
+
+func TestConsensus(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	n, genesisBlock := testutil.V2Network()
+	giftPrivateKey := types.GeneratePrivateKey()
+	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(1),
+		Address: giftAddress,
+	}
+
+	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
+	c := startWalletServer(t, cn, log)
+
+	// mine a block
+	minedBlock, ok := coreutils.MineBlock(cn.Chain, types.Address{}, time.Minute)
+	if !ok {
+		t.Fatal("no block found")
+	} else if err := cn.Chain.AddBlocks([]types.Block{minedBlock}); err != nil {
+		t.Fatal(err)
+	}
+
+	// block should be tip now
+	ci, err := c.ConsensusTip()
+	if err != nil {
+		t.Fatal(err)
+	} else if ci.ID != minedBlock.ID() {
+		t.Fatalf("expected consensus tip to be %v, got %v", minedBlock.ID(), ci.ID)
+	}
+
+	// fetch block
+	b, err := c.ConsensusBlocksID(minedBlock.ID())
+	if err != nil {
+		t.Fatal(err)
+	} else if b.ID() != minedBlock.ID() {
+		t.Fatal("mismatch")
 	}
 }
 
