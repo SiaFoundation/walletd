@@ -195,6 +195,52 @@ type ElementSpentResponse struct {
 	Event *wallet.Event `json:"event,omitempty"`
 }
 
+// MiningGetBlockTemplateRequest is the request type for
+// /mining/getblocktemplate.
+type MiningGetBlockTemplateRequest struct {
+	PayoutAddress types.Address `json:"payoutAddress,omitempty"`
+	LongPollID    string        `json:"longpollid,omitempty"`
+}
+
+// MiningGetBlockTemplateResponse is the response type for
+// /mining/getblocktemplate.
+type MiningGetBlockTemplateResponse struct {
+	Transactions      []MiningGetBlockTemplateResponseTxn `json:"transactions"`
+	MinerPayout       []MiningGetBlockTemplateResponseTxn `json:"minerpayout"`
+	PreviousBlockHash string                              `json:"previousblockhash"`
+
+	// Optional long polling from BIP 0022.
+	LongPollID string `json:"longpollid"`
+
+	// Basic pool extension from BIP 0023.
+	Target string `json:"target"`
+	Height uint32 `json:"height"`
+
+	// Mutations from BIP 0023.
+	Timestamp int32 `json:"curtime"`
+
+	// Block proposal from BIP 0023.
+	Version uint32 `json:"version"`
+	Bits    string `json:"bits"`
+}
+
+// MiningGetBlockTemplateResponseTxn is a transaction in a block template.
+type MiningGetBlockTemplateResponseTxn struct {
+	Data    string  `json:"data"`
+	Hash    string  `json:"hash"`
+	TxID    string  `json:"txid"`
+	Depends []int64 `json:"depends"`
+	Fee     int64   `json:"fee"`
+	SigOps  int64   `json:"sigops"`
+	TxType  string  `json:"txtype"`
+}
+
+// MiningSubmitBlockRequest is the request type for /mining/submitblock.
+type MiningSubmitBlockRequest struct {
+	// should contain only the hex-encoded block
+	Params []string `json:"params"`
+}
+
 // An AddSigningKeyRequest is a request to add an ed25519 signing key to the
 // key store.
 type AddSigningKeyRequest struct {
