@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/mattn/go-sqlite3"
-	"go.sia.tech/walletd/wallet"
+	"go.sia.tech/walletd/v2/wallet"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )

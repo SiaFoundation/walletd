@@ -11,7 +11,7 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
-	"go.sia.tech/walletd/internal/threadgroup"
+	"go.sia.tech/walletd/v2/internal/threadgroup"
 	"go.uber.org/zap"
 )
 

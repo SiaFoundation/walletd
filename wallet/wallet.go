@@ -409,3 +409,18 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 	return events
 }
+
+// NewSeedPhrase generates a random seed phrase.
+func NewSeedPhrase() string {
+	return wallet.NewSeedPhrase()
+}
+
+// SeedFromPhrase derives a 32-byte seed from the supplied phrase.
+func SeedFromPhrase(seed *[32]byte, phrase string) error {
+	return wallet.SeedFromPhrase(seed, phrase)
+}
+
+// KeyFromSeed returns the Ed25519 key derived from the supplied seed and index.
+func KeyFromSeed(seed *[32]byte, index uint64) types.PrivateKey {
+	return wallet.KeyFromSeed(seed, index)
+}

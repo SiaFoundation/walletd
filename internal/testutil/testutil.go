@@ -12,7 +12,7 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/coreutils/testutil"
-	"go.sia.tech/walletd/persist/sqlite"
+	"go.sia.tech/walletd/v2/persist/sqlite"
 	"go.uber.org/zap"
 )
 

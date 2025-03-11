@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"go.sia.tech/walletd/wallet"
+	"go.sia.tech/walletd/v2/wallet"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )

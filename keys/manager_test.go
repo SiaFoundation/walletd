@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/walletd/keys"
-	"go.sia.tech/walletd/persist/sqlite"
+	"go.sia.tech/walletd/v2/keys"
+	"go.sia.tech/walletd/v2/persist/sqlite"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )

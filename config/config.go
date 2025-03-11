@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"go.sia.tech/walletd/wallet"
+	"go.sia.tech/walletd/v2/wallet"
 	"gopkg.in/yaml.v3"
 )
 

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/walletd/keys"
+	"go.sia.tech/walletd/v2/keys"
 	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
