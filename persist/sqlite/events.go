@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/walletd/wallet"
+	"go.sia.tech/walletd/v2/wallet"
 )
 
 // Events returns the events with the given event IDs. If an event is not found,

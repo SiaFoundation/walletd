@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/walletd/wallet"
+	"go.sia.tech/walletd/v2/wallet"
 )
 
 func (s *Store) getWalletEventRelevantAddresses(tx *txn, id wallet.ID, eventIDs []int64) (map[int64][]types.Address, error) {

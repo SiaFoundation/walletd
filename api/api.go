@@ -1,3 +1,6 @@
+// Package api provides a RESTful API client and server for the walletd
+// daemon.
+
 package api
 
 import (
@@ -6,7 +9,7 @@ import (
 
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
-	"go.sia.tech/walletd/wallet"
+	"go.sia.tech/walletd/v2/wallet"
 )
 
 // A StateResponse returns information about the current state of the walletd

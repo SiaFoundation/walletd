@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/walletd/wallet"
+	"go.sia.tech/walletd/v2/wallet"
 	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )

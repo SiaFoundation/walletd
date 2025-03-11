@@ -18,9 +18,9 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
-	"go.sia.tech/walletd/build"
-	"go.sia.tech/walletd/keys"
-	"go.sia.tech/walletd/wallet"
+	"go.sia.tech/walletd/v2/build"
+	"go.sia.tech/walletd/v2/keys"
+	"go.sia.tech/walletd/v2/wallet"
 )
 
 // A ServerOption sets an optional parameter for the server.

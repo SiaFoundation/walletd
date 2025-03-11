@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/walletd/wallet"
+	"go.sia.tech/walletd/v2/wallet"
 )
 
 // AddressBalance returns the balance of a single address.

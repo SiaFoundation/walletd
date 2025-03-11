@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"go.sia.tech/core/types"
-	"go.sia.tech/walletd/keys"
+	"go.sia.tech/walletd/v2/keys"
 )
 
 // AddSigningKey adds a signing key to the store. If the key already exists, it
