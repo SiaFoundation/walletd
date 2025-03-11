@@ -11,7 +11,6 @@ import (
 	"syscall"
 
 	"go.sia.tech/core/types"
-	cwallet "go.sia.tech/coreutils/wallet"
 	"go.sia.tech/walletd/v2/api"
 	"go.sia.tech/walletd/v2/build"
 	"go.sia.tech/walletd/v2/config"
@@ -340,10 +339,10 @@ func main() {
 			cmd.Usage()
 			return
 		}
-		recoveryPhrase := cwallet.NewSeedPhrase()
+		recoveryPhrase := wallet.NewSeedPhrase()
 		var seed [32]byte
-		checkFatalError("failed to parse mnemonic phrase", cwallet.SeedFromPhrase(&seed, recoveryPhrase))
-		addr := types.StandardUnlockHash(cwallet.KeyFromSeed(&seed, 0).PublicKey())
+		checkFatalError("failed to parse mnemonic phrase", wallet.SeedFromPhrase(&seed, recoveryPhrase))
+		addr := types.StandardUnlockHash(wallet.KeyFromSeed(&seed, 0).PublicKey())
 
 		fmt.Println("Recovery Phrase:", recoveryPhrase)
 		fmt.Println("Address", addr)
