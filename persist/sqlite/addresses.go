@@ -70,22 +70,40 @@ func (s *Store) AddressEvents(address types.Address, offset, limit int) (events 
 }
 
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
-func (s *Store) AddressSiacoinOutputs(address types.Address, index types.ChainIndex, offset, limit int) (siacoins []types.SiacoinElement, basis types.ChainIndex, err error) {
+func (s *Store) AddressSiacoinOutputs(address types.Address, tpoolSpent []types.SiacoinOutputID, offset, limit int) (siacoins []wallet.UnspentSiacoinElement, basis types.ChainIndex, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address
-		FROM siacoin_elements se
-		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
-		WHERE sa.sia_address=$1 AND se.maturity_height <= $2 AND se.spent_index_id IS NULL
-		LIMIT $3 OFFSET $4`
+		basis, err = getScanBasis(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get basis: %w", err)
+		}
 
-		rows, err := tx.Query(query, encode(address), index.Height, limit, offset)
+		query := `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address, ci.height 
+		FROM siacoin_elements se
+		INNER JOIN chain_indices ci ON (se.chain_index_id = ci.id)
+		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
+		WHERE sa.sia_address = ? AND se.maturity_height <= ? AND se.spent_index_id IS NULL`
+
+		params := []any{encode(address), basis.Height}
+		if len(tpoolSpent) > 0 {
+			query += ` AND se.ID NOT IN (` + queryPlaceHolders(len(tpoolSpent)) + `)`
+			params = append(params, queryArgsFunc(tpoolSpent, func(v types.SiacoinOutputID) any {
+				return encode(v)
+			})...)
+		}
+
+		query += ` ORDER BY se.maturity_height DESC, se.id DESC
+		LIMIT ? OFFSET ?`
+
+		params = append(params, limit, offset)
+
+		rows, err := tx.Query(query, params...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 
 		for rows.Next() {
-			siacoin, err := scanSiacoinElement(rows)
+			siacoin, err := scanUnspentSiacoinElement(rows, basis.Height)
 			if err != nil {
 				return fmt.Errorf("failed to scan siacoin element: %w", err)
 			}
@@ -110,33 +128,45 @@ func (s *Store) AddressSiacoinOutputs(address types.Address, index types.ChainIn
 				siacoins[i].StateElement.MerkleProof = proof
 			}
 		}
-
-		basis, err = getScanBasis(tx)
-		if err != nil {
-			return fmt.Errorf("failed to get basis: %w", err)
-		}
 		return nil
 	})
 	return
 }
 
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.
-func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) (siafunds []types.SiafundElement, basis types.ChainIndex, err error) {
+func (s *Store) AddressSiafundOutputs(address types.Address, tpoolSpent []types.SiafundOutputID, offset, limit int) (siafunds []wallet.UnspentSiafundElement, basis types.ChainIndex, err error) {
 	err = s.transaction(func(tx *txn) error {
-		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address
-		FROM siafund_elements se
-		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
-		WHERE sa.sia_address = $1 AND se.spent_index_id IS NULL
-		LIMIT $2 OFFSET $3`
+		basis, err = getScanBasis(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get basis: %w", err)
+		}
 
-		rows, err := tx.Query(query, encode(address), limit, offset)
+		query := `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address, ci.height
+		FROM siafund_elements se
+		INNER JOIN chain_indices ci ON (se.chain_index_id = ci.id)
+		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
+		WHERE sa.sia_address=? AND se.spent_index_id IS NULL`
+
+		params := []any{encode(address)}
+
+		if len(tpoolSpent) > 0 {
+			query += ` AND se.id NOT IN (` + queryPlaceHolders(len(tpoolSpent)) + `)
+		LIMIT ? OFFSET ?`
+			params = append(params, queryArgsFunc(tpoolSpent, func(v types.SiafundOutputID) any {
+				return encode(v)
+			})...)
+		}
+
+		params = append(params, limit, offset)
+
+		rows, err := tx.Query(query, params...)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 
 		for rows.Next() {
-			siafund, err := scanSiafundElement(rows)
+			siafund, err := scanUnspentSiafundElement(rows, basis.Height)
 			if err != nil {
 				return fmt.Errorf("failed to scan siafund element: %w", err)
 			}
@@ -159,11 +189,6 @@ func (s *Store) AddressSiafundOutputs(address types.Address, offset, limit int) 
 			for i, proof := range proofs {
 				siafunds[i].StateElement.MerkleProof = proof
 			}
-		}
-
-		basis, err = getScanBasis(tx)
-		if err != nil {
-			return fmt.Errorf("failed to get basis: %w", err)
 		}
 		return nil
 	})
