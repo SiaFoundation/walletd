@@ -111,8 +111,8 @@ type (
 		AddressBalance(address types.Address) (wallet.Balance, error)
 		AddressEvents(address types.Address, offset, limit int) ([]wallet.Event, error)
 		AddressUnconfirmedEvents(address types.Address) ([]wallet.Event, error)
-		AddressSiacoinOutputs(address types.Address, offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error)
-		AddressSiafundOutputs(address types.Address, offset, limit int) ([]types.SiafundElement, types.ChainIndex, error)
+		AddressSiacoinOutputs(address types.Address, tpool bool, offset, limit int) ([]wallet.UnspentSiacoinElement, types.ChainIndex, error)
+		AddressSiafundOutputs(address types.Address, tpool bool, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error)
 
 		Events(eventIDs []types.Hash256) ([]wallet.Event, error)
 
@@ -1188,16 +1188,21 @@ func (s *server) addressesAddrOutputsSCHandler(jc jape.Context) {
 		return
 	}
 
+	var useTPool bool
+	if jc.DecodeForm("tpool", &useTPool) != nil {
+		return
+	}
+
 	offset, limit := 0, 1000
 	if jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
 		return
 	}
 
-	utxos, basis, err := s.wm.AddressSiacoinOutputs(addr, offset, limit)
+	utxos, basis, err := s.wm.AddressSiacoinOutputs(addr, useTPool, offset, limit)
 	if jc.Check("couldn't load utxos", err) != nil {
 		return
 	}
-	jc.Encode(SiacoinElementsResponse{
+	jc.Encode(AddressSiacoinElementsResponse{
 		Basis:   basis,
 		Outputs: utxos,
 	})
@@ -1209,16 +1214,21 @@ func (s *server) addressesAddrOutputsSFHandler(jc jape.Context) {
 		return
 	}
 
+	var useTPool bool
+	if jc.DecodeForm("tpool", &useTPool) != nil {
+		return
+	}
+
 	offset, limit := 0, 1000
 	if jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
 		return
 	}
 
-	utxos, basis, err := s.wm.AddressSiafundOutputs(addr, offset, limit)
+	utxos, basis, err := s.wm.AddressSiafundOutputs(addr, useTPool, offset, limit)
 	if jc.Check("couldn't load utxos", err) != nil {
 		return
 	}
-	jc.Encode(SiafundElementsResponse{
+	jc.Encode(AddressSiafundElementsResponse{
 		Basis:   basis,
 		Outputs: utxos,
 	})
