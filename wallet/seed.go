@@ -38,7 +38,7 @@ func NewSeed() Seed {
 	return NewSeedFromEntropy(&entropy)
 }
 
-// NewSeedFromEntropy returns the specified seed.
+// NewSeedFromEntropy returns a the specified seed.
 func NewSeedFromEntropy(entropy *[32]byte) Seed {
 	return Seed{entropy}
 }

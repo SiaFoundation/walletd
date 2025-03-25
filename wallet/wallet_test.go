@@ -1654,14 +1654,14 @@ func TestFullIndex(t *testing.T) {
 	assertBalance(t, addr2, types.ZeroCurrency, types.ZeroCurrency, cm.TipState().SiafundCount())
 
 	// send half siacoins to the second address
-	utxos, _, err := wm.AddressSiacoinOutputs(addr, 0, 100)
+	utxos, _, err := wm.AddressSiacoinOutputs(addr, false, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, se := range utxos {
 		if sce, err := wm.SiacoinElement(types.SiacoinOutputID(se.ID)); err != nil {
 			t.Fatal(err)
-		} else if !reflect.DeepEqual(sce, se) {
+		} else if !reflect.DeepEqual(sce, se.SiacoinElement) {
 			t.Fatalf("expected %v, got %v", se, sce)
 		}
 	}
@@ -1670,7 +1670,7 @@ func TestFullIndex(t *testing.T) {
 	txn := types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{
 			{
-				Parent: utxos[0],
+				Parent: utxos[0].SiacoinElement,
 				SatisfiedPolicy: types.SatisfiedPolicy{
 					Policy: types.SpendPolicy{
 						Type: policy,
@@ -1711,7 +1711,7 @@ func TestFullIndex(t *testing.T) {
 		t.Fatalf("expected transaction event, got %v", events[0].Type)
 	}
 
-	sf, _, err := wm.AddressSiafundOutputs(addr2, 0, 100)
+	sf, _, err := wm.AddressSiafundOutputs(addr2, false, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1719,7 +1719,7 @@ func TestFullIndex(t *testing.T) {
 	for _, se := range sf {
 		if sfe, err := wm.SiafundElement(types.SiafundOutputID(se.ID)); err != nil {
 			t.Fatal(err)
-		} else if !reflect.DeepEqual(sfe, se) {
+		} else if !reflect.DeepEqual(sfe, se.SiafundElement) {
 			t.Fatalf("expected %v, got %v", se, sfe)
 		}
 	}
@@ -1729,7 +1729,7 @@ func TestFullIndex(t *testing.T) {
 	txn = types.V2Transaction{
 		SiafundInputs: []types.V2SiafundInput{
 			{
-				Parent: sf[0],
+				Parent: sf[0].SiafundElement,
 				SatisfiedPolicy: types.SatisfiedPolicy{
 					Policy: types.SpendPolicy{
 						Type: policy,
@@ -1888,7 +1888,7 @@ func TestEvents(t *testing.T) {
 	assertBalance(t, addr2, types.ZeroCurrency, types.ZeroCurrency, cm.TipState().SiafundCount())
 
 	// send half siacoins to the second address
-	utxos, basis, err := wm.AddressSiacoinOutputs(addr, 0, 100)
+	utxos, basis, err := wm.AddressSiacoinOutputs(addr, false, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if basis != cm.Tip() {
@@ -1899,7 +1899,7 @@ func TestEvents(t *testing.T) {
 	txn := types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{
 			{
-				Parent: utxos[0],
+				Parent: utxos[0].SiacoinElement,
 				SatisfiedPolicy: types.SatisfiedPolicy{
 					Policy: types.SpendPolicy{
 						Type: policy,
@@ -1959,7 +1959,7 @@ func TestEvents(t *testing.T) {
 		t.Fatalf("expected event %v to match %v", expected, events2[0])
 	}
 
-	sf, _, err := wm.AddressSiafundOutputs(addr2, 0, 100)
+	sf, _, err := wm.AddressSiafundOutputs(addr2, false, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1969,7 +1969,7 @@ func TestEvents(t *testing.T) {
 	txn = types.V2Transaction{
 		SiafundInputs: []types.V2SiafundInput{
 			{
-				Parent: sf[0],
+				Parent: sf[0].SiafundElement,
 				SatisfiedPolicy: types.SatisfiedPolicy{
 					Policy: types.SpendPolicy{
 						Type: policy,
@@ -2689,7 +2689,7 @@ func TestScanV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	utxos, basis, err := wm.AddressSiacoinOutputs(addr, 0, 100)
+	utxos, basis, err := wm.AddressSiacoinOutputs(addr, false, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if basis != cm.Tip() {
@@ -2701,7 +2701,7 @@ func TestScanV2(t *testing.T) {
 	policy := types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey()))
 	txn := types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{{
-			Parent: sce,
+			Parent: sce.SiacoinElement,
 			SatisfiedPolicy: types.SatisfiedPolicy{
 				Policy: types.SpendPolicy{Type: policy},
 			},
@@ -3311,10 +3311,10 @@ func TestEventTypes(t *testing.T) {
 	}
 	defer wm.Close()
 
-	spendableSiacoinUTXOs := func(t *testing.T) ([]types.SiacoinElement, types.ChainIndex) {
+	spendableSiacoinUTXOs := func(t *testing.T) ([]wallet.UnspentSiacoinElement, types.ChainIndex) {
 		t.Helper()
 
-		sces, basis, err := wm.AddressSiacoinOutputs(addr, 0, 100)
+		sces, basis, err := wm.AddressSiacoinOutputs(addr, false, 0, 100)
 		if err != nil {
 			t.Fatal(err)
 		} else if basis != cm.Tip() {
@@ -3477,7 +3477,7 @@ func TestEventTypes(t *testing.T) {
 		txn := types.V2Transaction{
 			SiacoinInputs: []types.V2SiacoinInput{
 				{
-					Parent: sce[0],
+					Parent: sce[0].SiacoinElement,
 					SatisfiedPolicy: types.SatisfiedPolicy{
 						Policy: policy,
 					},
@@ -3536,7 +3536,7 @@ func TestEventTypes(t *testing.T) {
 			FileContracts: []types.V2FileContract{fc},
 			SiacoinInputs: []types.V2SiacoinInput{
 				{
-					Parent: sce[0],
+					Parent: sce[0].SiacoinElement,
 					SatisfiedPolicy: types.SatisfiedPolicy{
 						Policy: policy,
 					},
@@ -3624,7 +3624,7 @@ func TestEventTypes(t *testing.T) {
 			FileContracts: []types.V2FileContract{fc},
 			SiacoinInputs: []types.V2SiacoinInput{
 				{
-					Parent: sce[0],
+					Parent: sce[0].SiacoinElement,
 					SatisfiedPolicy: types.SatisfiedPolicy{
 						Policy: policy,
 					},
@@ -3717,7 +3717,7 @@ func TestEventTypes(t *testing.T) {
 			FileContracts: []types.V2FileContract{fc},
 			SiacoinInputs: []types.V2SiacoinInput{
 				{
-					Parent: sces[0],
+					Parent: sces[0].SiacoinElement,
 					SatisfiedPolicy: types.SatisfiedPolicy{
 						Policy: policy,
 					},
@@ -3781,7 +3781,7 @@ func TestEventTypes(t *testing.T) {
 		resolutionTxn := types.V2Transaction{
 			SiacoinInputs: []types.V2SiacoinInput{
 				{
-					Parent: sces[0],
+					Parent: sces[0].SiacoinElement,
 					SatisfiedPolicy: types.SatisfiedPolicy{
 						Policy: policy,
 					},
@@ -3809,7 +3809,7 @@ func TestEventTypes(t *testing.T) {
 	})
 
 	t.Run("siafund claim", func(t *testing.T) {
-		sfe, basis, err := wm.AddressSiafundOutputs(addr, 0, 100)
+		sfe, basis, err := wm.AddressSiafundOutputs(addr, false, 0, 100)
 		if err != nil {
 			t.Fatal(err)
 		} else if basis != cm.Tip() {
@@ -3824,7 +3824,7 @@ func TestEventTypes(t *testing.T) {
 		txn := types.V2Transaction{
 			SiafundInputs: []types.V2SiafundInput{
 				{
-					Parent: sfe[0],
+					Parent: sfe[0].SiafundElement,
 					SatisfiedPolicy: types.SatisfiedPolicy{
 						Policy: policy,
 					},
