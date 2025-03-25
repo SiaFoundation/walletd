@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -26,6 +27,7 @@ import (
 	"go.sia.tech/walletd/v2/wallet"
 	"go.sia.tech/web/walletd"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 	"lukechampine.com/upnp"
 )
 
@@ -97,6 +99,35 @@ func setupUPNP(ctx context.Context, port uint16, log *zap.Logger) (string, error
 	return d.ExternalIP()
 }
 
+func loadCustomNetwork(fp string) (*consensus.Network, types.Block, error) {
+	f, err := os.Open(fp)
+	if err != nil {
+		return nil, types.Block{}, fmt.Errorf("failed to open network file: %w", err)
+	}
+	defer f.Close()
+
+	var network struct {
+		Network consensus.Network `json:"network" yaml:"network"`
+		Genesis types.Block       `json:"genesis" yaml:"genesis"`
+	}
+
+	switch filepath.Ext(fp) {
+	case ".yml", ".yaml":
+		dec := yaml.NewDecoder(f)
+		dec.KnownFields(true)
+		if err := dec.Decode(&network); err != nil {
+			return nil, types.Block{}, fmt.Errorf("failed to decode YAML network file: %w", err)
+		}
+	case ".json":
+		if err := json.NewDecoder(f).Decode(&network); err != nil {
+			return nil, types.Block{}, fmt.Errorf("failed to decode JSON network file: %w", err)
+		}
+	default:
+		return nil, types.Block{}, errors.New("unknown network file format")
+	}
+	return &network.Network, network.Genesis, nil
+}
+
 func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebug bool) error {
 	var network *consensus.Network
 	var genesisBlock types.Block
@@ -115,7 +146,13 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebu
 		network, genesisBlock = chain.TestnetErravimus()
 		bootstrapPeers = syncer.ErravimusBootstrapPeers
 	default:
-		return errors.New("invalid network: must be one of 'mainnet', 'zen', or 'anagami'")
+		var err error
+		network, genesisBlock, err = loadCustomNetwork(cfg.Consensus.Network)
+		if errors.Is(err, os.ErrNotExist) {
+			return errors.New("invalid network: must be one of 'mainnet', 'zen', or 'anagami'")
+		} else if err != nil {
+			return fmt.Errorf("failed to load custom network: %w", err)
+		}
 	}
 
 	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
