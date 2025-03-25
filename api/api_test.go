@@ -17,7 +17,6 @@ import (
 	"go.sia.tech/jape"
 	"go.sia.tech/walletd/v2/api"
 	"go.sia.tech/walletd/v2/internal/testutil"
-	"go.sia.tech/walletd/v2/keys"
 	"go.sia.tech/walletd/v2/wallet"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
@@ -39,14 +38,8 @@ func startWalletServer(tb testing.TB, cn *testutil.ConsensusNode, log *zap.Logge
 	}
 	tb.Cleanup(func() { wm.Close() })
 
-	km, err := keys.NewManager(cn.Store, "foo")
-	if err != nil {
-		tb.Fatal("failed to create key manager:", err)
-	}
-	tb.Cleanup(func() { km.Close() })
-
 	server := &http.Server{
-		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, api.WithKeyManager(km), api.WithDebug(), api.WithLogger(log)),
+		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithLogger(log)),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
@@ -1282,12 +1275,6 @@ func TestAPISecurity(t *testing.T) {
 	}
 	defer wm.Close()
 
-	km, err := keys.NewManager(cn.Store, "foo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer km.Close()
-
 	httpListener, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal("failed to listen:", err)
@@ -1295,7 +1282,7 @@ func TestAPISecurity(t *testing.T) {
 	defer httpListener.Close()
 
 	server := &http.Server{
-		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithKeyManager(km), api.WithLogger(zaptest.NewLogger(t)), api.WithBasicAuth("test")),
+		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t)), api.WithBasicAuth("test")),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
@@ -1312,21 +1299,9 @@ func TestAPISecurity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// check that the signing key endpoints are working
-	if _, err := c.GenerateSigningKey(); err != nil {
-		t.Fatal(err)
-	}
-
 	// create a client with incorrect credentials
 	c = api.NewClient("http://"+httpListener.Addr().String(), "wrong")
 	if _, err := c.ConsensusTip(); err == nil {
-		t.Fatal("expected auth error")
-	} else if err.Error() == "unauthorized" {
-		t.Fatal("expected auth error, got", err)
-	}
-
-	// check that the signing key endpoints are working
-	if _, err := c.GenerateSigningKey(); err == nil {
 		t.Fatal("expected auth error")
 	} else if err.Error() == "unauthorized" {
 		t.Fatal("expected auth error, got", err)
@@ -1356,13 +1331,6 @@ func TestAPISecurity(t *testing.T) {
 	// check that a public endpoint is accessible
 	if _, err := c.ConsensusTip(); err != nil {
 		t.Fatal(err)
-	}
-
-	// check that the signing endpoint returns 404 when public mode is enabled
-	if _, err := c.SignHash(frand.Entropy256(), frand.Entropy256()); err == nil {
-		t.Fatal("expected 404 error")
-	} else if !strings.Contains(err.Error(), "404") {
-		t.Fatal("expected 404 error, got", err)
 	}
 
 	// check that a private endpoint is still protected
@@ -1510,84 +1478,4 @@ func TestV2TransactionUpdateBasis(t *testing.T) {
 		t.Fatal(err)
 	}
 	cn.MineBlocks(t, types.VoidAddress, 1)
-}
-
-func TestSigning(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	n, genesisBlock := testutil.V2Network()
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
-
-	pk, err := c.GenerateSigningKey()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// create a wallet
-	w, err := c.AddWallet(api.WalletUpdateRequest{
-		Name: "primary",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	wc := c.Wallet(w.ID)
-
-	policy := types.SpendPolicy{Type: types.PolicyTypePublicKey(pk)}
-	addr := policy.Address()
-
-	err = wc.AddAddress(wallet.Address{
-		Address:     addr,
-		SpendPolicy: &policy,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// fund the wallet
-	cn.MineBlocks(t, addr, 1)
-	cn.MineBlocks(t, types.VoidAddress, int(n.MaturityDelay))
-
-	resp, err := wc.ConstructV2([]types.SiacoinOutput{
-		{Value: types.Siacoins(100), Address: addr},
-	}, nil, addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cs, err := c.ConsensusTipState()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// sign the transaction
-	sigHash := cs.InputSigHash(resp.Transaction)
-	for i, si := range resp.Transaction.SiacoinInputs {
-		pk := types.PublicKey(si.SatisfiedPolicy.Policy.Type.(types.PolicyTypePublicKey))
-
-		sig, err := c.SignHash(pk, sigHash)
-		if err != nil {
-			t.Fatal(err)
-		} else if !pk.VerifyHash(sigHash, sig) {
-			t.Fatal("signature verification failed")
-		}
-		resp.Transaction.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{sig}
-	}
-
-	if err := c.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{resp.Transaction}); err != nil {
-		t.Fatal(err)
-	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
-
-	events, err := wc.Events(0, 5)
-	if err != nil {
-		t.Fatal(err)
-	} else if len(events) != 2 {
-		t.Fatalf("expected 2 events, got %v", len(events))
-	} else if events[0].Type != wallet.EventTypeV2Transaction {
-		t.Fatalf("expected event type %q, got %q", wallet.EventTypeV2Transaction, events[0].Type)
-	} else if types.TransactionID(events[0].ID) != resp.ID {
-		t.Fatalf("expected event ID %q, got %q", resp.ID, events[0].ID)
-	}
 }
