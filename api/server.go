@@ -19,7 +19,6 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/syncer"
 	"go.sia.tech/walletd/v2/build"
-	"go.sia.tech/walletd/v2/keys"
 	"go.sia.tech/walletd/v2/wallet"
 )
 
@@ -37,13 +36,6 @@ func WithLogger(log *zap.Logger) ServerOption {
 func WithDebug() ServerOption {
 	return func(s *server) {
 		s.debugEnabled = true
-	}
-}
-
-// WithKeyManager sets the key manager used by the server.
-func WithKeyManager(ks SigningKeyManager) ServerOption {
-	return func(s *server) {
-		s.km = ks
 	}
 }
 
@@ -140,13 +132,6 @@ type (
 		Reserve([]types.Hash256) error
 		Release([]types.Hash256)
 	}
-
-	// A SigningKeyManager manages ed25519 signing keys.
-	SigningKeyManager interface {
-		Add(types.PrivateKey) error
-		Delete(types.PublicKey) error
-		Sign(types.PublicKey, types.Hash256) (types.Signature, error)
-	}
 )
 
 type server struct {
@@ -159,7 +144,6 @@ type server struct {
 	cm  ChainManager
 	s   Syncer
 	wm  WalletManager
-	km  SigningKeyManager
 
 	scanMu         sync.Mutex // for resubscribe
 	scanInProgress bool
@@ -1281,63 +1265,6 @@ func (s *server) outputsSiafundHandlerGET(jc jape.Context) {
 	jc.Encode(output)
 }
 
-func (s *server) keysEd25519GenerateHandlerPOST(jc jape.Context) {
-	sk := types.GeneratePrivateKey()
-	defer clear(sk)
-	if jc.Check("failed to add key", s.km.Add(sk)) != nil {
-		return
-	}
-	jc.Encode(AddSigningKeyResponse{
-		PublicKey: sk.PublicKey(),
-	})
-}
-
-func (s *server) keysEd25519HandlerPUT(jc jape.Context) {
-	var req AddSigningKeyRequest
-	defer clear(req.PrivateKey)
-	if jc.Decode(&req) != nil {
-		return
-	} else if jc.Check("failed to add key", s.km.Add(req.PrivateKey)) != nil {
-		return
-	}
-
-	jc.Encode(AddSigningKeyResponse{
-		PublicKey: req.PrivateKey.PublicKey(),
-	})
-}
-
-func (s *server) keysEd25519HandlerDELETE(jc jape.Context) {
-	var pk types.PublicKey
-	if jc.DecodeParam("pub", &pk) != nil {
-		return
-	} else if jc.Check("failed to remove key", s.km.Delete(pk)) != nil {
-		return
-	}
-	jc.EmptyResonse()
-}
-
-func (s *server) keysEd25519SignHandlerPOST(jc jape.Context) {
-	var pub types.PublicKey
-	if jc.DecodeParam("pub", &pub) != nil {
-		return
-	}
-	var req SignHashRequest
-	if jc.Decode(&req) != nil {
-		return
-	}
-
-	sig, err := s.km.Sign(pub, req.Hash)
-	if errors.Is(err, keys.ErrNotFound) {
-		jc.Error(err, http.StatusNotFound)
-		return
-	} else if jc.Check("failed to sign message", err) != nil {
-		return
-	}
-	jc.Encode(SignHashResponse{
-		Signature: sig,
-	})
-}
-
 func (s *server) debugMineHandler(jc jape.Context) {
 	var req DebugMineRequest
 	if jc.Decode(&req) != nil {
@@ -1498,14 +1425,6 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		"POST /wallets/:id/release":                  wrapAuthHandler(srv.walletsReleaseHandler),
 		"POST /wallets/:id/fund":                     wrapAuthHandler(srv.walletsFundHandler),
 		"POST /wallets/:id/fundsf":                   wrapAuthHandler(srv.walletsFundSFHandler),
-	}
-
-	if srv.km != nil && !srv.publicEndpoints {
-		// key management endpoints are disabled on public nodes
-		handlers["POST /keys/generate/ed25519"] = wrapAuthHandler(srv.keysEd25519GenerateHandlerPOST)
-		handlers["PUT /keys/ed25519"] = wrapAuthHandler(srv.keysEd25519HandlerPUT)
-		handlers["DELETE /keys/ed25519/:pub"] = wrapAuthHandler(srv.keysEd25519HandlerDELETE)
-		handlers["POST /keys/ed25519/:pub/sign"] = wrapAuthHandler(srv.keysEd25519SignHandlerPOST)
 	}
 
 	if srv.debugEnabled {
