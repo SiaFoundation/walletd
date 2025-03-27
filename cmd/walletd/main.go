@@ -218,7 +218,7 @@ func main() {
 	rootCmd.BoolVar(&cfg.KeyStore.Enabled, "keystore", cfg.KeyStore.Enabled, "enables the keystore")
 
 	rootCmd.StringVar(&cfg.Syncer.Address, "addr", cfg.Syncer.Address, "p2p address to listen on")
-	rootCmd.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network to connect to")
+	rootCmd.StringVar(&cfg.Consensus.Network, "network", cfg.Consensus.Network, "network to connect to; must be one of 'mainnet', 'zen', 'anagami', or the path to a custom network file for a local testnet")
 	rootCmd.BoolVar(&cfg.Syncer.EnableUPnP, "upnp", cfg.Syncer.EnableUPnP, "attempt to forward ports and discover IP with UPnP")
 	rootCmd.BoolVar(&cfg.Syncer.Bootstrap, "bootstrap", cfg.Syncer.Bootstrap, "attempt to bootstrap the network")
 

@@ -27,7 +27,6 @@ import (
 	"go.sia.tech/walletd/v2/wallet"
 	"go.sia.tech/web/walletd"
 	"go.uber.org/zap"
-	"gopkg.in/yaml.v3"
 	"lukechampine.com/upnp"
 )
 
@@ -111,19 +110,8 @@ func loadCustomNetwork(fp string) (*consensus.Network, types.Block, error) {
 		Genesis types.Block       `json:"genesis" yaml:"genesis"`
 	}
 
-	switch filepath.Ext(fp) {
-	case ".yml", ".yaml":
-		dec := yaml.NewDecoder(f)
-		dec.KnownFields(true)
-		if err := dec.Decode(&network); err != nil {
-			return nil, types.Block{}, fmt.Errorf("failed to decode YAML network file: %w", err)
-		}
-	case ".json":
-		if err := json.NewDecoder(f).Decode(&network); err != nil {
-			return nil, types.Block{}, fmt.Errorf("failed to decode JSON network file: %w", err)
-		}
-	default:
-		return nil, types.Block{}, errors.New("unknown network file format")
+	if err := json.NewDecoder(f).Decode(&network); err != nil {
+		return nil, types.Block{}, fmt.Errorf("failed to decode JSON network file: %w", err)
 	}
 	return &network.Network, network.Genesis, nil
 }
