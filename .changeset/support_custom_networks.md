@@ -4,7 +4,7 @@ default: minor
 
 # Add support for custom networks
 
-Adds support for loading custom network parameters from a local file. This makes it easier to setup local testnets for development. A network file can be specified by using a file path for the `--network` CLI flag. The file should be JSON or YAML formatted with the following structure:
+Adds support for loading custom network parameters from a local file. This makes it easier to setup local testnets for development. A network file can be specified by using a file path for the `--network` CLI flag. The file should be JSON formatted with the following structure:
 
 ```json
 {
