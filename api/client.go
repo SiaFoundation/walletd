@@ -244,15 +244,15 @@ func (c *Client) AddressUnconfirmedEvents(addr types.Address) (resp []wallet.Eve
 }
 
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
-func (c *Client) AddressSiacoinOutputs(addr types.Address, offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error) {
-	var resp SiacoinElementsResponse
-	err := c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siacoin?offset=%d&limit=%d", addr, offset, limit), &resp)
+func (c *Client) AddressSiacoinOutputs(addr types.Address, useTpool bool, offset, limit int) ([]wallet.UnspentSiacoinElement, types.ChainIndex, error) {
+	var resp UnspentSiacoinElementsResponse
+	err := c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siacoin?offset=%d&limit=%d&tpool=%t", addr, offset, limit, useTpool), &resp)
 	return resp.Outputs, resp.Basis, err
 }
 
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.
-func (c *Client) AddressSiafundOutputs(addr types.Address, offset, limit int) ([]types.SiafundElement, types.ChainIndex, error) {
-	var resp SiafundElementsResponse
+func (c *Client) AddressSiafundOutputs(addr types.Address, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error) {
+	var resp UnspentSiafundElementsResponse
 	err := c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siafund?offset=%d&limit=%d", addr, offset, limit), &resp)
 	return resp.Outputs, resp.Basis, err
 }
