@@ -191,6 +191,20 @@ type SiafundElementsResponse struct {
 	Outputs []types.SiafundElement `json:"outputs"`
 }
 
+// UnspentSiacoinElementsResponse is the response type for any endpoint that returns
+// siacoin UTXOs
+type UnspentSiacoinElementsResponse struct {
+	Basis   types.ChainIndex               `json:"basis"`
+	Outputs []wallet.UnspentSiacoinElement `json:"outputs"`
+}
+
+// UnspentSiafundElementsResponse is the response type for any endpoint that returns
+// siafund UTXOs
+type UnspentSiafundElementsResponse struct {
+	Basis   types.ChainIndex               `json:"basis"`
+	Outputs []wallet.UnspentSiafundElement `json:"outputs"`
+}
+
 // AddressSiacoinElementsResponse is the response type for any endpoint that returns
 // siacoin UTXOs
 type AddressSiacoinElementsResponse struct {
