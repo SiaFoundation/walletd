@@ -116,7 +116,7 @@ func loadCustomNetwork(fp string) (*consensus.Network, types.Block, error) {
 	return &network.Network, network.Genesis, nil
 }
 
-func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebug bool) error {
+func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	var network *consensus.Network
 	var genesisBlock types.Block
 	var bootstrapPeers []string
@@ -234,7 +234,7 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger, enableDebu
 		api.WithPublicEndpoints(cfg.HTTP.PublicEndpoints),
 		api.WithBasicAuth(cfg.HTTP.Password),
 	}
-	if enableDebug {
+	if cfg.Debug {
 		apiOpts = append(apiOpts, api.WithDebug())
 	}
 	api := api.NewServer(cm, s, wm, apiOpts...)
