@@ -317,6 +317,7 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	}
 	if len(tbr.Transactions) != 0 {
 		if len(tbr.Transactions) == 1 {
+			// if there's only one transaction, best-effort check for parents
 			tbr.Transactions = append(s.cm.UnconfirmedParents(tbr.Transactions[0]), tbr.Transactions...)
 		}
 
@@ -329,6 +330,7 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	}
 	if len(tbr.V2Transactions) != 0 {
 		if len(tbr.V2Transactions) == 1 {
+			// if there's only one transaction, best-effort check for parents
 			var err error
 			tbr.Basis, tbr.V2Transactions, err = s.cm.V2TransactionSet(tbr.Basis, tbr.V2Transactions[0])
 			if jc.Check("couldn't create v2 transaction set", err) != nil {
