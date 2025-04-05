@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"math/rand"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3" // import sqlite3 driver
@@ -187,4 +188,41 @@ func setDBVersion(tx *txn, version int64) error {
 // jitterSleep sleeps for a random duration between t and t*1.5.
 func jitterSleep(t time.Duration) {
 	time.Sleep(t + time.Duration(rand.Int63n(int64(t/2))))
+}
+
+func queryPlaceHolders(n int) string {
+	if n == 0 {
+		return ""
+	} else if n == 1 {
+		return "?"
+	}
+	var b strings.Builder
+	b.Grow(((n - 1) * 2) + 1) // ?,?
+	for i := 0; i < n-1; i++ {
+		b.WriteString("?,")
+	}
+	b.WriteString("?")
+	return b.String()
+}
+
+func queryArgs[T any](args []T) []any {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]any, len(args))
+	for i, arg := range args {
+		out[i] = arg
+	}
+	return out
+}
+
+func queryArgsFunc[T any](args []T, fn func(t T) any) []any {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]any, len(args))
+	for i, arg := range args {
+		out[i] = fn(arg)
+	}
+	return out
 }

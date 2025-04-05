@@ -70,6 +70,7 @@ type (
 		AddPoolTransactions(txns []types.Transaction) (bool, error)
 		AddV2PoolTransactions(index types.ChainIndex, txns []types.V2Transaction) (bool, error)
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
+		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 		UpdateV2TransactionSet(txns []types.V2Transaction, from types.ChainIndex, to types.ChainIndex) ([]types.V2Transaction, error)
 	}
 
@@ -111,8 +112,8 @@ type (
 		AddressBalance(address types.Address) (wallet.Balance, error)
 		AddressEvents(address types.Address, offset, limit int) ([]wallet.Event, error)
 		AddressUnconfirmedEvents(address types.Address) ([]wallet.Event, error)
-		AddressSiacoinOutputs(address types.Address, offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error)
-		AddressSiafundOutputs(address types.Address, offset, limit int) ([]types.SiafundElement, types.ChainIndex, error)
+		AddressSiacoinOutputs(address types.Address, tpool bool, offset, limit int) ([]wallet.UnspentSiacoinElement, types.ChainIndex, error)
+		AddressSiafundOutputs(address types.Address, tpool bool, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error)
 
 		Events(eventIDs []types.Hash256) ([]wallet.Event, error)
 
@@ -315,6 +316,10 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		return
 	}
 	if len(tbr.Transactions) != 0 {
+		if len(tbr.Transactions) == 1 {
+			tbr.Transactions = append(s.cm.UnconfirmedParents(tbr.Transactions[0]), tbr.Transactions...)
+		}
+
 		_, err := s.cm.AddPoolTransactions(tbr.Transactions)
 		if err != nil {
 			jc.Error(fmt.Errorf("invalid transaction set: %w", err), http.StatusBadRequest)
@@ -323,8 +328,15 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		s.s.BroadcastTransactionSet(tbr.Transactions)
 	}
 	if len(tbr.V2Transactions) != 0 {
-		_, err := s.cm.AddV2PoolTransactions(tbr.Basis, tbr.V2Transactions)
-		if err != nil {
+		if len(tbr.V2Transactions) == 1 {
+			var err error
+			tbr.Basis, tbr.V2Transactions, err = s.cm.V2TransactionSet(tbr.Basis, tbr.V2Transactions[0])
+			if jc.Check("couldn't create v2 transaction set", err) != nil {
+				return
+			}
+		}
+
+		if _, err := s.cm.AddV2PoolTransactions(tbr.Basis, tbr.V2Transactions); err != nil {
 			jc.Error(fmt.Errorf("invalid v2 transaction set: %w", err), http.StatusBadRequest)
 			return
 		}
@@ -1188,16 +1200,21 @@ func (s *server) addressesAddrOutputsSCHandler(jc jape.Context) {
 		return
 	}
 
+	var useTPool bool
+	if jc.DecodeForm("tpool", &useTPool) != nil {
+		return
+	}
+
 	offset, limit := 0, 1000
 	if jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
 		return
 	}
 
-	utxos, basis, err := s.wm.AddressSiacoinOutputs(addr, offset, limit)
+	utxos, basis, err := s.wm.AddressSiacoinOutputs(addr, useTPool, offset, limit)
 	if jc.Check("couldn't load utxos", err) != nil {
 		return
 	}
-	jc.Encode(SiacoinElementsResponse{
+	jc.Encode(AddressSiacoinElementsResponse{
 		Basis:   basis,
 		Outputs: utxos,
 	})
@@ -1209,16 +1226,21 @@ func (s *server) addressesAddrOutputsSFHandler(jc jape.Context) {
 		return
 	}
 
+	var useTPool bool
+	if jc.DecodeForm("tpool", &useTPool) != nil {
+		return
+	}
+
 	offset, limit := 0, 1000
 	if jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
 		return
 	}
 
-	utxos, basis, err := s.wm.AddressSiafundOutputs(addr, offset, limit)
+	utxos, basis, err := s.wm.AddressSiafundOutputs(addr, useTPool, offset, limit)
 	if jc.Check("couldn't load utxos", err) != nil {
 		return
 	}
-	jc.Encode(SiafundElementsResponse{
+	jc.Encode(AddressSiafundElementsResponse{
 		Basis:   basis,
 		Outputs: utxos,
 	})

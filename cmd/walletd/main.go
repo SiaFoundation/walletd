@@ -207,11 +207,10 @@ func main() {
 
 	var minerAddrStr string
 	var minerBlocks int
-	var enableDebug bool
 
 	rootCmd := flagg.Root
 	rootCmd.Usage = flagg.SimpleUsage(rootCmd, rootUsage)
-	rootCmd.BoolVar(&enableDebug, "debug", false, "enable debug mode with additional profiling and mining endpoints")
+	rootCmd.BoolVar(&cfg.Debug, "debug", cfg.Debug, "enable debug mode with additional profiling and mining endpoints")
 	rootCmd.StringVar(&cfg.Directory, "dir", cfg.Directory, "directory to store node state in")
 	rootCmd.StringVar(&cfg.HTTP.Address, "http", cfg.HTTP.Address, "address to serve API on")
 	rootCmd.BoolVar(&cfg.HTTP.PublicEndpoints, "http.public", cfg.HTTP.PublicEndpoints, "disables auth on endpoints that should be publicly accessible when running walletd as a service")
@@ -325,7 +324,7 @@ func main() {
 		// redirect stdlib log to zap
 		zap.RedirectStdLog(log.Named("stdlib"))
 
-		checkFatalError("failed to run node", runNode(ctx, cfg, log, enableDebug))
+		checkFatalError("failed to run node", runNode(ctx, cfg, log))
 	case versionCmd:
 		if len(cmd.Args()) != 0 {
 			cmd.Usage()

@@ -71,6 +71,7 @@ type (
 		Name          string `yaml:"name,omitempty"`
 		Directory     string `yaml:"directory,omitempty"`
 		AutoOpenWebUI bool   `yaml:"autoOpenWebUI,omitempty"`
+		Debug         bool   `yaml:"debug,omitempty"`
 
 		HTTP      HTTP      `yaml:"http,omitempty"`
 		Consensus Consensus `yaml:"consensus,omitempty"`

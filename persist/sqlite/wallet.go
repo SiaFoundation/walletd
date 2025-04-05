@@ -608,6 +608,24 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 	return
 }
 
+func scanUnspentSiacoinElement(s scanner, basisHeight uint64) (se wallet.UnspentSiacoinElement, err error) {
+	var confirmationHeight uint64
+	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decode(&se.StateElement.MerkleProof), &se.StateElement.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address), &confirmationHeight)
+	if confirmationHeight <= basisHeight {
+		se.Confirmations = 1 + basisHeight - confirmationHeight
+	}
+	return
+}
+
+func scanUnspentSiafundElement(s scanner, basisHeight uint64) (se wallet.UnspentSiafundElement, err error) {
+	var confirmationHeight uint64
+	err = s.Scan(decode(&se.ID), &se.StateElement.LeafIndex, decode(&se.StateElement.MerkleProof), &se.SiafundOutput.Value, decode(&se.ClaimStart), decode(&se.SiafundOutput.Address), &confirmationHeight)
+	if confirmationHeight <= basisHeight {
+		se.Confirmations = 1 + basisHeight - confirmationHeight
+	}
+	return
+}
+
 func scanSiacoinElement(s scanner) (se types.SiacoinElement, err error) {
 	err = s.Scan(decode(&se.ID), decode(&se.SiacoinOutput.Value), decode(&se.StateElement.MerkleProof), &se.StateElement.LeafIndex, &se.MaturityHeight, decode(&se.SiacoinOutput.Address))
 	return
