@@ -251,9 +251,9 @@ func (c *Client) AddressSiacoinOutputs(addr types.Address, useTpool bool, offset
 }
 
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.
-func (c *Client) AddressSiafundOutputs(addr types.Address, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error) {
+func (c *Client) AddressSiafundOutputs(addr types.Address, useTpool bool, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error) {
 	var resp UnspentSiafundElementsResponse
-	err := c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siafund?offset=%d&limit=%d", addr, offset, limit), &resp)
+	err := c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siafund?offset=%d&limit=%d&tpool=%t", addr, offset, limit, useTpool), &resp)
 	return resp.Outputs, resp.Basis, err
 }
 
