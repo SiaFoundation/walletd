@@ -1565,3 +1565,116 @@ func TestAddressTPool(t *testing.T) {
 	cn.MineBlocks(t, types.VoidAddress, 1)
 	assertSiacoinElement(t, txn.SiacoinOutputID(txn.ID(), 1), types.Siacoins(75), 1)
 }
+
+func TestEphemeralTransactions(t *testing.T) {
+	log := zaptest.NewLogger(t)
+	pk := types.GeneratePrivateKey()
+	sp := types.SpendPolicy{
+		Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey())),
+	}
+	addr1 := sp.Address()
+
+	n, genesisBlock := testutil.V2Network()
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(100),
+		Address: addr1,
+	}
+
+	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
+	c := startWalletServer(t, cn, log, wallet.WithIndexMode(wallet.IndexModeFull))
+
+	cn.MineBlocks(t, types.VoidAddress, 1)
+
+	sces, basis, err := c.AddressSiacoinOutputs(addr1, true, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	txn := types.V2Transaction{
+		SiacoinInputs: []types.V2SiacoinInput{
+
+			{
+				Parent: sces[0].SiacoinElement,
+				SatisfiedPolicy: types.SatisfiedPolicy{
+					Policy: sp,
+				},
+			},
+		},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{
+				Address: types.VoidAddress,
+				Value:   types.Siacoins(50),
+			},
+			{
+				Address: addr1,
+				Value:   types.Siacoins(50),
+			},
+		},
+	}
+	cs, err := c.ConsensusTipState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigHash := cs.InputSigHash(txn)
+	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
+	expectedOutputID := txn.SiacoinOutputID(txn.ID(), 1)
+
+	if err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
+		t.Fatal(err)
+	}
+
+	sces, basis, err = c.AddressSiacoinOutputs(addr1, true, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(sces) != 1 {
+		t.Fatalf("expected 1 siacoin element, got %v", len(sces))
+	} else if sces[0].ID != expectedOutputID {
+		t.Fatalf("expected siacoin element ID %q, got %q", expectedOutputID, sces[0].ID)
+	} else if sces[0].StateElement.LeafIndex != types.UnassignedLeafIndex {
+		t.Fatalf("expected siacoin element to have unassigned leaf index, got %v", sces[0].StateElement.LeafIndex)
+	}
+
+	txn2 := types.V2Transaction{
+		SiacoinInputs: []types.V2SiacoinInput{
+			{
+				Parent: sces[0].SiacoinElement,
+				SatisfiedPolicy: types.SatisfiedPolicy{
+					Policy: sp,
+				},
+			},
+		},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{
+				Address: types.VoidAddress,
+				Value:   sces[0].SiacoinOutput.Value,
+			},
+		},
+	}
+	sigHash = cs.InputSigHash(txn2)
+	txn2.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
+
+	// mine a block so the basis is behind
+	cn.MineBlocks(t, types.VoidAddress, 1)
+
+	sces, _, err = c.AddressSiacoinOutputs(addr1, true, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(sces) != 1 {
+		t.Fatalf("expected no siacoin elements, got %v", len(sces))
+	} else if sces[0].ID != expectedOutputID {
+		t.Fatalf("expected siacoin element ID %q, got %q", expectedOutputID, sces[0].ID)
+	} else if sces[0].StateElement.LeafIndex == types.UnassignedLeafIndex {
+		t.Fatalf("expected siacoin element to have leaf index, got %v", sces[0].StateElement.LeafIndex)
+	}
+
+	if err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn2}); err != nil {
+		t.Fatal(err)
+	}
+
+	sces, _, err = c.AddressSiacoinOutputs(addr1, true, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(sces) != 0 {
+		t.Fatalf("expected no siacoin elements, got %v", len(sces))
+	}
+}
