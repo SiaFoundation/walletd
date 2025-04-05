@@ -150,12 +150,14 @@ func (s *Store) AddressSiafundOutputs(address types.Address, tpoolSpent []types.
 		params := []any{encode(address)}
 
 		if len(tpoolSpent) > 0 {
-			query += ` AND se.id NOT IN (` + queryPlaceHolders(len(tpoolSpent)) + `)
-		LIMIT ? OFFSET ?`
+			query += ` AND se.id NOT IN (` + queryPlaceHolders(len(tpoolSpent)) + `)`
 			params = append(params, queryArgsFunc(tpoolSpent, func(v types.SiafundOutputID) any {
 				return encode(v)
 			})...)
 		}
+
+		query += ` ORDER BY se.id DESC
+		LIMIT ? OFFSET ?`
 
 		params = append(params, limit, offset)
 
