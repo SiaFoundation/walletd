@@ -1166,7 +1166,7 @@ func TestSpentElement(t *testing.T) {
 		t.Fatalf("expected error to contain %q, got %q", "not found", err)
 	}
 
-	sfe, basis, err := c.AddressSiafundOutputs(senderAddr, 0, 100)
+	sfe, basis, err := c.AddressSiafundOutputs(senderAddr, false, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	} else if len(sfe) != 1 {
