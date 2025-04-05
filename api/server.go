@@ -70,6 +70,7 @@ type (
 		AddPoolTransactions(txns []types.Transaction) (bool, error)
 		AddV2PoolTransactions(index types.ChainIndex, txns []types.V2Transaction) (bool, error)
 		UnconfirmedParents(txn types.Transaction) []types.Transaction
+		V2TransactionSet(basis types.ChainIndex, txn types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 		UpdateV2TransactionSet(txns []types.V2Transaction, from types.ChainIndex, to types.ChainIndex) ([]types.V2Transaction, error)
 	}
 
@@ -315,6 +316,10 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		return
 	}
 	if len(tbr.Transactions) != 0 {
+		if len(tbr.Transactions) == 1 {
+			tbr.Transactions = append(s.cm.UnconfirmedParents(tbr.Transactions[0]), tbr.Transactions...)
+		}
+
 		_, err := s.cm.AddPoolTransactions(tbr.Transactions)
 		if err != nil {
 			jc.Error(fmt.Errorf("invalid transaction set: %w", err), http.StatusBadRequest)
@@ -323,8 +328,15 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		s.s.BroadcastTransactionSet(tbr.Transactions)
 	}
 	if len(tbr.V2Transactions) != 0 {
-		_, err := s.cm.AddV2PoolTransactions(tbr.Basis, tbr.V2Transactions)
-		if err != nil {
+		if len(tbr.V2Transactions) == 1 {
+			var err error
+			tbr.Basis, tbr.V2Transactions, err = s.cm.V2TransactionSet(tbr.Basis, tbr.V2Transactions[0])
+			if jc.Check("couldn't create v2 transaction set", err) != nil {
+				return
+			}
+		}
+
+		if _, err := s.cm.AddV2PoolTransactions(tbr.Basis, tbr.V2Transactions); err != nil {
 			jc.Error(fmt.Errorf("invalid v2 transaction set: %w", err), http.StatusBadRequest)
 			return
 		}
