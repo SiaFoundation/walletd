@@ -119,8 +119,11 @@ type (
 		log   *zap.Logger
 		tg    *threadgroup.ThreadGroup
 
-		mu            sync.Mutex // protects the fields below
-		used          map[types.Hash256]time.Time
+		mu   sync.Mutex // protects the fields below
+		used map[types.Hash256]time.Time
+		// tracks the state of utxos in the transaction pool
+		// this local state is used to remove a race between
+		// the wallet indexing and the chain manager
 		poolSCCreated map[types.Address][]types.SiacoinElement
 		poolSFCreated map[types.Address][]types.SiafundElement
 		poolSCSpent   map[types.Address][]types.SiacoinOutputID
@@ -621,6 +624,11 @@ func syncStore(ctx context.Context, store Store, cm ChainManager, index types.Ch
 	return nil
 }
 
+// resetPool resets the tracked transaction pool state. This is used when the
+// transaction pool is changed such as when a transaction is broadcast or
+// when a reorg occurs.
+//
+// It is expected that the caller holds the manager's lock.
 func (m *Manager) resetPool() {
 	siacoinsCreated := make(map[types.SiacoinOutputID]types.SiacoinElement)
 	siacoinsSpent := make(map[types.SiacoinOutputID]types.Address)
@@ -793,6 +801,7 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 			}
 
 			m.mu.Lock()
+			m.resetPool()
 			// update the store
 			lastTip, err := store.LastCommittedIndex()
 			if err != nil {
@@ -818,7 +827,6 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 					panic("failed to sync store: " + err.Error())
 				}
 			}
-			m.resetPool()
 			m.mu.Unlock()
 		}
 	}()
