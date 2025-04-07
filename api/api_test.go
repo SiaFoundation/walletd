@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -1676,5 +1677,85 @@ func TestEphemeralTransactions(t *testing.T) {
 		t.Fatal(err)
 	} else if len(sces) != 0 {
 		t.Fatalf("expected no siacoin elements, got %v", len(sces))
+	}
+}
+
+func TestBroadcastRace(t *testing.T) {
+	log := zap.NewNop()
+	pk := types.GeneratePrivateKey()
+	sp := types.SpendPolicy{
+		Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey())),
+	}
+	addr1 := sp.Address()
+
+	n, genesisBlock := testutil.V2Network()
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(100000),
+		Address: addr1,
+	}
+
+	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
+	c := startWalletServer(t, cn, log, wallet.WithIndexMode(wallet.IndexModeFull))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				cn.MineBlocks(t, types.VoidAddress, 1)
+			}
+		}
+	}()
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for i := 0; i < 100; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sces, basis, err := c.AddressSiacoinOutputs(addr1, true, 0, 100)
+			if err != nil {
+				panic(err)
+			}
+
+			burn := types.Siacoins(1)
+			rem := sces[0].SiacoinOutput.Value.Sub(burn)
+			txn := types.V2Transaction{
+				SiacoinInputs: []types.V2SiacoinInput{
+					{
+						Parent: sces[0].SiacoinElement,
+						SatisfiedPolicy: types.SatisfiedPolicy{
+							Policy: sp,
+						},
+					},
+				},
+				SiacoinOutputs: []types.SiacoinOutput{
+					{
+						Address: types.VoidAddress,
+						Value:   burn,
+					},
+					{
+						Address: addr1,
+						Value:   rem,
+					},
+				},
+			}
+			cs, err := c.ConsensusTipState()
+			if err != nil {
+				t.Fatal(err)
+			}
+			sigHash := cs.InputSigHash(txn)
+			txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
+			t.Log("broadcasting", txn.ID(), cs.Index)
+			if err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
-	"go.sia.tech/coreutils/testutil"
+	"go.sia.tech/walletd/v2/internal/testutil"
 	"go.sia.tech/walletd/v2/persist/sqlite"
 	"go.sia.tech/walletd/v2/wallet"
 	"go.uber.org/zap/zaptest"
