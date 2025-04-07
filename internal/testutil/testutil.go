@@ -30,13 +30,18 @@ func (cn *ConsensusNode) WaitForSync(tb testing.TB) {
 	tb.Helper()
 
 	for i := 0; i < 1000; i++ {
-		index, err := cn.Store.LastCommittedIndex()
-		if err != nil {
-			tb.Fatal(err)
-		} else if index == cn.Chain.Tip() {
+		select {
+		case <-tb.Context().Done():
 			return
+		default:
+			index, err := cn.Store.LastCommittedIndex()
+			if err != nil {
+				tb.Fatal(err)
+			} else if index == cn.Chain.Tip() {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 	tb.Fatal("timeout waiting for sync")
 }
@@ -46,8 +51,13 @@ func (cn *ConsensusNode) MineBlocks(tb testing.TB, addr types.Address, n int) {
 	tb.Helper()
 
 	for i := 0; i < n; i++ {
-		testutil.MineBlocks(tb, cn.Chain, addr, 1)
-		cn.WaitForSync(tb)
+		select {
+		case <-tb.Context().Done():
+			return
+		default:
+			testutil.MineBlocks(tb, cn.Chain, addr, 1)
+			cn.WaitForSync(tb)
+		}
 	}
 }
 
