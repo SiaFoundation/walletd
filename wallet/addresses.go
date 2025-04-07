@@ -12,8 +12,8 @@ func (m *Manager) AddressBalance(address types.Address) (balance Balance, err er
 }
 
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
-func (m *Manager) AddressSiacoinOutputs(address types.Address, excludePool bool, offset, limit int) ([]UnspentSiacoinElement, types.ChainIndex, error) {
-	if !excludePool {
+func (m *Manager) AddressSiacoinOutputs(address types.Address, usePool bool, offset, limit int) ([]UnspentSiacoinElement, types.ChainIndex, error) {
+	if !usePool {
 		return m.store.AddressSiacoinOutputs(address, nil, offset, limit)
 	}
 	created := make(map[types.SiacoinOutputID]types.SiacoinElement)
@@ -79,8 +79,8 @@ func (m *Manager) AddressSiacoinOutputs(address types.Address, excludePool bool,
 }
 
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.
-func (m *Manager) AddressSiafundOutputs(address types.Address, excludePool bool, offset, limit int) (outputs []UnspentSiafundElement, basis types.ChainIndex, err error) {
-	if !excludePool {
+func (m *Manager) AddressSiafundOutputs(address types.Address, usePool bool, offset, limit int) (outputs []UnspentSiafundElement, basis types.ChainIndex, err error) {
+	if !usePool {
 		return m.store.AddressSiafundOutputs(address, nil, offset, limit)
 	}
 
