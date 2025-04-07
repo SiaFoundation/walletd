@@ -124,10 +124,12 @@ type (
 		// tracks the state of utxos in the transaction pool
 		// this local state is used to remove a race between
 		// the wallet indexing and the chain manager
-		poolSCCreated map[types.Address][]types.SiacoinElement
-		poolSFCreated map[types.Address][]types.SiafundElement
-		poolSCSpent   map[types.Address][]types.SiacoinOutputID
-		poolSFSpent   map[types.Address][]types.SiafundOutputID
+		poolSCCreated      map[types.SiacoinOutputID]types.SiacoinElement
+		poolSFCreated      map[types.SiafundOutputID]types.SiafundElement
+		poolSCSpent        map[types.SiacoinOutputID]bool
+		poolSFSpent        map[types.SiafundOutputID]bool
+		poolAddressSCSpent map[types.Address][]types.SiacoinOutputID
+		poolAddressSFSpent map[types.Address][]types.SiafundOutputID
 	}
 )
 
@@ -343,42 +345,17 @@ func (m *Manager) SelectSiacoinElements(walletID ID, amount types.Currency, useU
 		return true, nil
 	}
 
-	ephemeral := make(map[types.SiacoinOutputID]types.SiacoinElement)
-	inPool := make(map[types.SiacoinOutputID]bool)
-	for _, txn := range m.chain.PoolTransactions() {
-		for _, sci := range txn.SiacoinInputs {
-			inPool[sci.ParentID] = true
-			delete(ephemeral, sci.ParentID)
+	var ephemeral []types.SiacoinElement
+	for _, sce := range m.poolSCCreated {
+		exists, err := relevantAddr(sce.SiacoinOutput.Address)
+		if err != nil {
+			return nil, types.ChainIndex{}, types.ZeroCurrency, fmt.Errorf("failed to check if address %q is relevant: %w", sce.SiacoinOutput.Address, err)
+		} else if !exists {
+			continue
 		}
-		for i, sco := range txn.SiacoinOutputs {
-			exists, err := relevantAddr(sco.Address)
-			if err != nil {
-				return nil, types.ChainIndex{}, types.ZeroCurrency, fmt.Errorf("failed to check if address %q is relevant: %w", sco.Address, err)
-			} else if exists {
-				scoid := txn.SiacoinOutputID(i)
-				ephemeral[scoid] = types.SiacoinElement{
-					ID:            scoid,
-					StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
-					SiacoinOutput: sco,
-				}
-			}
-		}
+		ephemeral = append(ephemeral, sce)
 	}
-	for _, txn := range m.chain.V2PoolTransactions() {
-		for _, sci := range txn.SiacoinInputs {
-			inPool[sci.Parent.ID] = true
-			delete(ephemeral, sci.Parent.ID)
-		}
-		for i, sco := range txn.SiacoinOutputs {
-			exists, err := relevantAddr(sco.Address)
-			if err != nil {
-				return nil, types.ChainIndex{}, types.ZeroCurrency, fmt.Errorf("failed to check if address %q is relevant: %w", sco.Address, err)
-			} else if exists {
-				sce := txn.EphemeralSiacoinOutput(i)
-				ephemeral[sce.ID] = sce
-			}
-		}
-	}
+	inPool := m.poolSCSpent
 
 	var inputSum types.Currency
 	var selected []types.SiacoinElement
@@ -453,59 +430,6 @@ func (m *Manager) SelectSiafundElements(walletID ID, amount uint64) ([]types.Sia
 		return nil, m.chain.Tip(), 0, nil
 	}
 
-	knownAddresses := make(map[types.Address]bool)
-	relevantAddr := func(addr types.Address) (bool, error) {
-		if exists, ok := knownAddresses[addr]; ok {
-			return exists, nil
-		}
-		_, err := m.store.WalletAddress(walletID, addr)
-		if errors.Is(err, ErrNotFound) {
-			knownAddresses[addr] = false
-			return false, nil
-		} else if err != nil {
-			return false, err
-		}
-		knownAddresses[addr] = true
-		return true, nil
-	}
-
-	ephemeral := make(map[types.SiafundOutputID]types.SiafundElement)
-	inPool := make(map[types.SiafundOutputID]bool)
-	for _, txn := range m.chain.PoolTransactions() {
-		for _, sfi := range txn.SiafundInputs {
-			inPool[sfi.ParentID] = true
-			delete(ephemeral, sfi.ParentID)
-		}
-		for i, sfo := range txn.SiafundOutputs {
-			exists, err := relevantAddr(sfo.Address)
-			if err != nil {
-				return nil, types.ChainIndex{}, 0, fmt.Errorf("failed to check if address %q is relevant: %w", sfo.Address, err)
-			} else if exists {
-				sfoid := txn.SiafundOutputID(i)
-				ephemeral[sfoid] = types.SiafundElement{
-					ID:            sfoid,
-					StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
-					SiafundOutput: sfo,
-				}
-			}
-		}
-	}
-	for _, txn := range m.chain.V2PoolTransactions() {
-		for _, sfi := range txn.SiafundInputs {
-			inPool[sfi.Parent.ID] = true
-			delete(ephemeral, sfi.Parent.ID)
-		}
-		for i, sfo := range txn.SiafundOutputs {
-			exists, err := relevantAddr(sfo.Address)
-			if err != nil {
-				return nil, types.ChainIndex{}, 0, fmt.Errorf("failed to check if address %q is relevant: %w", sfo.Address, err)
-			} else if exists {
-				sfe := txn.EphemeralSiafundOutput(i)
-				ephemeral[sfe.ID] = sfe
-			}
-		}
-	}
-
 	var inputSum uint64
 	var selected []types.SiafundElement
 	var utxoIDs []types.Hash256
@@ -524,7 +448,7 @@ top:
 		}
 
 		for _, sfe := range utxos {
-			if inPool[sfe.ID] || m.utxosLocked(types.Hash256(sfe.ID)) != nil {
+			if m.poolSFSpent[sfe.ID] || m.utxosLocked(types.Hash256(sfe.ID)) != nil {
 				continue
 			}
 
@@ -630,20 +554,24 @@ func syncStore(ctx context.Context, store Store, cm ChainManager, index types.Ch
 //
 // It is expected that the caller holds the manager's lock.
 func (m *Manager) resetPool() {
-	siacoinsCreated := make(map[types.SiacoinOutputID]types.SiacoinElement)
-	siacoinsSpent := make(map[types.SiacoinOutputID]types.Address)
+	m.poolSCCreated = make(map[types.SiacoinOutputID]types.SiacoinElement)
+	m.poolSCSpent = make(map[types.SiacoinOutputID]bool)
 
-	siafundsCreated := make(map[types.SiafundOutputID]types.SiafundElement)
-	siafundsSpent := make(map[types.SiafundOutputID]types.Address)
+	m.poolSFCreated = make(map[types.SiafundOutputID]types.SiafundElement)
+	m.poolSFSpent = make(map[types.SiafundOutputID]bool)
+
+	m.poolAddressSCSpent = make(map[types.Address][]types.SiacoinOutputID)
+	m.poolAddressSFSpent = make(map[types.Address][]types.SiafundOutputID)
 
 	for _, txn := range m.chain.PoolTransactions() {
 		for _, input := range txn.SiacoinInputs {
-			siacoinsSpent[input.ParentID] = input.UnlockConditions.UnlockHash()
-			delete(siacoinsCreated, input.ParentID)
+			m.poolSCSpent[input.ParentID] = true
+			m.poolAddressSCSpent[input.UnlockConditions.UnlockHash()] = append(m.poolAddressSCSpent[input.UnlockConditions.UnlockHash()], input.ParentID)
+			delete(m.poolSCCreated, input.ParentID)
 		}
 		for i, sco := range txn.SiacoinOutputs {
 			scoid := txn.SiacoinOutputID(i)
-			siacoinsCreated[scoid] = types.SiacoinElement{
+			m.poolSCCreated[scoid] = types.SiacoinElement{
 				ID:            scoid,
 				StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
 				SiacoinOutput: sco,
@@ -651,12 +579,12 @@ func (m *Manager) resetPool() {
 		}
 
 		for _, input := range txn.SiafundInputs {
-			siafundsSpent[input.ParentID] = input.UnlockConditions.UnlockHash()
-			delete(siafundsCreated, input.ParentID)
+			m.poolSFSpent[input.ParentID] = true
+			delete(m.poolSFCreated, input.ParentID)
 		}
 		for i, sfo := range txn.SiafundOutputs {
 			sfoid := txn.SiafundOutputID(i)
-			siafundsCreated[sfoid] = types.SiafundElement{
+			m.poolSFCreated[sfoid] = types.SiafundElement{
 				ID:            sfoid,
 				StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
 				SiafundOutput: sfo,
@@ -666,41 +594,24 @@ func (m *Manager) resetPool() {
 
 	for _, txn := range m.chain.V2PoolTransactions() {
 		for _, input := range txn.SiacoinInputs {
-			siacoinsSpent[input.Parent.ID] = input.Parent.SiacoinOutput.Address
-			delete(siacoinsCreated, input.Parent.ID)
+			m.poolSCSpent[input.Parent.ID] = true
+			m.poolAddressSCSpent[input.Parent.SiacoinOutput.Address] = append(m.poolAddressSCSpent[input.Parent.SiacoinOutput.Address], input.Parent.ID)
+			delete(m.poolSCCreated, input.Parent.ID)
 		}
 		for i := range txn.SiacoinOutputs {
 			sce := txn.EphemeralSiacoinOutput(i)
-			siacoinsCreated[sce.ID] = sce
+			m.poolSCCreated[sce.ID] = sce
 		}
 
 		for _, input := range txn.SiafundInputs {
-			siafundsSpent[input.Parent.ID] = input.Parent.SiafundOutput.Address
-			delete(siafundsCreated, input.Parent.ID)
+			m.poolSFSpent[input.Parent.ID] = true
+			m.poolAddressSFSpent[input.Parent.SiafundOutput.Address] = append(m.poolAddressSFSpent[input.Parent.SiafundOutput.Address], input.Parent.ID)
+			delete(m.poolSFCreated, input.Parent.ID)
 		}
 		for i := range txn.SiafundOutputs {
 			sfe := txn.EphemeralSiafundOutput(i)
-			siafundsCreated[sfe.ID] = sfe
+			m.poolSFCreated[sfe.ID] = sfe
 		}
-	}
-
-	m.poolSCCreated = make(map[types.Address][]types.SiacoinElement)
-	m.poolSCSpent = make(map[types.Address][]types.SiacoinOutputID)
-	m.poolSFCreated = make(map[types.Address][]types.SiafundElement)
-	m.poolSFSpent = make(map[types.Address][]types.SiafundOutputID)
-
-	for _, sce := range siacoinsCreated {
-		m.poolSCCreated[sce.SiacoinOutput.Address] = append(m.poolSCCreated[sce.SiacoinOutput.Address], sce)
-	}
-	for id, addr := range siacoinsSpent {
-		m.poolSCSpent[addr] = append(m.poolSCSpent[addr], id)
-	}
-
-	for _, sfe := range siafundsCreated {
-		m.poolSFCreated[sfe.SiafundOutput.Address] = append(m.poolSFCreated[sfe.SiafundOutput.Address], sfe)
-	}
-	for id, addr := range siafundsSpent {
-		m.poolSFSpent[addr] = append(m.poolSFSpent[addr], id)
 	}
 }
 
@@ -718,11 +629,14 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 
 		used: make(map[types.Hash256]time.Time),
 
-		poolSCSpent:   make(map[types.Address][]types.SiacoinOutputID),
-		poolSCCreated: make(map[types.Address][]types.SiacoinElement),
+		poolSCSpent:   make(map[types.SiacoinOutputID]bool),
+		poolSCCreated: make(map[types.SiacoinOutputID]types.SiacoinElement),
 
-		poolSFSpent:   make(map[types.Address][]types.SiafundOutputID),
-		poolSFCreated: make(map[types.Address][]types.SiafundElement),
+		poolSFSpent:   make(map[types.SiafundOutputID]bool),
+		poolSFCreated: make(map[types.SiafundOutputID]types.SiafundElement),
+
+		poolAddressSCSpent: make(map[types.Address][]types.SiacoinOutputID),
+		poolAddressSFSpent: make(map[types.Address][]types.SiafundOutputID),
 	}
 
 	for _, opt := range opts {
