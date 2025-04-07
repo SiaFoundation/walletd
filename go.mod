@@ -5,13 +5,13 @@ go 1.23.1
 toolchain go1.24.1
 
 require (
-	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/mattn/go-sqlite3 v1.14.27
 	go.sia.tech/core v0.10.5
 	go.sia.tech/coreutils v0.12.2-0.20250317235740-9e6e9fe76b2e
 	go.sia.tech/jape v0.12.1
 	go.sia.tech/web/walletd v0.29.2
 	go.uber.org/zap v1.27.0
-	golang.org/x/term v0.30.0
+	golang.org/x/term v0.31.0
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/flagg v1.1.1
 	lukechampine.com/frand v1.5.1
@@ -36,7 +36,7 @@ require (
 	golang.org/x/mod v0.24.0 // indirect
 	golang.org/x/net v0.37.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/tools v0.31.0 // indirect
 )
