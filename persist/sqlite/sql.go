@@ -193,36 +193,17 @@ func jitterSleep(t time.Duration) {
 func queryPlaceHolders(n int) string {
 	if n == 0 {
 		return ""
-	} else if n == 1 {
-		return "?"
 	}
-	var b strings.Builder
-	b.Grow(((n - 1) * 2) + 1) // ?,?
-	for i := 0; i < n-1; i++ {
-		b.WriteString("?,")
-	}
-	b.WriteString("?")
-	return b.String()
+	return strings.Repeat("?,", n-1) + "?"
 }
 
-func queryArgs[T any](args []T) []any {
+func encodeSlice[T any](args []T) []any {
 	if len(args) == 0 {
 		return nil
 	}
 	out := make([]any, len(args))
 	for i, arg := range args {
-		out[i] = arg
-	}
-	return out
-}
-
-func queryArgsFunc[T any](args []T, fn func(t T) any) []any {
-	if len(args) == 0 {
-		return nil
-	}
-	out := make([]any, len(args))
-	for i, arg := range args {
-		out[i] = fn(arg)
+		out[i] = encode(arg)
 	}
 	return out
 }
