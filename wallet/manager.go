@@ -524,6 +524,8 @@ func (m *Manager) Close() error {
 	return nil
 }
 
+// syncStore syncs the state of the store with the chain manager. The sync will
+// complete when the store reaches the current tip or the context is canceled.
 func syncStore(ctx context.Context, store Store, cm ChainManager, index types.ChainIndex, batchSize int) error {
 	for index != cm.Tip() {
 		select {
