@@ -20,8 +20,17 @@ func (m *Manager) AddressSiacoinOutputs(address types.Address, usePool bool, off
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	spent := m.poolSCSpent[address]
-	created := m.poolSCCreated[address]
+	spent := m.poolAddressSCSpent[address]
+	var created []UnspentSiacoinElement
+	for _, sce := range m.poolSCCreated {
+		if sce.SiacoinOutput.Address != address {
+			continue
+		}
+
+		created = append(created, UnspentSiacoinElement{
+			SiacoinElement: sce,
+		})
+	}
 
 	outputs, basis, err := m.store.AddressSiacoinOutputs(address, spent, offset, limit)
 	if err != nil {
@@ -29,12 +38,7 @@ func (m *Manager) AddressSiacoinOutputs(address types.Address, usePool bool, off
 	} else if len(outputs) == limit {
 		return outputs, basis, nil
 	}
-	for _, sce := range created {
-		outputs = append(outputs, UnspentSiacoinElement{
-			SiacoinElement: sce,
-		})
-	}
-	return outputs, basis, nil
+	return append(outputs, created...), basis, nil
 }
 
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.
@@ -46,8 +50,16 @@ func (m *Manager) AddressSiafundOutputs(address types.Address, usePool bool, off
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	spent := m.poolSFSpent[address]
-	created := m.poolSFCreated[address]
+	spent := m.poolAddressSFSpent[address]
+	var created []UnspentSiafundElement
+	for _, sfe := range m.poolSFCreated {
+		if sfe.SiafundOutput.Address != address {
+			continue
+		}
+		created = append(created, UnspentSiafundElement{
+			SiafundElement: sfe,
+		})
+	}
 
 	outputs, basis, err := m.store.AddressSiafundOutputs(address, spent, offset, limit)
 	if err != nil {
@@ -55,12 +67,7 @@ func (m *Manager) AddressSiafundOutputs(address types.Address, usePool bool, off
 	} else if len(outputs) == limit {
 		return outputs, basis, nil
 	}
-	for _, sfe := range created {
-		outputs = append(outputs, UnspentSiafundElement{
-			SiafundElement: sfe,
-		})
-	}
-	return outputs, basis, nil
+	return append(outputs, created...), basis, nil
 }
 
 // AddressEvents returns the events of a single address.
