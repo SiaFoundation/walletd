@@ -58,7 +58,8 @@ type (
 		Tip() types.ChainIndex
 		BestIndex(height uint64) (types.ChainIndex, bool)
 
-		OnReorg(fn func(types.ChainIndex)) (cancel func())
+		OnReorg(func(types.ChainIndex)) (cancel func())
+		OnPoolChange(func()) (cancel func())
 		UpdatesSince(index types.ChainIndex, max int) (rus []chain.RevertUpdate, aus []chain.ApplyUpdate, err error)
 	}
 
@@ -118,8 +119,12 @@ type (
 		log   *zap.Logger
 		tg    *threadgroup.ThreadGroup
 
-		mu   sync.Mutex // protects the fields below
-		used map[types.Hash256]time.Time
+		mu            sync.Mutex // protects the fields below
+		used          map[types.Hash256]time.Time
+		poolSCCreated map[types.Address][]types.SiacoinElement
+		poolSFCreated map[types.Address][]types.SiafundElement
+		poolSCSpent   map[types.Address][]types.SiacoinOutputID
+		poolSFSpent   map[types.Address][]types.SiafundOutputID
 	}
 )
 
@@ -616,6 +621,81 @@ func syncStore(ctx context.Context, store Store, cm ChainManager, index types.Ch
 	return nil
 }
 
+func (m *Manager) resetPool() {
+	siacoinsCreated := make(map[types.SiacoinOutputID]types.SiacoinElement)
+	siacoinsSpent := make(map[types.SiacoinOutputID]types.Address)
+
+	siafundsCreated := make(map[types.SiafundOutputID]types.SiafundElement)
+	siafundsSpent := make(map[types.SiafundOutputID]types.Address)
+
+	for _, txn := range m.chain.PoolTransactions() {
+		for _, input := range txn.SiacoinInputs {
+			siacoinsSpent[input.ParentID] = input.UnlockConditions.UnlockHash()
+			delete(siacoinsCreated, input.ParentID)
+		}
+		for i, sco := range txn.SiacoinOutputs {
+			scoid := txn.SiacoinOutputID(i)
+			siacoinsCreated[scoid] = types.SiacoinElement{
+				ID:            scoid,
+				StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
+				SiacoinOutput: sco,
+			}
+		}
+
+		for _, input := range txn.SiafundInputs {
+			siafundsSpent[input.ParentID] = input.UnlockConditions.UnlockHash()
+			delete(siafundsCreated, input.ParentID)
+		}
+		for i, sfo := range txn.SiafundOutputs {
+			sfoid := txn.SiafundOutputID(i)
+			siafundsCreated[sfoid] = types.SiafundElement{
+				ID:            sfoid,
+				StateElement:  types.StateElement{LeafIndex: types.UnassignedLeafIndex},
+				SiafundOutput: sfo,
+			}
+		}
+	}
+
+	for _, txn := range m.chain.V2PoolTransactions() {
+		for _, input := range txn.SiacoinInputs {
+			siacoinsSpent[input.Parent.ID] = input.Parent.SiacoinOutput.Address
+			delete(siacoinsCreated, input.Parent.ID)
+		}
+		for i := range txn.SiacoinOutputs {
+			sce := txn.EphemeralSiacoinOutput(i)
+			siacoinsCreated[sce.ID] = sce
+		}
+
+		for _, input := range txn.SiafundInputs {
+			siafundsSpent[input.Parent.ID] = input.Parent.SiafundOutput.Address
+			delete(siafundsCreated, input.Parent.ID)
+		}
+		for i := range txn.SiafundOutputs {
+			sfe := txn.EphemeralSiafundOutput(i)
+			siafundsCreated[sfe.ID] = sfe
+		}
+	}
+
+	m.poolSCCreated = make(map[types.Address][]types.SiacoinElement)
+	m.poolSCSpent = make(map[types.Address][]types.SiacoinOutputID)
+	m.poolSFCreated = make(map[types.Address][]types.SiafundElement)
+	m.poolSFSpent = make(map[types.Address][]types.SiafundOutputID)
+
+	for _, sce := range siacoinsCreated {
+		m.poolSCCreated[sce.SiacoinOutput.Address] = append(m.poolSCCreated[sce.SiacoinOutput.Address], sce)
+	}
+	for id, addr := range siacoinsSpent {
+		m.poolSCSpent[addr] = append(m.poolSCSpent[addr], id)
+	}
+
+	for _, sfe := range siafundsCreated {
+		m.poolSFCreated[sfe.SiafundOutput.Address] = append(m.poolSFCreated[sfe.SiafundOutput.Address], sfe)
+	}
+	for id, addr := range siafundsSpent {
+		m.poolSFSpent[addr] = append(m.poolSFSpent[addr], id)
+	}
+}
+
 // NewManager creates a new wallet manager.
 func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) {
 	m := &Manager{
@@ -629,6 +709,12 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 		tg:    threadgroup.New(),
 
 		used: make(map[types.Hash256]time.Time),
+
+		poolSCSpent:   make(map[types.Address][]types.SiacoinOutputID),
+		poolSCCreated: make(map[types.Address][]types.SiacoinElement),
+
+		poolSFSpent:   make(map[types.Address][]types.SiafundOutputID),
+		poolSFCreated: make(map[types.Address][]types.SiafundElement),
 	}
 
 	for _, opt := range opts {
@@ -647,6 +733,13 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 	reorgChan := make(chan struct{}, 1)
 	reorgChan <- struct{}{}
 	unsubscribe := cm.OnReorg(func(index types.ChainIndex) {
+		select {
+		case reorgChan <- struct{}{}:
+		default:
+		}
+	})
+
+	unsubscribePool := cm.OnPoolChange(func() {
 		select {
 		case reorgChan <- struct{}{}:
 		default:
@@ -683,6 +776,7 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 
 	go func() {
 		defer unsubscribe()
+		defer unsubscribePool()
 
 		log := m.log.Named("sync")
 		ctx, cancel, err := m.tg.AddWithContext(context.Background())
@@ -724,6 +818,7 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 					panic("failed to sync store: " + err.Error())
 				}
 			}
+			m.resetPool()
 			m.mu.Unlock()
 		}
 	}()

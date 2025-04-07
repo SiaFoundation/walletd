@@ -16,53 +16,12 @@ func (m *Manager) AddressSiacoinOutputs(address types.Address, usePool bool, off
 	if !usePool {
 		return m.store.AddressSiacoinOutputs(address, nil, offset, limit)
 	}
-	created := make(map[types.SiacoinOutputID]types.SiacoinElement)
-	var spent []types.SiacoinOutputID
-	for _, txn := range m.chain.PoolTransactions() {
-		for _, sci := range txn.SiacoinInputs {
-			if sci.UnlockConditions.UnlockHash() != address {
-				continue
-			}
 
-			delete(created, sci.ParentID)
-			spent = append(spent, sci.ParentID)
-		}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-		for i, sco := range txn.SiacoinOutputs {
-			if sco.Address != address {
-				continue
-			}
-
-			outputID := txn.SiacoinOutputID(i)
-			sce := types.SiacoinElement{
-				ID: outputID,
-				StateElement: types.StateElement{
-					LeafIndex: types.UnassignedLeafIndex,
-				},
-				SiacoinOutput: sco,
-			}
-			created[sce.ID] = sce
-		}
-	}
-	for _, txn := range m.chain.V2PoolTransactions() {
-		for _, sci := range txn.SiacoinInputs {
-			if sci.Parent.SiacoinOutput.Address == address {
-				spent = append(spent, sci.Parent.ID)
-			}
-
-			delete(created, sci.Parent.ID)
-			spent = append(spent, sci.Parent.ID)
-		}
-
-		for i, sco := range txn.SiacoinOutputs {
-			if sco.Address != address {
-				continue
-			}
-
-			sce := txn.EphemeralSiacoinOutput(i)
-			created[sce.ID] = sce
-		}
-	}
+	spent := m.poolSCSpent[address]
+	created := m.poolSCCreated[address]
 
 	outputs, basis, err := m.store.AddressSiacoinOutputs(address, spent, offset, limit)
 	if err != nil {
@@ -79,27 +38,29 @@ func (m *Manager) AddressSiacoinOutputs(address types.Address, usePool bool, off
 }
 
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.
-func (m *Manager) AddressSiafundOutputs(address types.Address, usePool bool, offset, limit int) (outputs []UnspentSiafundElement, basis types.ChainIndex, err error) {
+func (m *Manager) AddressSiafundOutputs(address types.Address, usePool bool, offset, limit int) ([]UnspentSiafundElement, types.ChainIndex, error) {
 	if !usePool {
 		return m.store.AddressSiafundOutputs(address, nil, offset, limit)
 	}
 
-	var spent []types.SiafundOutputID
-	for _, txn := range m.chain.PoolTransactions() {
-		for _, input := range txn.SiafundInputs {
-			if input.UnlockConditions.UnlockHash() == address {
-				spent = append(spent, input.ParentID)
-			}
-		}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	spent := m.poolSFSpent[address]
+	created := m.poolSFCreated[address]
+
+	outputs, basis, err := m.store.AddressSiafundOutputs(address, spent, offset, limit)
+	if err != nil {
+		return nil, types.ChainIndex{}, err
+	} else if len(outputs) == limit {
+		return outputs, basis, nil
 	}
-	for _, txn := range m.chain.V2PoolTransactions() {
-		for _, input := range txn.SiafundInputs {
-			if input.Parent.SiafundOutput.Address == address {
-				spent = append(spent, input.Parent.ID)
-			}
-		}
+	for _, sfe := range created {
+		outputs = append(outputs, UnspentSiafundElement{
+			SiafundElement: sfe,
+		})
 	}
-	return m.store.AddressSiafundOutputs(address, spent, offset, limit)
+	return outputs, basis, nil
 }
 
 // AddressEvents returns the events of a single address.
