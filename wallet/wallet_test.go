@@ -234,6 +234,8 @@ func TestSelectSiacoins(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	} else if err := wm.Scan(context.Background(), types.ChainIndex{}); err != nil {
+		t.Fatal(err)
 	}
 
 	mineAndSync := func(t *testing.T, addr types.Address, n int) {
@@ -401,6 +403,8 @@ func TestSelectSiafunds(t *testing.T) {
 		},
 	})
 	if err != nil {
+		t.Fatal(err)
+	} else if err := wm.Scan(context.Background(), types.ChainIndex{}); err != nil {
 		t.Fatal(err)
 	}
 
