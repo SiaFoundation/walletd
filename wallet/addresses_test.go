@@ -1,7 +1,6 @@
 package wallet_test
 
 import (
-	"context"
 	"testing"
 
 	"go.sia.tech/core/types"
@@ -93,11 +92,7 @@ func TestAddressUseTpool(t *testing.T) {
 	if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	tip, err := wm.Tip()
-	if err != nil {
-		t.Fatal(err)
-	}
-	wm.Scan(context.Background(), tip) // force reindexing of the tpool
+	wm.SyncPool() // force reindexing of the tpool
 	assertSiacoinElement(t, txn.SiacoinOutputID(txn.ID(), 1), types.Siacoins(75), 0)
 	cn.MineBlocks(t, types.VoidAddress, 1)
 	assertSiacoinElement(t, txn.SiacoinOutputID(txn.ID(), 1), types.Siacoins(75), 1)
