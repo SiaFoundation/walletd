@@ -86,9 +86,7 @@ func (s *Store) AddressSiacoinOutputs(address types.Address, tpoolSpent []types.
 		params := []any{encode(address), basis.Height}
 		if len(tpoolSpent) > 0 {
 			query += ` AND se.ID NOT IN (` + queryPlaceHolders(len(tpoolSpent)) + `)`
-			params = append(params, queryArgsFunc(tpoolSpent, func(v types.SiacoinOutputID) any {
-				return encode(v)
-			})...)
+			params = append(params, encodeSlice(tpoolSpent)...)
 		}
 
 		query += ` ORDER BY se.maturity_height DESC, se.id DESC
@@ -151,9 +149,7 @@ func (s *Store) AddressSiafundOutputs(address types.Address, tpoolSpent []types.
 
 		if len(tpoolSpent) > 0 {
 			query += ` AND se.id NOT IN (` + queryPlaceHolders(len(tpoolSpent)) + `)`
-			params = append(params, queryArgsFunc(tpoolSpent, func(v types.SiafundOutputID) any {
-				return encode(v)
-			})...)
+			params = append(params, encodeSlice(tpoolSpent)...)
 		}
 
 		query += ` ORDER BY se.id DESC
