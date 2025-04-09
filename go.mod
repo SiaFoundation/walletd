@@ -4,12 +4,10 @@ go 1.23.1
 
 toolchain go1.24.1
 
-replace go.sia.tech/coreutils => ../coreutils
-
 require (
 	github.com/mattn/go-sqlite3 v1.14.27
 	go.sia.tech/core v0.10.6-0.20250407154704-81a030aad05d
-	go.sia.tech/coreutils v0.12.2-0.20250409155456-115c8c9fa6b4
+	go.sia.tech/coreutils v0.12.2-0.20250409194146-7bb9065821f5
 	go.sia.tech/jape v0.12.1
 	go.sia.tech/web/walletd v0.29.2
 	go.uber.org/zap v1.27.0
