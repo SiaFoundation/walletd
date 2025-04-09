@@ -68,7 +68,7 @@ func TestPruneSiacoins(t *testing.T) {
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
 	network, genesisBlock := testutil.Network()
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestPruneSiafunds(t *testing.T) {
 	network, genesisBlock := testutil.Network()
 	// send the siafund airdrop to the wallet
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = addr
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

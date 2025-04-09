@@ -125,7 +125,7 @@ func TestReserve(t *testing.T) {
 	defer bdb.Close()
 
 	network, genesisBlock := testutil.V2Network()
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestSelectSiacoins(t *testing.T) {
 	network.InitialCoinbase = types.Siacoins(100)
 	network.MinimumCoinbase = types.Siacoins(100)
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +379,7 @@ func TestSelectSiafunds(t *testing.T) {
 	network.InitialCoinbase = types.Siacoins(100)
 	network.MinimumCoinbase = types.Siacoins(100)
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +516,7 @@ func TestReorg(t *testing.T) {
 
 		network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
 
-		store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+		store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -724,7 +724,7 @@ func TestEphemeralBalance(t *testing.T) {
 
 	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -920,7 +920,7 @@ func TestWalletAddresses(t *testing.T) {
 
 	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1053,7 +1053,7 @@ func TestScan(t *testing.T) {
 	// send the siafunds to the owned address
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = addr
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1220,7 +1220,7 @@ func TestSiafunds(t *testing.T) {
 	// send the siafunds to the owned address
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = addr1
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1377,7 +1377,7 @@ func TestOrphans(t *testing.T) {
 	network.HardforkV2.AllowHeight = 200
 	network.HardforkV2.RequireHeight = 201
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1571,7 +1571,7 @@ func TestFullIndex(t *testing.T) {
 	defer bdb.Close()
 
 	network, genesisBlock := testV2Network(addr2)
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1795,7 +1795,7 @@ func TestEvents(t *testing.T) {
 	defer bdb.Close()
 
 	network, genesisBlock := testV2Network(addr2)
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2051,7 +2051,7 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 	addr1 := types.StandardUnlockHash(pk.PublicKey())
 
 	network, genesisBlock := testutil.Network()
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2239,7 +2239,7 @@ func TestAddressUnconfirmedEvents(t *testing.T) {
 	addr1 := types.StandardUnlockHash(pk.PublicKey())
 
 	network, genesisBlock := testutil.Network()
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2444,7 +2444,7 @@ func TestV2(t *testing.T) {
 
 	network, genesisBlock := testV2Network(types.VoidAddress) // don't care about siafunds
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2555,7 +2555,7 @@ func TestScanV2(t *testing.T) {
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
 	network, genesisBlock := testV2Network(addr)
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2747,7 +2747,7 @@ func TestReorgV2(t *testing.T) {
 
 	network, genesisBlock := testV2Network(types.VoidAddress) // don't care about siafunds
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2974,7 +2974,7 @@ func TestOrphansV2(t *testing.T) {
 	defer bdb.Close()
 
 	network, genesisBlock := testV2Network(types.VoidAddress) // don't care about siafunds
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3189,7 +3189,7 @@ func TestDeleteWallet(t *testing.T) {
 
 	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3289,7 +3289,7 @@ func TestEventTypes(t *testing.T) {
 	network, genesisBlock := testV2Network(addr)
 	// raise the require height to test v1 events
 	network.HardforkV2.RequireHeight = 250
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3876,7 +3876,7 @@ func TestSiafundClaims(t *testing.T) {
 	genesis.Transactions[0].SiafundOutputs[0].Address = addr
 	siafundValue := genesis.Transactions[0].SiafundOutputs[0].Value
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesis)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesis, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4122,7 +4122,7 @@ func TestV2SiafundClaims(t *testing.T) {
 	genesis.Transactions[0].SiafundOutputs[0].Address = addr
 	siafundValue := genesis.Transactions[0].SiafundOutputs[0].Value
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesis)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesis, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4356,7 +4356,7 @@ func TestReset(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock)
+	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4367,7 +4367,7 @@ func TestReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer bdb2.Close()
-	store2, genesisState2, err := chain.NewDBStore(bdb2, network, genesisBlock)
+	store2, genesisState2, err := chain.NewDBStore(bdb2, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
