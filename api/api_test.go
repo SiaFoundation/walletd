@@ -550,8 +550,8 @@ func TestConsensusUpdates(t *testing.T) {
 		t.Fatal(err)
 	} else if len(reverted) != 0 {
 		t.Fatal("expected no reverted blocks")
-	} else if len(applied) != 11 { // genesis + 10 mined blocks (chain manager off-by-one)
-		t.Fatalf("expected 11 applied blocks, got %v", len(applied))
+	} else if len(applied) != 10 { // genesis + 10 mined blocks
+		t.Fatalf("expected 10 applied blocks, got %v", len(applied))
 	}
 
 	for i, cau := range applied {
