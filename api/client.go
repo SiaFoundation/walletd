@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -41,13 +42,13 @@ func (c *Client) BaseURL() string {
 
 // State returns information about the current state of the walletd daemon.
 func (c *Client) State() (resp StateResponse, err error) {
-	err = c.c.GET("/state", &resp)
+	err = c.c.GET(context.Background(), "/state", &resp)
 	return
 }
 
 // TxpoolBroadcast broadcasts a set of transaction to the network.
 func (c *Client) TxpoolBroadcast(basis types.ChainIndex, txns []types.Transaction, v2txns []types.V2Transaction) (err error) {
-	err = c.c.POST("/txpool/broadcast", TxpoolBroadcastRequest{
+	err = c.c.POST(context.Background(), "/txpool/broadcast", TxpoolBroadcastRequest{
 		Basis:          basis,
 		Transactions:   txns,
 		V2Transactions: v2txns,
@@ -58,7 +59,7 @@ func (c *Client) TxpoolBroadcast(basis types.ChainIndex, txns []types.Transactio
 // TxpoolTransactions returns all transactions in the transaction pool.
 func (c *Client) TxpoolTransactions() (basis types.ChainIndex, txns []types.Transaction, v2txns []types.V2Transaction, err error) {
 	var resp TxpoolTransactionsResponse
-	err = c.c.GET("/txpool/transactions", &resp)
+	err = c.c.GET(context.Background(), "/txpool/transactions", &resp)
 	return resp.Basis, resp.Transactions, resp.V2Transactions, err
 }
 
@@ -70,40 +71,40 @@ func (c *Client) V2UpdateTransactionSetBasis(txnset []types.V2Transaction, from,
 		Transactions: txnset,
 	}
 	var resp TxpoolUpdateV2TransactionsResponse
-	err := c.c.POST("/txpool/transactions/v2/basis", req, &resp)
+	err := c.c.POST(context.Background(), "/txpool/transactions/v2/basis", req, &resp)
 	return resp.Basis, resp.Transactions, err
 }
 
 // TxpoolParents returns the parents of a transaction that are currently in the
 // transaction pool.
 func (c *Client) TxpoolParents(txn types.Transaction) (resp []types.Transaction, err error) {
-	err = c.c.POST("/txpool/parents", txn, &resp)
+	err = c.c.POST(context.Background(), "/txpool/parents", txn, &resp)
 	return
 }
 
 // TxpoolFee returns the recommended fee (per weight unit) to ensure a high
 // probability of inclusion in the next block.
 func (c *Client) TxpoolFee() (resp types.Currency, err error) {
-	err = c.c.GET("/txpool/fee", &resp)
+	err = c.c.GET(context.Background(), "/txpool/fee", &resp)
 	return
 }
 
 // ConsensusNetwork returns the node's network metadata.
 func (c *Client) ConsensusNetwork() (resp *consensus.Network, err error) {
 	resp = new(consensus.Network)
-	err = c.c.GET("/consensus/network", resp)
+	err = c.c.GET(context.Background(), "/consensus/network", resp)
 	return
 }
 
 // ConsensusBlocksID returns the block with the given id.
 func (c *Client) ConsensusBlocksID(bid types.BlockID) (resp types.Block, err error) {
-	err = c.c.GET(fmt.Sprintf("/consensus/blocks/%v", bid), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/consensus/blocks/%v", bid), &resp)
 	return
 }
 
 // ConsensusIndex returns the consensus index at the specified height.
 func (c *Client) ConsensusIndex(height uint64) (resp types.ChainIndex, err error) {
-	err = c.c.GET(fmt.Sprintf("/consensus/index/%d", height), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/consensus/index/%d", height), &resp)
 	return
 }
 
@@ -117,7 +118,7 @@ func (c *Client) ConsensusUpdates(index types.ChainIndex, limit int) ([]chain.Re
 	}
 
 	var resp ConsensusUpdatesResponse
-	if err := c.c.GET(fmt.Sprintf("/consensus/updates/%s?limit=%d", indexBuf, limit), &resp); err != nil {
+	if err := c.c.GET(context.Background(), fmt.Sprintf("/consensus/updates/%s?limit=%d", indexBuf, limit), &resp); err != nil {
 		return nil, nil, err
 	}
 
@@ -152,7 +153,7 @@ func (c *Client) ConsensusUpdates(index types.ChainIndex, limit int) ([]chain.Re
 
 // ConsensusTipState returns the current tip state.
 func (c *Client) ConsensusTipState() (resp consensus.State, err error) {
-	if err = c.c.GET("/consensus/tipstate", &resp); err != nil {
+	if err = c.c.GET(context.Background(), "/consensus/tipstate", &resp); err != nil {
 		return
 	}
 	resp.Network, err = c.getNetwork()
@@ -161,50 +162,50 @@ func (c *Client) ConsensusTipState() (resp consensus.State, err error) {
 
 // ConsensusTip returns the current tip index.
 func (c *Client) ConsensusTip() (resp types.ChainIndex, err error) {
-	err = c.c.GET("/consensus/tip", &resp)
+	err = c.c.GET(context.Background(), "/consensus/tip", &resp)
 	return
 }
 
 // SyncerPeers returns the current peers of the syncer.
 func (c *Client) SyncerPeers() (resp []GatewayPeer, err error) {
-	err = c.c.GET("/syncer/peers", &resp)
+	err = c.c.GET(context.Background(), "/syncer/peers", &resp)
 	return
 }
 
 // SyncerConnect adds the address as a peer of the syncer.
 func (c *Client) SyncerConnect(addr string) (err error) {
-	err = c.c.POST("/syncer/connect", addr, nil)
+	err = c.c.POST(context.Background(), "/syncer/connect", addr, nil)
 	return
 }
 
 // SyncerBroadcastBlock broadcasts a block to all peers.
 func (c *Client) SyncerBroadcastBlock(b types.Block) (err error) {
-	err = c.c.POST("/syncer/broadcast/block", b, nil)
+	err = c.c.POST(context.Background(), "/syncer/broadcast/block", b, nil)
 	return
 }
 
 // Wallets returns the set of tracked wallets.
 func (c *Client) Wallets() (ws []wallet.Wallet, err error) {
-	err = c.c.GET("/wallets", &ws)
+	err = c.c.GET(context.Background(), "/wallets", &ws)
 	return
 }
 
 // AddWallet adds a wallet to the set of tracked wallets.
 func (c *Client) AddWallet(uw WalletUpdateRequest) (w wallet.Wallet, err error) {
-	err = c.c.POST("/wallets", uw, &w)
+	err = c.c.POST(context.Background(), "/wallets", uw, &w)
 	return
 }
 
 // UpdateWallet updates a wallet.
 func (c *Client) UpdateWallet(id wallet.ID, uw WalletUpdateRequest) (w wallet.Wallet, err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v", id), uw, &w)
+	err = c.c.POST(context.Background(), fmt.Sprintf("/wallets/%v", id), uw, &w)
 	return
 }
 
 // RemoveWallet deletes a wallet. If the wallet is currently subscribed, it will
 // be unsubscribed.
 func (c *Client) RemoveWallet(id wallet.ID) (err error) {
-	err = c.c.DELETE(fmt.Sprintf("/wallets/%v", id))
+	err = c.c.DELETE(context.Background(), fmt.Sprintf("/wallets/%v", id))
 	return
 }
 
@@ -215,65 +216,65 @@ func (c *Client) Wallet(id wallet.ID) *WalletClient {
 
 // ScanStatus returns the current state of wallet scanning.
 func (c *Client) ScanStatus() (resp RescanResponse, err error) {
-	err = c.c.GET("/rescan", &resp)
+	err = c.c.GET(context.Background(), "/rescan", &resp)
 	return
 }
 
 // Rescan rescans the blockchain starting from the specified height.
 func (c *Client) Rescan(height uint64) (err error) {
-	err = c.c.POST("/rescan", height, nil)
+	err = c.c.POST(context.Background(), "/rescan", height, nil)
 	return
 }
 
 // AddressBalance returns the balance of a single address.
 func (c *Client) AddressBalance(addr types.Address) (resp BalanceResponse, err error) {
-	err = c.c.GET(fmt.Sprintf("/addresses/%v/balance", addr), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/addresses/%v/balance", addr), &resp)
 	return
 }
 
 // AddressEvents returns the events of a single address.
 func (c *Client) AddressEvents(addr types.Address, offset, limit int) (resp []wallet.Event, err error) {
-	err = c.c.GET(fmt.Sprintf("/addresses/%v/events?offset=%d&limit=%d", addr, offset, limit), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/addresses/%v/events?offset=%d&limit=%d", addr, offset, limit), &resp)
 	return
 }
 
 // AddressUnconfirmedEvents returns the unconfirmed events for a single address.
 func (c *Client) AddressUnconfirmedEvents(addr types.Address) (resp []wallet.Event, err error) {
-	err = c.c.GET(fmt.Sprintf("/addresses/%v/events/unconfirmed", addr), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/addresses/%v/events/unconfirmed", addr), &resp)
 	return
 }
 
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
 func (c *Client) AddressSiacoinOutputs(addr types.Address, useTpool bool, offset, limit int) ([]wallet.UnspentSiacoinElement, types.ChainIndex, error) {
 	var resp UnspentSiacoinElementsResponse
-	err := c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siacoin?offset=%d&limit=%d&tpool=%t", addr, offset, limit, useTpool), &resp)
+	err := c.c.GET(context.Background(), fmt.Sprintf("/addresses/%v/outputs/siacoin?offset=%d&limit=%d&tpool=%t", addr, offset, limit, useTpool), &resp)
 	return resp.Outputs, resp.Basis, err
 }
 
 // AddressSiafundOutputs returns the unspent siafund outputs for an address.
 func (c *Client) AddressSiafundOutputs(addr types.Address, useTpool bool, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error) {
 	var resp UnspentSiafundElementsResponse
-	err := c.c.GET(fmt.Sprintf("/addresses/%v/outputs/siafund?offset=%d&limit=%d&tpool=%t", addr, offset, limit, useTpool), &resp)
+	err := c.c.GET(context.Background(), fmt.Sprintf("/addresses/%v/outputs/siafund?offset=%d&limit=%d&tpool=%t", addr, offset, limit, useTpool), &resp)
 	return resp.Outputs, resp.Basis, err
 }
 
 // Event returns the event with the specified ID.
 func (c *Client) Event(id types.Hash256) (resp wallet.Event, err error) {
-	err = c.c.GET(fmt.Sprintf("/events/%v", id), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/events/%v", id), &resp)
 	return
 }
 
 // SpentSiacoinElement returns whether a siacoin output has been spent and the
 // event that spent it.
 func (c *Client) SpentSiacoinElement(id types.SiacoinOutputID) (resp ElementSpentResponse, err error) {
-	err = c.c.GET(fmt.Sprintf("/outputs/siacoin/%v/spent", id), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/outputs/siacoin/%v/spent", id), &resp)
 	return
 }
 
 // SpentSiafundElement returns whether a siafund output has been spent and the
 // event that spent it.
 func (c *Client) SpentSiafundElement(id types.SiafundOutputID) (resp ElementSpentResponse, err error) {
-	err = c.c.GET(fmt.Sprintf("/outputs/siafund/%v/spent", id), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/outputs/siafund/%v/spent", id), &resp)
 	return
 }
 
@@ -287,57 +288,57 @@ type WalletClient struct {
 // AddAddress adds the specified address and associated metadata to the
 // wallet.
 func (c *WalletClient) AddAddress(a wallet.Address) (err error) {
-	err = c.c.PUT(fmt.Sprintf("/wallets/%v/addresses", c.id), a)
+	err = c.c.PUT(context.Background(), fmt.Sprintf("/wallets/%v/addresses", c.id), a)
 	return
 }
 
 // RemoveAddress removes the specified address from the wallet.
 func (c *WalletClient) RemoveAddress(addr types.Address) (err error) {
-	err = c.c.DELETE(fmt.Sprintf("/wallets/%v/addresses/%v", c.id, addr))
+	err = c.c.DELETE(context.Background(), fmt.Sprintf("/wallets/%v/addresses/%v", c.id, addr))
 	return
 }
 
 // Addresses the addresses controlled by the wallet.
 func (c *WalletClient) Addresses() (resp []wallet.Address, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/addresses", c.id), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/wallets/%v/addresses", c.id), &resp)
 	return
 }
 
 // Balance returns the current wallet balance.
 func (c *WalletClient) Balance() (resp BalanceResponse, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/balance", c.id), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/wallets/%v/balance", c.id), &resp)
 	return
 }
 
 // Events returns all events relevant to the wallet.
 func (c *WalletClient) Events(offset, limit int) (resp []wallet.Event, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/events?offset=%d&limit=%d", c.id, offset, limit), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/wallets/%v/events?offset=%d&limit=%d", c.id, offset, limit), &resp)
 	return
 }
 
 // UnconfirmedEvents returns all unconfirmed events relevant to the wallet.
 func (c *WalletClient) UnconfirmedEvents() (resp []wallet.Event, err error) {
-	err = c.c.GET(fmt.Sprintf("/wallets/%v/events/unconfirmed", c.id), &resp)
+	err = c.c.GET(context.Background(), fmt.Sprintf("/wallets/%v/events/unconfirmed", c.id), &resp)
 	return
 }
 
 // SiacoinOutputs returns the set of unspent outputs controlled by the wallet.
 func (c *WalletClient) SiacoinOutputs(offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error) {
 	var resp SiacoinElementsResponse
-	err := c.c.GET(fmt.Sprintf("/wallets/%v/outputs/siacoin?offset=%d&limit=%d", c.id, offset, limit), &resp)
+	err := c.c.GET(context.Background(), fmt.Sprintf("/wallets/%v/outputs/siacoin?offset=%d&limit=%d", c.id, offset, limit), &resp)
 	return resp.Outputs, resp.Basis, err
 }
 
 // SiafundOutputs returns the set of unspent outputs controlled by the wallet.
 func (c *WalletClient) SiafundOutputs(offset, limit int) ([]types.SiafundElement, types.ChainIndex, error) {
 	var resp SiafundElementsResponse
-	err := c.c.GET(fmt.Sprintf("/wallets/%v/outputs/siafund?offset=%d&limit=%d", c.id, offset, limit), &resp)
+	err := c.c.GET(context.Background(), fmt.Sprintf("/wallets/%v/outputs/siafund?offset=%d&limit=%d", c.id, offset, limit), &resp)
 	return resp.Outputs, resp.Basis, err
 }
 
 // Reserve reserves a set outputs for use in a transaction.
 func (c *WalletClient) Reserve(sc []types.SiacoinOutputID, sf []types.SiafundOutputID, duration time.Duration) (err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v/reserve", c.id), WalletReserveRequest{
+	err = c.c.POST(context.Background(), fmt.Sprintf("/wallets/%v/reserve", c.id), WalletReserveRequest{
 		SiacoinOutputs: sc,
 		SiafundOutputs: sf,
 	}, nil)
@@ -346,7 +347,7 @@ func (c *WalletClient) Reserve(sc []types.SiacoinOutputID, sf []types.SiafundOut
 
 // Release releases a set of previously-reserved outputs.
 func (c *WalletClient) Release(sc []types.SiacoinOutputID, sf []types.SiafundOutputID) (err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v/release", c.id), WalletReleaseRequest{
+	err = c.c.POST(context.Background(), fmt.Sprintf("/wallets/%v/release", c.id), WalletReleaseRequest{
 		SiacoinOutputs: sc,
 		SiafundOutputs: sf,
 	}, nil)
@@ -355,7 +356,7 @@ func (c *WalletClient) Release(sc []types.SiacoinOutputID, sf []types.SiafundOut
 
 // Fund funds a siacoin transaction.
 func (c *WalletClient) Fund(txn types.Transaction, amount types.Currency, changeAddr types.Address) (resp WalletFundResponse, err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v/fund", c.id), WalletFundRequest{
+	err = c.c.POST(context.Background(), fmt.Sprintf("/wallets/%v/fund", c.id), WalletFundRequest{
 		Transaction:   txn,
 		Amount:        amount,
 		ChangeAddress: changeAddr,
@@ -365,7 +366,7 @@ func (c *WalletClient) Fund(txn types.Transaction, amount types.Currency, change
 
 // FundSF funds a siafund transaction.
 func (c *WalletClient) FundSF(txn types.Transaction, amount uint64, changeAddr, claimAddr types.Address) (resp WalletFundResponse, err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v/fundsf", c.id), WalletFundSFRequest{
+	err = c.c.POST(context.Background(), fmt.Sprintf("/wallets/%v/fundsf", c.id), WalletFundSFRequest{
 		Transaction:   txn,
 		Amount:        amount,
 		ChangeAddress: changeAddr,
@@ -377,7 +378,7 @@ func (c *WalletClient) FundSF(txn types.Transaction, amount uint64, changeAddr, 
 // Construct constructs a transaction sending the specified Siacoins or Siafunds to the recipients. The transaction is returned
 // along with its ID and calculated miner fee. The transaction will need to be signed before broadcasting.
 func (c *WalletClient) Construct(siacoins []types.SiacoinOutput, siafunds []types.SiafundOutput, change types.Address) (resp WalletConstructResponse, err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v/construct/transaction", c.id), WalletConstructRequest{
+	err = c.c.POST(context.Background(), fmt.Sprintf("/wallets/%v/construct/transaction", c.id), WalletConstructRequest{
 		Siacoins:      siacoins,
 		Siafunds:      siafunds,
 		ChangeAddress: change,
@@ -388,7 +389,7 @@ func (c *WalletClient) Construct(siacoins []types.SiacoinOutput, siafunds []type
 // ConstructV2 constructs a V2 transaction sending the specified Siacoins or Siafunds to the recipients. The transaction is returned
 // along with its ID and calculated miner fee. The transaction will need to be signed before broadcasting.
 func (c *WalletClient) ConstructV2(siacoins []types.SiacoinOutput, siafunds []types.SiafundOutput, change types.Address) (resp WalletConstructV2Response, err error) {
-	err = c.c.POST(fmt.Sprintf("/wallets/%v/construct/v2/transaction", c.id), WalletConstructRequest{
+	err = c.c.POST(context.Background(), fmt.Sprintf("/wallets/%v/construct/v2/transaction", c.id), WalletConstructRequest{
 		Siacoins:      siacoins,
 		Siafunds:      siafunds,
 		ChangeAddress: change,

@@ -1248,7 +1248,7 @@ func TestDebugMine(t *testing.T) {
 		Password: "password",
 	}
 
-	err := jc.POST("/debug/mine", api.DebugMineRequest{
+	err := jc.POST(context.Background(), "/debug/mine", api.DebugMineRequest{
 		Blocks:  5,
 		Address: types.VoidAddress,
 	}, nil)
