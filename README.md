@@ -23,24 +23,24 @@ Setup guides are available at https://docs.sia.tech
 
 In "personal" index mode, `walletd` will only index addresses that are registered in the
 wallet. This mode is recommended for most users, as it provides a good balance between
-comprehensiveness and resource usage for personal wallets. This is the default 
+comprehensiveness and resource usage for personal wallets. This is the default
 mode for `walletd`.
 
-When adding addresses with existing history on chain, users will need to manually 
+When adding addresses with existing history on chain, users will need to manually
 initiate a rescan to index the new transactions. This can take some to complete,
-depending on the number of blocks that need to be scanned. When adding addresses 
+depending on the number of blocks that need to be scanned. When adding addresses
 with no existing history, a rescan is not necessary.
 
 **Full**
 
 In "full" index mode, `walletd` will index the entire blockchain including all addresses
-and UTXOs. This is the most comprehensive mode, but it also requires the most 
-resources. This mode is recommended for exchanges or wallet builders that need 
+and UTXOs. This is the most comprehensive mode, but it also requires the most
+resources. This mode is recommended for exchanges or wallet builders that need
 to support a large or unknown number of addresses.
 
 **None**
 
-In "none" index mode, `walletd` will treat the database as read-only and not 
+In "none" index mode, `walletd` will treat the database as read-only and not
 index any new data. This mode is only useful in situations where another process
 is managing the database and `walletd` is only being used to read data.
 
@@ -64,7 +64,6 @@ The priority of configuration settings is as follows:
 + `WALLETD_API_PASSWORD` - The password required to access the API.
 + `WALLETD_CONFIG_FILE` - The path to the YAML configuration file. Defaults to `walletd.yml` in the working directory.
 + `WALLETD_LOG_FILE` - The path to the log file.
-+ `WALLETD_KEYSTORE_SECRET` - The secret to use for encrypting stored ed25519 signing keys. 
 
 ### Command Line Flags
 ```
@@ -98,8 +97,6 @@ Flags:
         network to connect to; must be one of 'mainnet', 'zen', 'anagami', or the path to a custom network file for a local testnet
   -upnp
         attempt to forward ports and discover IP with UPnP
-  -keystore
-        enables the optional ed25519 key store. 
 ```
 
 ### YAML
@@ -126,8 +123,6 @@ syncer:
   enableUPnP: false
   peers: []
   address: :9981
-keystore:
-  enabled: false
 index:
   mode: personal # personal, full, none ("full" will index the entire blockchain, "personal" will only index addresses that are registered in the wallet, "none" will treat the database as read-only and not index any new data)
   batchSize: 64 # max number of blocks to index at a time (increasing this will increase scan speed, but also increase memory and cpu usage)
@@ -154,7 +149,7 @@ CGO_ENABLED=1 go build -o bin/ -tags='netgo timetzdata' -trimpath -a -ldflags '-
 ```
 
 ## Docker Image
-`walletd` includes a Dockerfile for building a Docker image. For building and 
+`walletd` includes a Dockerfile for building a Docker image. For building and
 running `walletd` within a Docker container. The image can also be pulled from `ghcr.io/siafoundation/walletd`.
 
 ```sh
