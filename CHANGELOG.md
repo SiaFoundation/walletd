@@ -1,3 +1,9 @@
+## 2.2.1 (2025-04-24)
+
+### Fixes
+
+- Update core to v0.11.0 and coreutils to v0.13.1
+
 ## 2.2.0 (2025-04-22)
 
 ### Features
