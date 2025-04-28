@@ -6,9 +6,9 @@ toolchain go1.24.1
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.28
-	go.sia.tech/core v0.11.0
+	go.sia.tech/core v0.12.0
 	go.sia.tech/coreutils v0.13.1
-	go.sia.tech/jape v0.12.2-0.20241010144215-1468bf476af6
+	go.sia.tech/jape v0.13.1
 	go.sia.tech/web/walletd v0.29.2
 	go.uber.org/zap v1.27.0
 	golang.org/x/term v0.31.0
