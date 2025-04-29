@@ -10,6 +10,35 @@ import (
 	"go.sia.tech/walletd/v2/wallet"
 )
 
+// CheckAddresses returns true if any of the addresses have been seen on the
+// blockchain. This is a quick way to scan wallets for lookaheads.
+//
+// If the index mode is not full, this function will only return true if
+// an address is registered with a wallet.
+func (s *Store) CheckAddresses(addresses []types.Address) (known bool, err error) {
+	err = s.transaction(func(tx *txn) error {
+		stmt, err := tx.Prepare(`SELECT true FROM sia_addresses WHERE sia_address=$1`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare statement: %w", err)
+		}
+		defer stmt.Close()
+
+		for _, addr := range addresses {
+			if err := stmt.QueryRow(encode(addr)).Scan(&known); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
+				return fmt.Errorf("failed to query address: %w", err)
+			}
+			if known {
+				return nil
+			}
+		}
+		return nil
+	})
+	return
+}
+
 // AddressBalance returns the balance of a single address.
 func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, err error) {
 	err = s.transaction(func(tx *txn) error {

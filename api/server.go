@@ -132,6 +132,16 @@ type (
 
 		Reserve([]types.Hash256) error
 		Release([]types.Hash256)
+
+		// CheckAddresses returns true if any of the addresses are known to
+		// the server.
+		//
+		// In full index mode, this returns true if any addresses
+		// have been seen on chain.
+		//
+		// In personal index mode, this returns true only if the address
+		// is registered to a wallet.
+		CheckAddresses([]types.Address) (bool, error)
 	}
 )
 
@@ -1297,6 +1307,25 @@ func (s *server) outputsSiafundHandlerGET(jc jape.Context) {
 	jc.Encode(output)
 }
 
+func (s *server) checkAddressesHandlerPOST(jc jape.Context) {
+	var req CheckAddressesRequest
+	if jc.Decode(&req) != nil {
+		return
+	} else if len(req.Addresses) > 10000 {
+		jc.Error(errors.New("too many addresses"), http.StatusBadRequest)
+		return
+	}
+
+	ok, err := s.wm.CheckAddresses(req.Addresses)
+	if jc.Check("couldn't check addresses", err) != nil {
+		return
+	}
+
+	jc.Encode(CheckAddressesResponse{
+		Known: ok,
+	})
+}
+
 func (s *server) debugMineHandler(jc jape.Context) {
 	var req DebugMineRequest
 	if jc.Decode(&req) != nil {
@@ -1437,6 +1466,8 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		"GET /outputs/siacoin/:id/spent": wrapPublicAuthHandler(srv.outputsSiacoinSpentHandlerGET),
 		"GET /outputs/siafund/:id":       wrapPublicAuthHandler(srv.outputsSiafundHandlerGET),
 		"GET /outputs/siafund/:id/spent": wrapPublicAuthHandler(srv.outputsSiafundSpentHandlerGET),
+
+		"POST /check/addresses": wrapPublicAuthHandler(srv.checkAddressesHandlerPOST),
 
 		"GET /events/:id": wrapPublicAuthHandler(srv.eventsHandlerGET),
 
