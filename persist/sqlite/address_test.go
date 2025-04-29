@@ -10,7 +10,7 @@ import (
 	"lukechampine.com/frand"
 )
 
-func TestAddressesKnown(t *testing.T) {
+func TestCheckAddresses(t *testing.T) {
 	log := zaptest.NewLogger(t)
 
 	// generate a large number of random addresses
