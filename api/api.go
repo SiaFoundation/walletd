@@ -219,11 +219,12 @@ type AddressSiafundElementsResponse struct {
 	Outputs []wallet.UnspentSiafundElement `json:"outputs"`
 }
 
+// CheckAddressesRequest is the request type for [POST] /check/addresses.
 type CheckAddressesRequest struct {
 	Addresses []types.Address `json:"addresses"`
 }
 
-// AddressKnownResponse is the response type for /addresses/known.
+// CheckAddressesResponse is the response type for [POST] /check/addresses.
 type CheckAddressesResponse struct {
 	Known bool `json:"known"`
 }
