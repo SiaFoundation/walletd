@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"context"
 	"net"
 	"path/filepath"
 	"testing"
@@ -21,8 +22,11 @@ type (
 	ConsensusNode struct {
 		Store  *sqlite.Store
 		Chain  *chain.Manager
-		Syncer *syncer.Syncer
+		Syncer *MockSyncer
 	}
+
+	// MockSyncer is a no-op syncer implementation
+	MockSyncer struct{}
 )
 
 // WaitForSync waits for the store to sync to the current tip of the chain manager.
@@ -81,23 +85,10 @@ func NewConsensusNode(tb testing.TB, n *consensus.Network, genesis types.Block, 
 	}
 	tb.Cleanup(func() { store.Close() })
 
-	peerStore, err := sqlite.NewPeerStore(store)
-	if err != nil {
-		tb.Fatal(err)
-	}
-
-	s := syncer.New(l, cm, peerStore, gateway.Header{
-		GenesisID:  genesis.ID(),
-		UniqueID:   gateway.GenerateUniqueID(),
-		NetAddress: l.Addr().String(),
-	})
-	tb.Cleanup(func() { s.Close() })
-	go s.Run()
-
 	return &ConsensusNode{
 		Store:  store,
 		Chain:  cm,
-		Syncer: s,
+		Syncer: &MockSyncer{},
 	}
 }
 
@@ -109,4 +100,44 @@ func V1Network() (*consensus.Network, types.Block) {
 // V2Network returns a test network and genesis block with early V2 hardforks
 func V2Network() (*consensus.Network, types.Block) {
 	return testutil.V2Network()
+}
+
+// Addr is a no-op
+func (s *MockSyncer) Addr() string {
+	return ""
+}
+
+// BroadcastHeader is a no-op
+func (s *MockSyncer) BroadcastHeader(bh types.BlockHeader) error {
+	return nil
+}
+
+// BroadcastTransactionSet is a no-op
+func (s *MockSyncer) BroadcastTransactionSet(txns []types.Transaction) error {
+	return nil
+}
+
+// BroadcastV2TransactionSet is a no-op
+func (s *MockSyncer) BroadcastV2TransactionSet(basis types.ChainIndex, txns []types.V2Transaction) error {
+	return nil
+}
+
+// BroadcastV2BlockOutline is a no-op
+func (s *MockSyncer) BroadcastV2BlockOutline(outline gateway.V2BlockOutline) error {
+	return nil
+}
+
+// Connect is a no-op
+func (s *MockSyncer) Connect(ctx context.Context, addr string) (*syncer.Peer, error) {
+	return &syncer.Peer{}, nil
+}
+
+// PeerInfo is a no-op
+func (s *MockSyncer) PeerInfo(addr string) (syncer.PeerInfo, error) {
+	return syncer.PeerInfo{}, nil
+}
+
+// Peers is a no-op
+func (s *MockSyncer) Peers() []*syncer.Peer {
+	return nil
 }
