@@ -80,10 +80,10 @@ type (
 		Peers() []*syncer.Peer
 		PeerInfo(addr string) (syncer.PeerInfo, error)
 		Connect(ctx context.Context, addr string) (*syncer.Peer, error)
-		BroadcastHeader(types.BlockHeader)
-		BroadcastTransactionSet(txns []types.Transaction)
-		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction)
-		BroadcastV2BlockOutline(bo gateway.V2BlockOutline)
+		BroadcastHeader(types.BlockHeader) error
+		BroadcastTransactionSet(txns []types.Transaction) error
+		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction) error
+		BroadcastV2BlockOutline(bo gateway.V2BlockOutline) error
 	}
 
 	// A WalletManager manages wallets, keyed by name.
@@ -282,9 +282,13 @@ func (s *server) syncerBroadcastBlockHandler(jc jape.Context) {
 		return
 	}
 	if b.V2 == nil {
-		s.s.BroadcastHeader(b.Header())
+		if jc.Check("failed to broadcast header", s.s.BroadcastHeader(b.Header())) != nil {
+			return
+		}
 	} else {
-		s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions()))
+		if jc.Check("failed to broadcast block outline", s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions()))) != nil {
+			return
+		}
 	}
 	jc.Encode(nil)
 }
@@ -326,7 +330,9 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 			jc.Error(fmt.Errorf("invalid transaction set: %w", err), http.StatusBadRequest)
 			return
 		}
-		s.s.BroadcastTransactionSet(tbr.Transactions)
+		if jc.Check("failed to broadcast transaction set", s.s.BroadcastTransactionSet(tbr.Transactions)) != nil {
+			return
+		}
 	}
 	if len(tbr.V2Transactions) != 0 {
 		if len(tbr.V2Transactions) == 1 {
@@ -342,7 +348,9 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 			jc.Error(fmt.Errorf("invalid v2 transaction set: %w", err), http.StatusBadRequest)
 			return
 		}
-		s.s.BroadcastV2TransactionSet(tbr.Basis, tbr.V2Transactions)
+		if jc.Check("failed to broadcast transaction set", s.s.BroadcastV2TransactionSet(tbr.Basis, tbr.V2Transactions)) != nil {
+			return
+		}
 	}
 
 	jc.Encode(nil)
@@ -1309,9 +1317,13 @@ func (s *server) debugMineHandler(jc jape.Context) {
 		}
 
 		if b.V2 == nil {
-			s.s.BroadcastHeader(b.Header())
+			if jc.Check("failed to broadcast header", s.s.BroadcastHeader(b.Header())) != nil {
+				return
+			}
 		} else {
-			s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions()))
+			if jc.Check("failed to broadcast block outline", s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions()))) != nil {
+				return
+			}
 		}
 
 		log.Debug("mined block", zap.Stringer("blockID", b.ID()))
