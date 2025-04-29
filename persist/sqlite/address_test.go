@@ -15,7 +15,7 @@ func TestAddressesKnown(t *testing.T) {
 
 	// generate a large number of random addresses
 	addresses := make([]types.Address, 1000)
-	for i := range len(addresses) {
+	for i := range addresses {
 		addresses[i] = frand.Entropy256()
 	}
 
