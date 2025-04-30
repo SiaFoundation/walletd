@@ -6,6 +6,12 @@ import (
 	"go.sia.tech/core/types"
 )
 
+// CheckAddresses returns true if any of the addresses have been seen on the
+// blockchain. This is a quick way to scan wallets for lookaheads.
+func (m *Manager) CheckAddresses(address []types.Address) (bool, error) {
+	return m.store.CheckAddresses(address)
+}
+
 // AddressBalance returns the balance of a single address.
 func (m *Manager) AddressBalance(address types.Address) (balance Balance, err error) {
 	return m.store.AddressBalance(address)

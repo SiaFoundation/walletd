@@ -87,6 +87,15 @@ type (
 		AddressEvents(address types.Address, offset, limit int) (events []Event, err error)
 		AddressSiacoinOutputs(address types.Address, tpoolSpent []types.SiacoinOutputID, offset, limit int) ([]UnspentSiacoinElement, types.ChainIndex, error)
 		AddressSiafundOutputs(address types.Address, tpoolSpent []types.SiafundOutputID, offset, limit int) ([]UnspentSiafundElement, types.ChainIndex, error)
+		// CheckAddresses returns true if any of the addresses have been seen on the
+		// blockchain. This is a quick way to scan wallets for lookaheads.
+		//
+		// If index mode is full, this function returns true if any
+		// address has been seen on chain.
+		//
+		// In personal index mode, this function returns true only
+		// if the address is registered to a wallet.
+		CheckAddresses([]types.Address) (bool, error)
 
 		Events(eventIDs []types.Hash256) ([]Event, error)
 		AnnotateV1Events(index types.ChainIndex, timestamp time.Time, v1 []types.Transaction) (annotated []Event, err error)

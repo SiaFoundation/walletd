@@ -258,6 +258,16 @@ func (c *Client) AddressSiafundOutputs(addr types.Address, useTpool bool, offset
 	return resp.Outputs, resp.Basis, err
 }
 
+// CheckAddresses checks whether the specified addresses are known to the wallet.
+// In full index mode, this will return true if any of the addresses have been seen on chain.
+func (c *Client) CheckAddresses(addresses []types.Address) (bool, error) {
+	var resp CheckAddressesResponse
+	err := c.c.POST(context.Background(), "/check/addresses", CheckAddressesRequest{
+		Addresses: addresses,
+	}, &resp)
+	return resp.Known, err
+}
+
 // Event returns the event with the specified ID.
 func (c *Client) Event(id types.Hash256) (resp wallet.Event, err error) {
 	err = c.c.GET(context.Background(), fmt.Sprintf("/events/%v", id), &resp)
