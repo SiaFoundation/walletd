@@ -1304,7 +1304,7 @@ func TestAPISecurity(t *testing.T) {
 	c = api.NewClient("http://"+httpListener.Addr().String(), "wrong")
 	if _, err := c.ConsensusTip(); err == nil {
 		t.Fatal("expected auth error")
-	} else if err.Error() == "unauthorized" {
+	} else if err.Error() != "unauthorized" {
 		t.Fatal("expected auth error, got", err)
 	}
 
@@ -1337,7 +1337,7 @@ func TestAPISecurity(t *testing.T) {
 	// check that a private endpoint is still protected
 	if _, err := c.Wallets(); err == nil {
 		t.Fatal("expected auth error")
-	} else if err.Error() == "unauthorized" {
+	} else if err.Error() != "unauthorized" {
 		t.Fatal("expected auth error, got", err)
 	}
 
