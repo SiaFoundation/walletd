@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"go.sia.tech/walletd/v2/wallet"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -38,26 +39,26 @@ type (
 
 	// LogFile configures the file output of the logger.
 	LogFile struct {
-		Enabled bool   `yaml:"enabled,omitempty"`
-		Level   string `yaml:"level,omitempty"` // override the file log level
-		Format  string `yaml:"format,omitempty"`
+		Enabled bool            `yaml:"enabled,omitempty"`
+		Level   zap.AtomicLevel `yaml:"level,omitempty"` // override the file log level
+		Format  string          `yaml:"format,omitempty"`
 		// Path is the path of the log file.
 		Path string `yaml:"path,omitempty"`
 	}
 
 	// StdOut configures the standard output of the logger.
 	StdOut struct {
-		Level      string `yaml:"level,omitempty"` // override the stdout log level
-		Enabled    bool   `yaml:"enabled,omitempty"`
-		Format     string `yaml:"format,omitempty"`
-		EnableANSI bool   `yaml:"enableANSI,omitempty"` //nolint:tagliatelle
+		Level      zap.AtomicLevel `yaml:"level,omitempty"` // override the stdout log level
+		Enabled    bool            `yaml:"enabled,omitempty"`
+		Format     string          `yaml:"format,omitempty"`
+		EnableANSI bool            `yaml:"enableANSI,omitempty"` //nolint:tagliatelle
 	}
 
 	// Log contains the configuration for the logger.
 	Log struct {
-		Level  string  `yaml:"level,omitempty"` // global log level
-		StdOut StdOut  `yaml:"stdout,omitempty"`
-		File   LogFile `yaml:"file,omitempty"`
+		Level  zap.AtomicLevel `yaml:"level,omitempty"` // global log level
+		StdOut StdOut          `yaml:"stdout,omitempty"`
+		File   LogFile         `yaml:"file,omitempty"`
 	}
 
 	// Config contains the configuration for the host.
