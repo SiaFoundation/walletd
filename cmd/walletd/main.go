@@ -76,7 +76,7 @@ var cfg = config.Config{
 		BatchSize: 1000,
 	},
 	Log: config.Log{
-		Level: "info",
+		Level: zap.NewAtomicLevelAt(zap.InfoLevel),
 		File: config.LogFile{
 			Enabled: true,
 			Format:  "json",
@@ -162,25 +162,7 @@ func humanEncoder(showColors bool) zapcore.Encoder {
 	return zapcore.NewConsoleEncoder(cfg)
 }
 
-func parseLogLevel(level string) zap.AtomicLevel {
-	switch level {
-	case "debug":
-		return zap.NewAtomicLevelAt(zap.DebugLevel)
-	case "info":
-		return zap.NewAtomicLevelAt(zap.InfoLevel)
-	case "warn":
-		return zap.NewAtomicLevelAt(zap.WarnLevel)
-	case "error":
-		return zap.NewAtomicLevelAt(zap.ErrorLevel)
-	default:
-		fmt.Printf("invalid log level %q", level)
-		os.Exit(1)
-	}
-	panic("unreachable")
-}
-
-func initStdoutLog(colored bool, levelStr string) *zap.Logger {
-	level := parseLogLevel(levelStr)
+func initStdoutLog(colored bool, level zap.AtomicLevel) *zap.Logger {
 	core := zapcore.NewCore(humanEncoder(colored), zapcore.Lock(os.Stdout), level)
 	return zap.New(core, zap.AddCaller())
 }
@@ -217,6 +199,10 @@ func main() {
 
 	rootCmd.StringVar(&indexModeStr, "index.mode", indexModeStr, "address index mode (personal, full, none)")
 	rootCmd.IntVar(&cfg.Index.BatchSize, "index.batch", cfg.Index.BatchSize, "max number of blocks to index at a time. Increasing this will increase scan speed, but also increase memory and cpu usage.")
+
+	rootCmd.TextVar(&cfg.Log.Level, "log.level", cfg.Log.Level, "log level (debug, info, warn, error)")
+	rootCmd.BoolVar(&cfg.Log.File.Enabled, "log.file.enabled", cfg.Log.File.Enabled, "enable file logging")
+	rootCmd.BoolVar(&cfg.Log.StdOut.Enabled, "log.stdout.enabled", cfg.Log.StdOut.Enabled, "enable stdout logging")
 
 	versionCmd := flagg.New("version", versionUsage)
 	seedCmd := flagg.New("seed", seedUsage)
@@ -257,7 +243,7 @@ func main() {
 		var logCores []zapcore.Core
 		if cfg.Log.StdOut.Enabled {
 			// if no log level is set for stdout, use the global log level
-			if cfg.Log.StdOut.Level == "" {
+			if cfg.Log.StdOut.Level == (zap.AtomicLevel{}) {
 				cfg.Log.StdOut.Level = cfg.Log.Level
 			}
 
@@ -270,13 +256,12 @@ func main() {
 			}
 
 			// create the stdout logger
-			level := parseLogLevel(cfg.Log.StdOut.Level)
-			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), level))
+			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(os.Stdout), cfg.Log.StdOut.Level))
 		}
 
 		if cfg.Log.File.Enabled {
 			// if no log level is set for file, use the global log level
-			if cfg.Log.File.Level == "" {
+			if cfg.Log.File.Level == (zap.AtomicLevel{}) {
 				cfg.Log.File.Level = cfg.Log.Level
 			}
 
@@ -299,8 +284,7 @@ func main() {
 			defer closeFn()
 
 			// create the file logger
-			level := parseLogLevel(cfg.Log.File.Level)
-			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(fileWriter), level))
+			logCores = append(logCores, zapcore.NewCore(encoder, zapcore.Lock(fileWriter), cfg.Log.File.Level))
 		}
 
 		var log *zap.Logger
