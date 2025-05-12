@@ -1,3 +1,14 @@
+## 2.3.0 (2025-05-12)
+
+### Features
+
+- Added CLI flag to disable log locations `--log.file.enabled=false` `--log.stdout.enabled=false`
+- Added CLI flag to set log level `--log.level=debug`
+
+#### Added `[POST] /check/addresses` to check for addresses that have been seen on chain
+
+This endpoint is useful for scanning the chain for look-aheads when in full index mode
+
 ## 2.2.1 (2025-04-24)
 
 ### Fixes
