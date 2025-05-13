@@ -102,6 +102,17 @@ func (c *Client) ConsensusBlocksID(bid types.BlockID) (resp types.Block, err err
 	return
 }
 
+// ConsensusState returns the consensus state of the specified block ID.
+// The block must be in the best chain.
+func (c *Client) ConsensusState(bid types.BlockID) (resp ConsensusStateResponse, err error) {
+	err = c.c.GET(context.Background(), fmt.Sprintf("/consensus/state/%v", bid), &resp)
+	if err != nil {
+		return
+	}
+	resp.State.Network, err = c.getNetwork()
+	return
+}
+
 // ConsensusIndex returns the consensus index at the specified height.
 func (c *Client) ConsensusIndex(height uint64) (resp types.ChainIndex, err error) {
 	err = c.c.GET(context.Background(), fmt.Sprintf("/consensus/index/%d", height), &resp)
