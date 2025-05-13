@@ -102,10 +102,10 @@ func (c *Client) ConsensusBlocksID(bid types.BlockID) (resp types.Block, err err
 	return
 }
 
-// ConsensusState returns the consensus state of the specified block ID.
+// ConsensusCheckpoint returns the consensus state of the specified block ID.
 // The block must be in the best chain.
-func (c *Client) ConsensusState(bid types.BlockID) (resp ConsensusStateResponse, err error) {
-	err = c.c.GET(context.Background(), fmt.Sprintf("/consensus/state/%v", bid), &resp)
+func (c *Client) ConsensusCheckpoint(bid types.BlockID) (resp ConsensusCheckpointResponse, err error) {
+	err = c.c.GET(context.Background(), fmt.Sprintf("/consensus/checkpoint/%v", bid), &resp)
 	if err != nil {
 		return
 	}

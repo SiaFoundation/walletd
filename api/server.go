@@ -185,7 +185,7 @@ func (s *server) consensusTipStateHandler(jc jape.Context) {
 	jc.Encode(s.cm.TipState())
 }
 
-func (s *server) consensusStateIDHandler(jc jape.Context) {
+func (s *server) consensusCheckpointIDHandler(jc jape.Context) {
 	var bid types.BlockID
 	if jc.DecodeParam("id", &bid) != nil {
 		return
@@ -203,7 +203,7 @@ func (s *server) consensusStateIDHandler(jc jape.Context) {
 		return
 	}
 
-	jc.Encode(ConsensusStateResponse{
+	jc.Encode(ConsensusCheckpointResponse{
 		State: state,
 		Block: block,
 	})
@@ -1467,7 +1467,7 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		"GET /consensus/network":        wrapPublicAuthHandler(srv.consensusNetworkHandler),
 		"GET /consensus/tip":            wrapPublicAuthHandler(srv.consensusTipHandler),
 		"GET /consensus/tipstate":       wrapPublicAuthHandler(srv.consensusTipStateHandler),
-		"GET /consensus/state/:id":      wrapPublicAuthHandler(srv.consensusStateIDHandler),
+		"GET /consensus/checkpoint/:id": wrapPublicAuthHandler(srv.consensusCheckpointIDHandler),
 		"GET /consensus/blocks/:id":     wrapPublicAuthHandler(srv.consensusBlocksIDHandler),
 		"GET /consensus/updates/:index": wrapPublicAuthHandler(srv.consensusUpdatesIndexHandler),
 		"GET /consensus/index/:height":  wrapPublicAuthHandler(srv.consensusIndexHeightHandler),

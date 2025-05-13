@@ -56,8 +56,8 @@ type TxpoolUpdateV2TransactionsRequest struct {
 	Transactions []types.V2Transaction `json:"transactions"`
 }
 
-// ConsensusStateResponse is the response type for GET /consensus/state/:id.
-type ConsensusStateResponse struct {
+// ConsensusCheckpointResponse is the response type for GET /consensus/state/:id.
+type ConsensusCheckpointResponse struct {
 	State consensus.State `json:"state"`
 	Block types.Block     `json:"block"`
 }

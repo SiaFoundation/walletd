@@ -2,4 +2,4 @@
 default: minor
 ---
 
-# Add GET /consensus/state/:id endpoint to return a block and its consensus state
+# Added GET /consensus/checkpoint/:id which returns the block and its consensus state.

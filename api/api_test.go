@@ -530,7 +530,7 @@ func TestConsensus(t *testing.T) {
 	}
 }
 
-func TestConsensusState(t *testing.T) {
+func TestConsensusCheckpoint(t *testing.T) {
 	log := zaptest.NewLogger(t)
 
 	n, genesisBlock := testutil.V2Network()
@@ -561,7 +561,7 @@ func TestConsensusState(t *testing.T) {
 	}
 
 	// fetch block
-	resp, err := c.ConsensusState(minedBlock.ID())
+	resp, err := c.ConsensusCheckpoint(minedBlock.ID())
 	if err != nil {
 		t.Fatal(err)
 	} else if resp.Block.ID() != minedBlock.ID() {
