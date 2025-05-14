@@ -299,7 +299,7 @@ func TestWallet(t *testing.T) {
 	txn.Signatures[0].Signature = sig[:]
 
 	// broadcast the transaction to the transaction pool
-	if _, _, err := c.TxpoolBroadcast(cs.Index, []types.Transaction{txn}, nil); err != nil {
+	if _, err := c.TxpoolBroadcast(cs.Index, []types.Transaction{txn}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -430,7 +430,7 @@ func TestAddresses(t *testing.T) {
 	txn.Signatures[0].Signature = sig[:]
 
 	// broadcast the transaction to the transaction pool
-	if _, _, err := c.TxpoolBroadcast(cs.Index, []types.Transaction{txn}, nil); err != nil {
+	if _, err := c.TxpoolBroadcast(cs.Index, []types.Transaction{txn}, nil); err != nil {
 		t.Fatal(err)
 	}
 	cn.MineBlocks(t, types.VoidAddress, 1)
@@ -711,12 +711,12 @@ func TestConstructSiacoins(t *testing.T) {
 		resp.Transaction.Signatures[i].Signature = sig[:]
 	}
 
-	if v1IDs, v2IDs, err := c.TxpoolBroadcast(resp.Basis, []types.Transaction{resp.Transaction}, nil); err != nil {
+	if broadcastResp, err := c.TxpoolBroadcast(resp.Basis, []types.Transaction{resp.Transaction}, nil); err != nil {
 		t.Fatal(err)
-	} else if len(v1IDs) != 1 || len(v2IDs) != 0 {
-		t.Fatalf("expected 1 v1 ID and 0 v2 IDs, got %v and %v", v1IDs, v2IDs)
-	} else if v1IDs[0] != resp.ID {
-		t.Fatalf("expected v1 ID to be %v, got %v", resp.ID, v1IDs[0])
+	} else if len(broadcastResp.Transactions) != 1 || len(broadcastResp.V2Transactions) != 0 {
+		t.Fatalf("expected 1 v1 ID and 0 v2 IDs, got %v and %v", len(broadcastResp.Transactions), len(broadcastResp.V2Transactions))
+	} else if broadcastResp.Transactions[0].ID() != resp.ID {
+		t.Fatalf("expected v1 ID to be %v, got %v", resp.ID, broadcastResp.Transactions[0].ID())
 	}
 
 	unconfirmed, err := wc.UnconfirmedEvents()
@@ -832,7 +832,7 @@ func TestConstructSiafunds(t *testing.T) {
 		resp.Transaction.Signatures[i].Signature = sig[:]
 	}
 
-	if _, _, err := c.TxpoolBroadcast(resp.Basis, []types.Transaction{resp.Transaction}, nil); err != nil {
+	if _, err := c.TxpoolBroadcast(resp.Basis, []types.Transaction{resp.Transaction}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -975,12 +975,12 @@ func TestConstructV2Siacoins(t *testing.T) {
 		resp.Transaction.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{sig}
 	}
 
-	if v1IDs, v2IDs, err := c.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{resp.Transaction}); err != nil {
+	if broadcastResp, err := c.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{resp.Transaction}); err != nil {
 		t.Fatal(err)
-	} else if len(v1IDs) != 0 || len(v2IDs) != 1 {
-		t.Fatalf("expected 1 v1 ID and 0 v2 IDs, got %v and %v", v1IDs, v2IDs)
-	} else if v2IDs[0] != resp.ID {
-		t.Fatalf("expected v1 ID to be %v, got %v", resp.ID, v2IDs[0])
+	} else if len(broadcastResp.Transactions) != 0 || len(broadcastResp.V2Transactions) != 1 {
+		t.Fatalf("expected 1 v1 ID and 0 v2 IDs, got %v and %v", len(broadcastResp.Transactions), len(broadcastResp.V2Transactions))
+	} else if broadcastResp.V2Transactions[0].ID() != resp.ID {
+		t.Fatalf("expected v2 ID to be %v, got %v", resp.ID, broadcastResp.V2Transactions[0].ID())
 	}
 
 	unconfirmed, err := wc.UnconfirmedEvents()
@@ -1082,7 +1082,7 @@ func TestConstructV2Siafunds(t *testing.T) {
 		resp.Transaction.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{sig}
 	}
 
-	if _, _, err := c.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{resp.Transaction}); err != nil {
+	if _, err := c.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{resp.Transaction}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1191,7 +1191,7 @@ func TestSpentElement(t *testing.T) {
 		senderPrivateKey.SignHash(cs.InputSigHash(txn)),
 	}
 
-	if _, _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
+	if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
 	cn.MineBlocks(t, types.VoidAddress, 1)
@@ -1259,7 +1259,7 @@ func TestSpentElement(t *testing.T) {
 		senderPrivateKey.SignHash(cs.InputSigHash(txn)),
 	}
 
-	if _, _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
+	if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
 	cn.MineBlocks(t, types.VoidAddress, 1)
@@ -1480,7 +1480,7 @@ func TestV2TransactionUpdateBasis(t *testing.T) {
 	}
 
 	// broadcast the transaction
-	if _, _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{parentTxn}); err != nil {
+	if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{parentTxn}); err != nil {
 		t.Fatal(err)
 	}
 	cn.MineBlocks(t, types.VoidAddress, 1)
@@ -1521,7 +1521,7 @@ func TestV2TransactionUpdateBasis(t *testing.T) {
 		t.Fatalf("expected basis to be %v, got %v", tip, basis)
 	}
 
-	if _, _, err := c.TxpoolBroadcast(basis, nil, txnset); err != nil {
+	if _, err := c.TxpoolBroadcast(basis, nil, txnset); err != nil {
 		t.Fatal(err)
 	}
 	cn.MineBlocks(t, types.VoidAddress, 1)
@@ -1604,7 +1604,7 @@ func TestAddressTPool(t *testing.T) {
 		pk.SignHash(sigHash),
 	}
 
-	if _, _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
+	if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1666,7 +1666,7 @@ func TestEphemeralTransactions(t *testing.T) {
 	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
 	expectedOutputID := txn.SiacoinOutputID(txn.ID(), 1)
 
-	if _, _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
+	if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1714,7 +1714,7 @@ func TestEphemeralTransactions(t *testing.T) {
 		t.Fatalf("expected siacoin element to have leaf index, got %v", sces[0].StateElement.LeafIndex)
 	}
 
-	if _, _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn2}); err != nil {
+	if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn2}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1799,7 +1799,7 @@ func TestBroadcastRace(t *testing.T) {
 			sigHash := cs.InputSigHash(txn)
 			txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
 			t.Log("broadcasting", txn.ID(), cs.Index)
-			if _, _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
+			if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
 				t.Fatal(err)
 			}
 		}

@@ -33,6 +33,7 @@ func (m *Manager) AddressSiacoinOutputs(address types.Address, usePool bool, off
 			continue
 		}
 
+		sce.StateElement = sce.StateElement.Copy()
 		created = append(created, UnspentSiacoinElement{
 			SiacoinElement: sce,
 		})
@@ -62,6 +63,7 @@ func (m *Manager) AddressSiafundOutputs(address types.Address, usePool bool, off
 		if sfe.SiafundOutput.Address != address {
 			continue
 		}
+		sfe.StateElement = sfe.StateElement.Copy()
 		created = append(created, UnspentSiafundElement{
 			SiafundElement: sfe,
 		})

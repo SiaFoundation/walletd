@@ -43,10 +43,7 @@ type TxpoolBroadcastRequest struct {
 }
 
 // TxpoolBroadcastResponse is the response type for /txpool/broadcast.
-type TxpoolBroadcastResponse struct {
-	Transactions   []types.TransactionID `json:"transactions"`
-	V2Transactions []types.TransactionID `json:"v2transactions"`
-}
+type TxpoolBroadcastResponse TxpoolBroadcastRequest
 
 // TxpoolTransactionsResponse is the response type for /txpool/transactions.
 type TxpoolTransactionsResponse struct {
