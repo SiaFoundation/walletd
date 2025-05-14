@@ -1,3 +1,9 @@
+## 2.4.1 (2025-05-14)
+
+### Fixes
+
+- Fix race in txpool broadcast
+
 ## 2.4.0 (2025-05-14)
 
 ### Features
