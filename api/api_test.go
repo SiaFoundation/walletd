@@ -1798,7 +1798,6 @@ func TestBroadcastRace(t *testing.T) {
 			}
 			sigHash := cs.InputSigHash(txn)
 			txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
-			t.Log("broadcasting", txn.ID(), cs.Index)
 			if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
 				t.Fatal(err)
 			}
