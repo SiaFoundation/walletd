@@ -62,6 +62,7 @@ type (
 		Tip() types.ChainIndex
 		BestIndex(height uint64) (types.ChainIndex, bool)
 		Block(id types.BlockID) (types.Block, bool)
+		State(id types.BlockID) (consensus.State, bool)
 		TipState() consensus.State
 		AddBlocks([]types.Block) error
 		RecommendedFee() types.Currency
@@ -182,6 +183,30 @@ func (s *server) consensusTipHandler(jc jape.Context) {
 
 func (s *server) consensusTipStateHandler(jc jape.Context) {
 	jc.Encode(s.cm.TipState())
+}
+
+func (s *server) consensusCheckpointIDHandler(jc jape.Context) {
+	var bid types.BlockID
+	if jc.DecodeParam("id", &bid) != nil {
+		return
+	}
+
+	block, found := s.cm.Block(bid)
+	if !found {
+		jc.Error(errors.New("couldn't find block"), http.StatusNotFound)
+		return
+	}
+
+	state, found := s.cm.State(bid)
+	if !found {
+		jc.Error(errors.New("couldn't find state"), http.StatusNotFound)
+		return
+	}
+
+	jc.Encode(ConsensusCheckpointResponse{
+		State: state,
+		Block: block,
+	})
 }
 
 func (s *server) consensusBlocksIDHandler(jc jape.Context) {
@@ -1442,6 +1467,7 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		"GET /consensus/network":        wrapPublicAuthHandler(srv.consensusNetworkHandler),
 		"GET /consensus/tip":            wrapPublicAuthHandler(srv.consensusTipHandler),
 		"GET /consensus/tipstate":       wrapPublicAuthHandler(srv.consensusTipStateHandler),
+		"GET /consensus/checkpoint/:id": wrapPublicAuthHandler(srv.consensusCheckpointIDHandler),
 		"GET /consensus/blocks/:id":     wrapPublicAuthHandler(srv.consensusBlocksIDHandler),
 		"GET /consensus/updates/:index": wrapPublicAuthHandler(srv.consensusUpdatesIndexHandler),
 		"GET /consensus/index/:height":  wrapPublicAuthHandler(srv.consensusIndexHeightHandler),
