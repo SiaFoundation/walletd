@@ -977,10 +977,10 @@ func TestConstructV2Siacoins(t *testing.T) {
 
 	if v1IDs, v2IDs, err := c.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{resp.Transaction}); err != nil {
 		t.Fatal(err)
-	} else if len(v1IDs) != 1 || len(v2IDs) != 0 {
+	} else if len(v1IDs) != 0 || len(v2IDs) != 1 {
 		t.Fatalf("expected 1 v1 ID and 0 v2 IDs, got %v and %v", v1IDs, v2IDs)
-	} else if v1IDs[0] != resp.ID {
-		t.Fatalf("expected v1 ID to be %v, got %v", resp.ID, v1IDs[0])
+	} else if v2IDs[0] != resp.ID {
+		t.Fatalf("expected v1 ID to be %v, got %v", resp.ID, v2IDs[0])
 	}
 
 	unconfirmed, err := wc.UnconfirmedEvents()
