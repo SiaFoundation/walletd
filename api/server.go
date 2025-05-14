@@ -354,6 +354,7 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	if jc.Decode(&tbr) != nil {
 		return
 	}
+	var resp TxpoolBroadcastResponse
 	if len(tbr.Transactions) != 0 {
 		if len(tbr.Transactions) == 1 {
 			// if there's only one transaction, best-effort check for parents
@@ -367,6 +368,9 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		}
 		if jc.Check("failed to broadcast transaction set", s.s.BroadcastTransactionSet(tbr.Transactions)) != nil {
 			return
+		}
+		for _, txn := range tbr.Transactions {
+			resp.Transactions = append(resp.Transactions, txn.ID())
 		}
 	}
 	if len(tbr.V2Transactions) != 0 {
@@ -386,9 +390,12 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		if jc.Check("failed to broadcast transaction set", s.s.BroadcastV2TransactionSet(tbr.Basis, tbr.V2Transactions)) != nil {
 			return
 		}
+		for _, txn := range tbr.V2Transactions {
+			resp.V2Transactions = append(resp.V2Transactions, txn.ID())
+		}
 	}
 
-	jc.Encode(nil)
+	jc.Encode(resp)
 }
 
 func (s *server) txpoolV2TransactionsBasisHandler(jc jape.Context) {
