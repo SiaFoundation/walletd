@@ -402,7 +402,6 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		} else if jc.Check("failed to broadcast transaction set", s.s.BroadcastV2TransactionSet(tbr.Basis, tbr.V2Transactions)) != nil {
 			return
 		}
-
 	}
 	jc.Encode(resp)
 }
