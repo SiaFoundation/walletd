@@ -370,7 +370,7 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 
 		// prevents a race condition when encoding the transactions
 		// TODO: fix this race
-		resp.Transactions = slices.Clone(resp.Transactions)
+		resp.Transactions = slices.Clone(tbr.Transactions)
 		_, err := s.cm.AddPoolTransactions(tbr.Transactions)
 		if err != nil {
 			jc.Error(fmt.Errorf("invalid transaction set: %w", err), http.StatusBadRequest)
