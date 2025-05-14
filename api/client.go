@@ -47,14 +47,13 @@ func (c *Client) State() (resp StateResponse, err error) {
 }
 
 // TxpoolBroadcast broadcasts a set of transaction to the network.
-func (c *Client) TxpoolBroadcast(basis types.ChainIndex, txns []types.Transaction, v2txns []types.V2Transaction) (v1IDs, v2IDs []types.TransactionID, err error) {
-	var resp TxpoolBroadcastResponse
+func (c *Client) TxpoolBroadcast(basis types.ChainIndex, txns []types.Transaction, v2txns []types.V2Transaction) (resp TxpoolBroadcastResponse, err error) {
 	err = c.c.POST(context.Background(), "/txpool/broadcast", TxpoolBroadcastRequest{
 		Basis:          basis,
 		Transactions:   txns,
 		V2Transactions: v2txns,
 	}, &resp)
-	return resp.Transactions, resp.V2Transactions, err
+	return
 }
 
 // TxpoolTransactions returns all transactions in the transaction pool.

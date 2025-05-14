@@ -77,7 +77,7 @@ func ExampleWalletClient_ConstructV2() {
 	}
 
 	// broadcast the transaction
-	if _, _, err := client.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{txn}); err != nil {
+	if _, err := client.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{txn}); err != nil {
 		panic(err)
 	}
 }
