@@ -1408,14 +1408,11 @@ func TestAPINoContent(t *testing.T) {
 	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
 	c := startWalletServer(t, cn, log)
 
-	buf, err := json.Marshal(api.TxpoolBroadcastRequest{
-		Transactions:   []types.Transaction{},
-		V2Transactions: []types.V2Transaction{},
-	})
+	buf, err := json.Marshal(cn.Chain.Tip().Height)
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := http.NewRequest(http.MethodPost, c.BaseURL()+"/txpool/broadcast", bytes.NewReader(buf))
+	req, err := http.NewRequest(http.MethodPost, c.BaseURL()+"/rescan", bytes.NewReader(buf))
 	if err != nil {
 		t.Fatal(err)
 	}
