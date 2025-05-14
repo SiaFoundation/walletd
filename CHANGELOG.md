@@ -1,3 +1,19 @@
+## 2.4.0 (2025-05-14)
+
+### Features
+
+- Added GET /consensus/checkpoint/:id which returns the block and its consensus state.
+
+#### Return transaction sets from broadcast endpoint
+
+This lets integrators get the IDs of the created UTXOs, addresses of inputs, and IDs of the transactions
+
+### Fixes
+
+#### Update core to v0.12.2 and coreutils to v0.13.4
+
+These releases include additional JSON convenience fields
+
 ## 2.3.0 (2025-05-12)
 
 ### Features
