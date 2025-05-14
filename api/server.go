@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"runtime"
+	"slices"
 	"sync"
 	"time"
 
@@ -354,18 +355,27 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	if jc.Decode(&tbr) != nil {
 		return
 	}
+
+	// the transactions are sent back to the client because the
+	// transaction set may have been modified and the transactions
+	// include additional convenience fields when being marshalled
+	resp := TxpoolBroadcastResponse{
+		Basis: tbr.Basis,
+	}
 	if len(tbr.Transactions) != 0 {
 		if len(tbr.Transactions) == 1 {
 			// if there's only one transaction, best-effort check for parents
 			tbr.Transactions = append(s.cm.UnconfirmedParents(tbr.Transactions[0]), tbr.Transactions...)
 		}
 
+		// prevents a race condition when encoding the transactions
+		// TODO: fix this race
+		resp.Transactions = slices.Clone(tbr.Transactions)
 		_, err := s.cm.AddPoolTransactions(tbr.Transactions)
 		if err != nil {
 			jc.Error(fmt.Errorf("invalid transaction set: %w", err), http.StatusBadRequest)
 			return
-		}
-		if jc.Check("failed to broadcast transaction set", s.s.BroadcastTransactionSet(tbr.Transactions)) != nil {
+		} else if jc.Check("failed to broadcast transaction set", s.s.BroadcastTransactionSet(tbr.Transactions)) != nil {
 			return
 		}
 	}
@@ -379,19 +389,21 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 			}
 		}
 
+		// prevents a race condition when encoding the transactions
+		// TODO: fix this race
+		resp.V2Transactions = make([]types.V2Transaction, 0, len(tbr.V2Transactions))
+		for _, txn := range tbr.V2Transactions {
+			resp.V2Transactions = append(resp.V2Transactions, txn.DeepCopy())
+		}
+
 		if _, err := s.cm.AddV2PoolTransactions(tbr.Basis, tbr.V2Transactions); err != nil {
 			jc.Error(fmt.Errorf("invalid v2 transaction set: %w", err), http.StatusBadRequest)
 			return
-		}
-		if jc.Check("failed to broadcast transaction set", s.s.BroadcastV2TransactionSet(tbr.Basis, tbr.V2Transactions)) != nil {
+		} else if jc.Check("failed to broadcast transaction set", s.s.BroadcastV2TransactionSet(tbr.Basis, tbr.V2Transactions)) != nil {
 			return
 		}
 	}
-
-	// the transactions are sent back to the client because the
-	// transaction set may have been modified and the transactions
-	// include additional convenience fields when being marshalled
-	jc.Encode(TxpoolBroadcastResponse(tbr))
+	jc.Encode(resp)
 }
 
 func (s *server) txpoolV2TransactionsBasisHandler(jc jape.Context) {
