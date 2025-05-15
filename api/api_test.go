@@ -561,12 +561,21 @@ func TestConsensusCheckpoint(t *testing.T) {
 	}
 
 	// fetch block
-	resp, err := c.ConsensusCheckpoint(minedBlock.ID())
+	resp, err := c.ConsensusCheckpointID(minedBlock.ID())
 	if err != nil {
 		t.Fatal(err)
 	} else if resp.Block.ID() != minedBlock.ID() {
 		t.Fatal("mismatch")
 	} else if resp.State.Index != cn.Chain.Tip() {
+		t.Fatal("mismatch tip")
+	}
+
+	heightResp, err := c.ConsensusCheckpointHeight(cn.Chain.Tip().Height)
+	if err != nil {
+		t.Fatal(err)
+	} else if heightResp.Block.ID() != minedBlock.ID() {
+		t.Fatal("mismatch")
+	} else if heightResp.State.Index != cn.Chain.Tip() {
 		t.Fatal("mismatch tip")
 	}
 }
