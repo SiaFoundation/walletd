@@ -102,10 +102,26 @@ func (c *Client) ConsensusBlocksID(bid types.BlockID) (resp types.Block, err err
 	return
 }
 
-// ConsensusCheckpoint returns the consensus state of the specified block ID.
+// ConsensusBlocksHeight returns the block with the given height.
+func (c *Client) ConsensusBlocksHeight(height uint64) (resp types.Block, err error) {
+	err = c.c.GET(context.Background(), fmt.Sprintf("/consensus/blocks/%d", height), &resp)
+	return
+}
+
+// ConsensusCheckpointID returns the consensus state of the specified block ID.
 // The block must be in the best chain.
-func (c *Client) ConsensusCheckpoint(bid types.BlockID) (resp ConsensusCheckpointResponse, err error) {
+func (c *Client) ConsensusCheckpointID(bid types.BlockID) (resp ConsensusCheckpointResponse, err error) {
 	err = c.c.GET(context.Background(), fmt.Sprintf("/consensus/checkpoint/%v", bid), &resp)
+	if err != nil {
+		return
+	}
+	resp.State.Network, err = c.getNetwork()
+	return
+}
+
+// ConsensusCheckpointHeight returns the consensus state and block at the specified height.
+func (c *Client) ConsensusCheckpointHeight(height uint64) (resp ConsensusCheckpointResponse, err error) {
+	err = c.c.GET(context.Background(), fmt.Sprintf("/consensus/checkpoint/%d", height), &resp)
 	if err != nil {
 		return
 	}

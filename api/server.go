@@ -8,6 +8,7 @@ import (
 	"net/http/pprof"
 	"runtime"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -187,18 +188,33 @@ func (s *server) consensusTipStateHandler(jc jape.Context) {
 }
 
 func (s *server) consensusCheckpointIDHandler(jc jape.Context) {
-	var bid types.BlockID
-	if jc.DecodeParam("id", &bid) != nil {
+	var param string
+	if jc.DecodeParam("id", &param) != nil {
 		return
 	}
 
-	block, found := s.cm.Block(bid)
+	var id types.BlockID
+	if height, err := strconv.ParseUint(param, 10, 64); err == nil {
+		index, ok := s.cm.BestIndex(height)
+		if !ok {
+			jc.Error(errors.New("height not found"), http.StatusNotFound)
+			return
+		}
+		id = index.ID
+	} else {
+		if err := id.UnmarshalText([]byte(param)); err != nil {
+			jc.Error(fmt.Errorf("invalid block ID: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	block, found := s.cm.Block(id)
 	if !found {
 		jc.Error(errors.New("couldn't find block"), http.StatusNotFound)
 		return
 	}
 
-	state, found := s.cm.State(bid)
+	state, found := s.cm.State(id)
 	if !found {
 		jc.Error(errors.New("couldn't find state"), http.StatusNotFound)
 		return
@@ -211,11 +227,27 @@ func (s *server) consensusCheckpointIDHandler(jc jape.Context) {
 }
 
 func (s *server) consensusBlocksIDHandler(jc jape.Context) {
-	var bid types.BlockID
-	if jc.DecodeParam("id", &bid) != nil {
+	var param string
+	if jc.DecodeParam("id", &param) != nil {
 		return
 	}
-	block, found := s.cm.Block(bid)
+
+	var id types.BlockID
+	if height, err := strconv.ParseUint(param, 10, 64); err == nil {
+		index, ok := s.cm.BestIndex(height)
+		if !ok {
+			jc.Error(errors.New("height not found"), http.StatusNotFound)
+			return
+		}
+		id = index.ID
+	} else {
+		if err := id.UnmarshalText([]byte(param)); err != nil {
+			jc.Error(fmt.Errorf("invalid block ID: %w", err), http.StatusBadRequest)
+			return
+		}
+	}
+
+	block, found := s.cm.Block(id)
 	if !found {
 		jc.Error(errors.New("couldn't find block"), http.StatusNotFound)
 		return
