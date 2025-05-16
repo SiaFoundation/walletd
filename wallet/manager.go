@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,11 +10,15 @@ import (
 	"sync"
 	"time"
 
+	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/walletd/v2/internal/threadgroup"
 	"go.uber.org/zap"
+	"golang.org/x/exp/constraints"
 )
+
+const maxReorgPeriod = 3 * time.Hour
 
 // IndexMode represents the index mode of the wallet manager. The index mode
 // determines how the wallet manager stores the consensus state.
@@ -44,6 +49,11 @@ var (
 	// ErrAlreadyReserved is returned when trying to reserve an output that is
 	// already reserved.
 	ErrAlreadyReserved = errors.New("output already reserved")
+	// ErrNotSyncing is returned when the consensus has not
+	// had a block change within the last 3 hours.
+	ErrNotSyncing = errors.New("not syncing")
+	// ErrNotSynced is returned when the wallet has not
+	ErrNotSynced = errors.New("not synced")
 )
 
 type (
@@ -56,6 +66,7 @@ type (
 		V2PoolTransactions() []types.V2Transaction
 
 		Tip() types.ChainIndex
+		TipState() consensus.State
 		BestIndex(height uint64) (types.ChainIndex, bool)
 
 		OnReorg(func(types.ChainIndex)) (cancel func())
@@ -195,6 +206,35 @@ func (m *Manager) utxosLocked(ids ...types.Hash256) error {
 		}
 	}
 	return nil
+}
+
+// Health checks if the wallet manager is healthy. It checks if the
+// last block in the chain manager is recent enough and if the last indexed block
+// is not too far behind the chain manager. If either of these checks fail, an
+// error is returned.
+func (m *Manager) Health() error {
+	cs := m.chain.TipState()
+	lastBlockTimestamp := cs.PrevTimestamps[0]
+	if time.Since(lastBlockTimestamp) > maxReorgPeriod {
+		return fmt.Errorf("last block timestamp %s is too old: %w", lastBlockTimestamp, ErrNotSyncing)
+	}
+
+	maxSyncedDelta := uint64(maxReorgPeriod / cs.Network.BlockInterval)
+	indexedTip, err := m.store.LastCommittedIndex()
+	if err != nil {
+		return fmt.Errorf("failed to get tip: %w", err)
+	} else if n := delta(indexedTip.Height, cs.Index.Height); n > maxSyncedDelta {
+		return fmt.Errorf("last indexed block %q is too far behind tip %q: %w", indexedTip, cs.Index, ErrNotSynced)
+	}
+	return nil
+}
+
+// SyncPool forces a sync of the transaction pool for testing
+// purposes.
+func (m *Manager) SyncPool() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.resetPool()
 }
 
 // Tip returns the last scanned chain index of the manager.
@@ -624,6 +664,13 @@ func (m *Manager) resetPool() {
 			m.poolSFCreated[sfe.ID] = sfe
 		}
 	}
+}
+
+func delta[T constraints.Integer | constraints.Float](a, b T) T {
+	if cmp.Compare(a, b) > 0 {
+		return a - b
+	}
+	return b - a
 }
 
 // NewManager creates a new wallet manager.
