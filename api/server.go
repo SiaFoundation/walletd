@@ -91,6 +91,8 @@ type (
 
 	// A WalletManager manages wallets, keyed by name.
 	WalletManager interface {
+		Health() error
+
 		IndexMode() wallet.IndexMode
 		Tip() (types.ChainIndex, error)
 		Scan(_ context.Context, index types.ChainIndex) error
@@ -173,6 +175,14 @@ func (s *server) stateHandler(jc jape.Context) {
 		StartTime: s.startTime,
 		IndexMode: s.wm.IndexMode(),
 	})
+}
+
+func (s *server) healthHandler(jc jape.Context) {
+	if err := s.wm.Health(); err != nil {
+		jc.Error(err, http.StatusInternalServerError)
+		return
+	}
+	jc.Encode(nil)
 }
 
 func (s *server) consensusNetworkHandler(jc jape.Context) {
@@ -1509,7 +1519,8 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 	}
 
 	handlers := map[string]jape.Handler{
-		"GET /state": wrapPublicAuthHandler(srv.stateHandler),
+		"GET /state":  wrapPublicAuthHandler(srv.stateHandler),
+		"GET /health": wrapPublicAuthHandler(srv.healthHandler),
 
 		"GET /consensus/network":        wrapPublicAuthHandler(srv.consensusNetworkHandler),
 		"GET /consensus/tip":            wrapPublicAuthHandler(srv.consensusTipHandler),
