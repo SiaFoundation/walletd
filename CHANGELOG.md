@@ -1,3 +1,10 @@
+## 2.5.0 (2025-05-16)
+
+### Features
+
+- Added [GET] /health to check the health of the walletd node
+- Consensus checkpoint and block endpoints now support lookups by height
+
 ## 2.4.1 (2025-05-14)
 
 ### Fixes
