@@ -107,6 +107,7 @@ type (
 		// In personal index mode, this function returns true only
 		// if the address is registered to a wallet.
 		CheckAddresses([]types.Address) (bool, error)
+		OverwriteElementProofs(txns []types.V2Transaction) (basis types.ChainIndex, updated []types.V2Transaction, err error)
 
 		Events(eventIDs []types.Hash256) ([]Event, error)
 		AnnotateV1Events(index types.ChainIndex, timestamp time.Time, v1 []types.Transaction) (annotated []Event, err error)
@@ -516,6 +517,11 @@ top:
 
 	m.lockUTXOs(utxoIDs...)
 	return selected, basis, inputSum - amount, nil
+}
+
+// OverwriteElementProofs overwrites the proofs of the given transactions.
+func (m *Manager) OverwriteElementProofs(txns []types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error) {
+	return m.store.OverwriteElementProofs(txns)
 }
 
 // Scan rescans the chain starting from the given index. The scan will complete

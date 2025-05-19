@@ -757,3 +757,38 @@ func walletExists(tx *txn, id wallet.ID) error {
 	}
 	return err
 }
+
+// OverwriteElementProofs overwrites the element proofs for the given transactions.
+func (s *Store) OverwriteElementProofs(txns []types.V2Transaction) (basis types.ChainIndex, updated []types.V2Transaction, err error) {
+	err = s.transaction(func(tx *txn) error {
+		basis, err = getScanBasis(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get basis: %w", err)
+		}
+
+		for _, txn := range txns {
+			txn = txn.DeepCopy()
+			for i, sci := range txn.SiacoinInputs {
+				ele, err := getSiacoinElement(tx, sci.Parent.ID, s.indexMode)
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				} else if err != nil {
+					return fmt.Errorf("failed to get siacoin element: %w", err)
+				}
+				txn.SiacoinInputs[i].Parent = ele
+			}
+			for i, sfi := range txn.SiafundInputs {
+				ele, err := getSiafundElement(tx, sfi.Parent.ID, s.indexMode)
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				} else if err != nil {
+					return fmt.Errorf("failed to get siafund element: %w", err)
+				}
+				txn.SiafundInputs[i].Parent = ele
+			}
+			updated = append(updated, txn)
+		}
+		return nil
+	})
+	return
+}
