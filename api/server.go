@@ -424,15 +424,15 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	}
 	if len(tbr.V2Transactions) != 0 {
 		var err error
-		if s.wm.IndexMode() == wallet.IndexModeFull {
-			// when in full index mode overwriting the proofs makes it slightly more convenient
-			// and less error-prone for users to broadcast v2 transactions since the correct
-			// proof can be filled implicitly. Unfortunately, that hides bad implementations
-			// from the implementor. In practice, this trade off is worth it.
-			tbr.Basis, tbr.V2Transactions, err = s.wm.OverwriteElementProofs(tbr.V2Transactions)
-			if jc.Check("couldn't overwrite proofs", err) != nil {
-				return
-			}
+		// Overwrites the proofs for siacoin elements that are tracked in the database. Makes it slightly
+		// more convenient and less error-prone for users to broadcast v2 transactions since the correct
+		// proof can be filled implicitly. Unfortunately, that hides bad implementations from the
+		// implementor. In practice, this trade off is worth it.
+		// In full index mode, any UTXO can have its proofs overwritten.
+		// In personal index mode, only UTXOs that are registered to a wallet can have its proofs overwritten.
+		tbr.Basis, tbr.V2Transactions, err = s.wm.OverwriteElementProofs(tbr.V2Transactions)
+		if jc.Check("couldn't overwrite proofs", err) != nil {
+			return
 		}
 
 		if len(tbr.V2Transactions) == 1 {
