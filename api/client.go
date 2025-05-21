@@ -360,15 +360,15 @@ func (c *WalletClient) UnconfirmedEvents() (resp []wallet.Event, err error) {
 }
 
 // SiacoinOutputs returns the set of unspent outputs controlled by the wallet.
-func (c *WalletClient) SiacoinOutputs(offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error) {
-	var resp SiacoinElementsResponse
+func (c *WalletClient) SiacoinOutputs(offset, limit int) ([]wallet.UnspentSiacoinElement, types.ChainIndex, error) {
+	var resp UnspentSiacoinElementsResponse
 	err := c.c.GET(context.Background(), fmt.Sprintf("/wallets/%v/outputs/siacoin?offset=%d&limit=%d", c.id, offset, limit), &resp)
 	return resp.Outputs, resp.Basis, err
 }
 
 // SiafundOutputs returns the set of unspent outputs controlled by the wallet.
-func (c *WalletClient) SiafundOutputs(offset, limit int) ([]types.SiafundElement, types.ChainIndex, error) {
-	var resp SiafundElementsResponse
+func (c *WalletClient) SiafundOutputs(offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error) {
+	var resp UnspentSiafundElementsResponse
 	err := c.c.GET(context.Background(), fmt.Sprintf("/wallets/%v/outputs/siafund?offset=%d&limit=%d", c.id, offset, limit), &resp)
 	return resp.Outputs, resp.Basis, err
 }

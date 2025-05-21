@@ -229,7 +229,7 @@ WHERE wa.wallet_id=$1`
 }
 
 // WalletSiacoinOutputs returns the unspent siacoin outputs for a wallet.
-func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins []types.SiacoinElement, basis types.ChainIndex, err error) {
+func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins []wallet.UnspentSiacoinElement, basis types.ChainIndex, err error) {
 	err = s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
@@ -240,8 +240,9 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 			return fmt.Errorf("failed to get basis: %w", err)
 		}
 
-		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address
+		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address, ci.height 
 		FROM siacoin_elements se
+		INNER JOIN chain_indices ci ON (se.chain_index_id = ci.id)
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE se.spent_index_id IS NULL AND se.maturity_height <= $1 AND se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$2)
 		LIMIT $3 OFFSET $4`
@@ -253,7 +254,7 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 		defer rows.Close()
 
 		for rows.Next() {
-			siacoin, err := scanSiacoinElement(rows)
+			siacoin, err := scanUnspentSiacoinElement(rows, basis.Height)
 			if err != nil {
 				return fmt.Errorf("failed to scan siacoin element: %w", err)
 			}
@@ -285,7 +286,7 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 }
 
 // WalletSiafundOutputs returns the unspent siafund outputs for a wallet.
-func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds []types.SiafundElement, basis types.ChainIndex, err error) {
+func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds []wallet.UnspentSiafundElement, basis types.ChainIndex, err error) {
 	err = s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
@@ -296,8 +297,9 @@ func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds 
 			return fmt.Errorf("failed to get basis: %w", err)
 		}
 
-		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address
+		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address, ci.height
 		FROM siafund_elements se
+		INNER JOIN chain_indices ci ON (se.chain_index_id = ci.id)
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE se.spent_index_id IS NULL AND se.address_id IN (SELECT address_id FROM wallet_addresses WHERE wallet_id=$1)
 		LIMIT $2 OFFSET $3`
@@ -309,7 +311,7 @@ func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds 
 		defer rows.Close()
 
 		for rows.Next() {
-			siafund, err := scanSiafundElement(rows)
+			siafund, err := scanUnspentSiafundElement(rows, basis.Height)
 			if err != nil {
 				return fmt.Errorf("failed to scan siafund element: %w", err)
 			}

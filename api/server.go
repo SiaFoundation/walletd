@@ -108,10 +108,10 @@ type (
 		WalletAddress(wallet.ID, types.Address) (wallet.Address, error)
 		WalletEvents(id wallet.ID, offset, limit int) ([]wallet.Event, error)
 		WalletUnconfirmedEvents(id wallet.ID) ([]wallet.Event, error)
-		SelectSiacoinElements(walletID wallet.ID, amount types.Currency, useUnconfirmed bool) ([]types.SiacoinElement, types.ChainIndex, types.Currency, error)
-		SelectSiafundElements(walletID wallet.ID, amount uint64) ([]types.SiafundElement, types.ChainIndex, uint64, error)
-		UnspentSiacoinOutputs(id wallet.ID, offset, limit int) ([]types.SiacoinElement, types.ChainIndex, error)
-		UnspentSiafundOutputs(id wallet.ID, offset, limit int) ([]types.SiafundElement, types.ChainIndex, error)
+		SelectSiacoinElements(walletID wallet.ID, amount types.Currency, useUnconfirmed bool) ([]wallet.UnspentSiacoinElement, types.ChainIndex, types.Currency, error)
+		SelectSiafundElements(walletID wallet.ID, amount uint64) ([]wallet.UnspentSiafundElement, types.ChainIndex, uint64, error)
+		UnspentSiacoinOutputs(id wallet.ID, offset, limit int) ([]wallet.UnspentSiacoinElement, types.ChainIndex, error)
+		UnspentSiafundOutputs(id wallet.ID, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error)
 		WalletBalance(id wallet.ID) (wallet.Balance, error)
 
 		AddressBalance(address types.Address) (wallet.Balance, error)
@@ -691,7 +691,7 @@ func (s *server) walletsOutputsSiacoinHandler(jc jape.Context) {
 		return
 	}
 
-	jc.Encode(SiacoinElementsResponse{
+	jc.Encode(UnspentSiacoinElementsResponse{
 		Basis:   basis,
 		Outputs: scos,
 	})
@@ -712,7 +712,7 @@ func (s *server) walletsOutputsSiafundHandler(jc jape.Context) {
 	if jc.Check("couldn't load siacoin outputs", err) != nil {
 		return
 	}
-	jc.Encode(SiafundElementsResponse{
+	jc.Encode(UnspentSiafundElementsResponse{
 		Basis:   basis,
 		Outputs: sfos,
 	})
@@ -1214,7 +1214,7 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 		}
 
 		sfi := types.V2SiafundInput{
-			Parent:       sfe,
+			Parent:       sfe.SiafundElement,
 			ClaimAddress: wcr.ChangeAddress,
 			SatisfiedPolicy: types.SatisfiedPolicy{
 				Policy: sp,
@@ -1239,7 +1239,7 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 		}
 
 		sci := types.V2SiacoinInput{
-			Parent: sce,
+			Parent: sce.SiacoinElement,
 			SatisfiedPolicy: types.SatisfiedPolicy{
 				Policy: sp,
 			},
