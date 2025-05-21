@@ -48,7 +48,7 @@ func runCPUMiner(c *api.Client, minerAddr types.Address, n int) {
 				Height:       cs.Index.Height + 1,
 				Transactions: v2txns,
 			}
-			b.V2.Commitment = cs.Commitment(cs.TransactionsCommitment(b.Transactions, b.V2Transactions()), b.MinerPayouts[0].Address)
+			b.V2.Commitment = cs.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions())
 		}
 		if !coreutils.FindBlockNonce(cs, &b, time.Minute) {
 			continue
