@@ -2497,7 +2497,7 @@ func TestV2(t *testing.T) {
 	policy := types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey()))
 	txn := types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{{
-			Parent: sce,
+			Parent: sce.SiacoinElement,
 			SatisfiedPolicy: types.SatisfiedPolicy{
 				Policy: types.SpendPolicy{Type: policy},
 			},
@@ -2925,7 +2925,7 @@ func TestReorgV2(t *testing.T) {
 	policy := types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey()))
 	txn := types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{{
-			Parent: sce,
+			Parent: sce.SiacoinElement,
 			SatisfiedPolicy: types.SatisfiedPolicy{
 				Policy: types.SpendPolicy{Type: policy},
 			},
@@ -3053,7 +3053,7 @@ func TestOrphansV2(t *testing.T) {
 	policy := types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey()))
 	txn := types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{{
-			Parent: sce,
+			Parent: sce.SiacoinElement,
 			SatisfiedPolicy: types.SatisfiedPolicy{
 				Policy: types.SpendPolicy{Type: policy},
 			},
@@ -3139,7 +3139,7 @@ func TestOrphansV2(t *testing.T) {
 	// spend the payout
 	txn = types.V2Transaction{
 		SiacoinInputs: []types.V2SiacoinInput{{
-			Parent: sce,
+			Parent: sce.SiacoinElement,
 			SatisfiedPolicy: types.SatisfiedPolicy{
 				Policy: types.SpendPolicy{Type: policy},
 			},
@@ -4172,7 +4172,7 @@ func TestV2SiafundClaims(t *testing.T) {
 	}
 	for _, sfe := range siafunds {
 		txn.SiafundInputs = append(txn.SiafundInputs, types.V2SiafundInput{
-			Parent: sfe,
+			Parent: sfe.SiafundElement,
 			SatisfiedPolicy: types.SatisfiedPolicy{
 				Policy: sp,
 			},
@@ -4246,7 +4246,7 @@ func TestV2SiafundClaims(t *testing.T) {
 
 	for _, sce := range siacoins {
 		fcTxn.SiacoinInputs = append(fcTxn.SiacoinInputs, types.V2SiacoinInput{
-			Parent: sce,
+			Parent: sce.SiacoinElement,
 			SatisfiedPolicy: types.SatisfiedPolicy{
 				Policy: sp,
 			},
@@ -4285,7 +4285,7 @@ func TestV2SiafundClaims(t *testing.T) {
 	}
 	for _, sfe := range siafunds {
 		txn.SiafundInputs = append(txn.SiafundInputs, types.V2SiafundInput{
-			Parent:          sfe,
+			Parent:          sfe.SiafundElement,
 			SatisfiedPolicy: types.SatisfiedPolicy{Policy: sp},
 			ClaimAddress:    addr,
 		})
