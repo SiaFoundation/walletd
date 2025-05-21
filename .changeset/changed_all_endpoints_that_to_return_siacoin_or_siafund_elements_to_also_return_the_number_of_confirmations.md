@@ -2,7 +2,7 @@
 default: minor
 ---
 
-# Changed all endpoints that to return Siacoin or Siafund elements to also return the number of confirmations
+# Changed all endpoints that return Siacoin or Siafund elements to also return the number of confirmations
 
 ```json
 {
