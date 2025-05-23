@@ -1,3 +1,10 @@
+## 2.7.0 (2025-05-23)
+
+### Features
+
+- Updated coreutils to v0.14.0
+- Updated core to v0.12.4
+
 ## 2.6.0 (2025-05-21)
 
 ### Features
