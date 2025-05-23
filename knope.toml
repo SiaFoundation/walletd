@@ -3,6 +3,9 @@ changelog = "CHANGELOG.md"
 versioned_files = ["go.mod"]
 assets = "marker"
 
+[bot.releases]
+enabled = true
+
 [[workflows]]
 name = "document-change"
 
