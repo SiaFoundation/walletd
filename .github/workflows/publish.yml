@@ -1,21 +1,31 @@
 name: Publish
 
-# Controls when the action will run.
 on:
-  # Triggers the workflow on new SemVer tags
-  push:
-    branches:
-      - master
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
-      - "v[0-9]+.[0-9]+.[0-9]+-**"
+  pull_request:
+    types: [closed]
+    branches: [master]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
-  publish:
+  get-tag:
+    if: (github.head_ref == 'release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - run: echo "tag_name=$(gh release list --json 'isDraft,tagName' --jq '.[] | select(.isDraft) | .tagName')" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+        id: get-tag
+    outputs:
+      tag_name: ${{ steps.get-tag.outputs.tag_name }}
+  build:
+    needs:
+      - get-tag
+    if: needs.get-tag.outputs.tag_name != ''
     uses: SiaFoundation/workflows/.github/workflows/go-publish.yml@master
     secrets: inherit
     with:
@@ -26,3 +36,23 @@ jobs:
       project: walletd
       project-desc: "walletd: The new Sia wallet"
       version-tag: ${{ github.ref_name }}
+  release:
+    needs: 
+      - build
+      - get-tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          path: artifacts
+      - name: Upload artifacts to release
+        run: |
+          cd artifacts
+          gh release upload ${{ needs.get-tag.outputs.tag_name }} *
+          gh release edit ${{ needs.get-tag.outputs.tag_name }} --draft=false --latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
