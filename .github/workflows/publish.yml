@@ -45,6 +45,16 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Configure Git
+        run: |
+          git config --global user.name github-actions[bot]
+          git config --global user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - uses: knope-dev/action@407e9ef7c272d2dd53a4e71e39a7839e29933c48
+      - run: knope release --verbose
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/download-artifact@v4.3.0
         with:
           path: artifacts
@@ -52,7 +62,6 @@ jobs:
         run: |
           cd artifacts
           gh release upload ${{ needs.get-tag.outputs.tag_name }} *
-          gh release edit ${{ needs.get-tag.outputs.tag_name }} --draft=false --latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
