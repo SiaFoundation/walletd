@@ -11,20 +11,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  get-tag:
-    if: (github.head_ref == 'release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4.2.2
-      - run: echo "tag_name=$(gh release list --json 'isDraft,tagName' --jq '.[] | select(.isDraft) | .tagName')" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ github.token }}
-        id: get-tag
-    outputs:
-      tag_name: ${{ steps.get-tag.outputs.tag_name }}
   release:
-    needs: 
-      - get-tag
+    if: (github.head_ref == 'release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -32,12 +20,8 @@ jobs:
       - uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
-      - name: Configure Git
-        run: |
-          git config --global user.name github-actions[bot]
-          git config --global user.email 41898282+github-actions[bot]@users.noreply.github.com
       - uses: knope-dev/action@407e9ef7c272d2dd53a4e71e39a7839e29933c48
       - run: knope release --verbose
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
       

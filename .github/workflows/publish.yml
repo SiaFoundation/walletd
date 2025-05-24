@@ -44,5 +44,5 @@ jobs:
           cd artifacts
           gh release upload ${{ github.ref_name }} *
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
         continue-on-error: true
