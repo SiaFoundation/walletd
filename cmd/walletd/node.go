@@ -98,6 +98,36 @@ func setupUPNP(ctx context.Context, port uint16, log *zap.Logger) (string, error
 	return d.ExternalIP()
 }
 
+// startLocalhostListener https://github.com/SiaFoundation/hostd/issues/202
+func startLocalhostListener(listenAddr string, log *zap.Logger) (l net.Listener, err error) {
+	addr, port, err := net.SplitHostPort(listenAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse API address: %w", err)
+	}
+
+	// if the address is not localhost, listen on the address as-is
+	if addr != "localhost" {
+		return net.Listen("tcp", listenAddr)
+	}
+
+	// localhost fails on some new installs of Windows 11, so try a few
+	// different addresses
+	tryAddresses := []string{
+		net.JoinHostPort("localhost", port), // original address
+		net.JoinHostPort("127.0.0.1", port), // IPv4 loopback
+		net.JoinHostPort("::1", port),       // IPv6 loopback
+	}
+
+	for _, addr := range tryAddresses {
+		l, err = net.Listen("tcp", addr)
+		if err == nil {
+			return
+		}
+		log.Debug("failed to listen on fallback address", zap.String("address", addr), zap.Error(err))
+	}
+	return
+}
+
 func loadCustomNetwork(fp string) (*consensus.Network, types.Block, error) {
 	f, err := os.Open(fp)
 	if err != nil {
@@ -161,7 +191,7 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	}
 	defer syncerListener.Close()
 
-	httpListener, err := net.Listen("tcp", cfg.HTTP.Address)
+	httpListener, err := startLocalhostListener(cfg.HTTP.Address, log)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %q: %w", cfg.HTTP.Address, err)
 	}
