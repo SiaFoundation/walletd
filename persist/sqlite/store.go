@@ -63,7 +63,7 @@ func (s *Store) transaction(fn func(*txn) error) error {
 
 func sqliteFilepath(fp string) string {
 	params := []string{
-		fmt.Sprintf("_busy_timeout=%d", 300000), // 300 seconds
+		fmt.Sprintf("_busy_timeout=%d", time.Minute.Milliseconds()),
 		"_foreign_keys=true",
 		"_journal_mode=WAL",
 		"_secure_delete=false",
