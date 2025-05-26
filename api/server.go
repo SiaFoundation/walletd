@@ -147,6 +147,7 @@ type (
 		// In personal index mode, this returns true only if the address
 		// is registered to a wallet.
 		CheckAddresses([]types.Address) (bool, error)
+		OverwriteElementProofs([]types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error)
 	}
 )
 
@@ -401,9 +402,7 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	// the transactions are sent back to the client because the
 	// transaction set may have been modified and the transactions
 	// include additional convenience fields when being marshalled
-	resp := TxpoolBroadcastResponse{
-		Basis: tbr.Basis,
-	}
+	var resp TxpoolBroadcastResponse
 	if len(tbr.Transactions) != 0 {
 		if len(tbr.Transactions) == 1 {
 			// if there's only one transaction, best-effort check for parents
@@ -422,20 +421,31 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		}
 	}
 	if len(tbr.V2Transactions) != 0 {
-		if len(tbr.V2Transactions) == 1 {
-			// if there's only one transaction, best-effort check for parents
-			var err error
-			tbr.Basis, tbr.V2Transactions, err = s.cm.V2TransactionSet(tbr.Basis, tbr.V2Transactions[0])
-			if jc.Check("couldn't create v2 transaction set", err) != nil {
+		var err error
+		// Overwrites the proofs for siacoin elements that are tracked in the database. Makes it slightly
+		// more convenient and less error-prone for users to broadcast v2 transactions since the correct
+		// proof can be filled implicitly. Unfortunately, that hides bad implementations from the
+		// implementor. In practice, this trade off is worth it.
+		// In full index mode, any UTXO can have its proofs overwritten.
+		// In personal index mode, only UTXOs that are registered to a wallet can have its proofs overwritten.
+		if len(tbr.Transactions) == 0 && s.wm.IndexMode() == wallet.IndexModeFull {
+			tbr.Basis, tbr.V2Transactions, err = s.wm.OverwriteElementProofs(tbr.V2Transactions)
+			if jc.Check("couldn't overwrite proofs", err) != nil {
 				return
 			}
 		}
 
-		// prevents a race condition when encoding the transactions
-		// TODO: fix this race
-		resp.V2Transactions = make([]types.V2Transaction, 0, len(tbr.V2Transactions))
-		for _, txn := range tbr.V2Transactions {
-			resp.V2Transactions = append(resp.V2Transactions, txn.DeepCopy())
+		if len(tbr.V2Transactions) == 1 {
+			// if there's only one transaction, best-effort check for parents
+			tbr.Basis, tbr.V2Transactions, err = s.cm.V2TransactionSet(tbr.Basis, tbr.V2Transactions[0])
+			if jc.Check("couldn't get transaction set", err) != nil {
+				return
+			}
+		}
+
+		resp.V2Transactions = slices.Clone(tbr.V2Transactions)
+		for i := range resp.V2Transactions {
+			resp.V2Transactions[i] = resp.V2Transactions[i].DeepCopy()
 		}
 
 		if _, err := s.cm.AddV2PoolTransactions(tbr.Basis, tbr.V2Transactions); err != nil {
@@ -445,6 +455,7 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 			return
 		}
 	}
+	resp.Basis = tbr.Basis
 	jc.Encode(resp)
 }
 
