@@ -20,7 +20,7 @@ func TestCheckAddresses(t *testing.T) {
 	}
 
 	// create a new database
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "walletd.sqlite"), log.Named("sqlite3"))
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "walletd.sqlite"), WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}

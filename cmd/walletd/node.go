@@ -146,7 +146,59 @@ func loadCustomNetwork(fp string) (*consensus.Network, types.Block, error) {
 	return &network.Network, network.Genesis, nil
 }
 
+// migrateConsensusDB checks if the consensus database needs to be migrated
+// to match the new v2 commitment.
+func migrateConsensusDB(fp string, n *consensus.Network, genesis types.Block, log *zap.Logger) error {
+	bdb, err := coreutils.OpenBoltChainDB(fp)
+	if err != nil {
+		return fmt.Errorf("failed to open consensus database: %w", err)
+	}
+	defer bdb.Close()
+
+	dbstore, tipState, err := chain.NewDBStore(bdb, n, genesis, chain.NewZapMigrationLogger(log.Named("chaindb")))
+	if err != nil {
+		return fmt.Errorf("failed to create chain store: %w", err)
+	} else if tipState.Index.Height < n.HardforkV2.AllowHeight {
+		return nil // no migration needed, the chain is still on v1
+	}
+
+	log.Debug("checking for v2 commitment migration")
+	b, _, ok := dbstore.Block(tipState.Index.ID)
+	if !ok {
+		return fmt.Errorf("failed to get tip block %q", tipState.Index)
+	} else if b.V2 == nil {
+		log.Debug("tip block is not a v2 block, skipping commitment migration")
+		return nil
+	}
+
+	parentState, ok := dbstore.State(b.ParentID)
+	if !ok {
+		return fmt.Errorf("failed to get parent state for tip block %q", b.ParentID)
+	}
+	commitment := parentState.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions())
+	log = log.With(zap.Stringer("tip", b.ID()), zap.Stringer("commitment", b.V2.Commitment), zap.Stringer("expected", commitment))
+	if b.V2.Commitment == commitment {
+		log.Debug("tip block commitment matches parent state, no migration needed")
+		return nil
+	}
+	// reset the database if the commitment is not a merkle root
+	log.Debug("resetting consensus database for new v2 commitment")
+	if err := bdb.Close(); err != nil {
+		return fmt.Errorf("failed to close old consensus database: %w", err)
+	} else if err := os.RemoveAll(fp); err != nil {
+		return fmt.Errorf("failed to remove old consensus database: %w", err)
+	}
+	log.Debug("consensus database reset")
+	return nil
+}
+
 func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
+	store, err := sqlite.OpenDatabase(filepath.Join(cfg.Directory, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
+	if err != nil {
+		return fmt.Errorf("failed to open wallet database: %w", err)
+	}
+	defer store.Close()
+
 	var network *consensus.Network
 	var genesisBlock types.Block
 	var bootstrapPeers []string
@@ -173,7 +225,12 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		}
 	}
 
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
+	consensusPath := filepath.Join(cfg.Directory, "consensus.db")
+	if err := migrateConsensusDB(consensusPath, network, genesisBlock, log.Named("migrate")); err != nil {
+		return fmt.Errorf("failed to open consensus database: %w", err)
+	}
+
+	bdb, err := coreutils.OpenBoltChainDB(consensusPath)
 	if err != nil {
 		return fmt.Errorf("failed to open consensus database: %w", err)
 	}
@@ -218,12 +275,6 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	if ip := net.ParseIP(host); ip == nil || ip.IsUnspecified() {
 		syncerAddr = net.JoinHostPort("127.0.0.1", port)
 	}
-
-	store, err := sqlite.OpenDatabase(filepath.Join(cfg.Directory, "walletd.sqlite3"), log.Named("sqlite3"))
-	if err != nil {
-		return fmt.Errorf("failed to open wallet database: %w", err)
-	}
-	defer store.Close()
 
 	if cfg.Syncer.Bootstrap {
 		for _, peer := range bootstrapPeers {

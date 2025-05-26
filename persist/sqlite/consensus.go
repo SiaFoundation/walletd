@@ -200,8 +200,8 @@ func (s *Store) UpdateChainState(reverted []chain.RevertUpdate, applied []chain.
 			return nil
 		}
 
-		if state.Index.Height > spentElementRetentionBlocks {
-			pruneHeight := state.Index.Height - spentElementRetentionBlocks
+		if state.Index.Height > s.spentElementRetentionBlocks {
+			pruneHeight := state.Index.Height - s.spentElementRetentionBlocks
 
 			siacoins, err := pruneSpentSiacoinElements(tx, pruneHeight)
 			if err != nil {
