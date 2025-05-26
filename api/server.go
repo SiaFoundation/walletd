@@ -402,9 +402,7 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	// the transactions are sent back to the client because the
 	// transaction set may have been modified and the transactions
 	// include additional convenience fields when being marshalled
-	resp := TxpoolBroadcastResponse{
-		Basis: tbr.Basis,
-	}
+	var resp TxpoolBroadcastResponse
 	if len(tbr.Transactions) != 0 {
 		if len(tbr.Transactions) == 1 {
 			// if there's only one transaction, best-effort check for parents
@@ -430,9 +428,11 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		// implementor. In practice, this trade off is worth it.
 		// In full index mode, any UTXO can have its proofs overwritten.
 		// In personal index mode, only UTXOs that are registered to a wallet can have its proofs overwritten.
-		tbr.Basis, tbr.V2Transactions, err = s.wm.OverwriteElementProofs(tbr.V2Transactions)
-		if jc.Check("couldn't overwrite proofs", err) != nil {
-			return
+		if len(tbr.Transactions) == 0 && s.wm.IndexMode() == wallet.IndexModeFull {
+			tbr.Basis, tbr.V2Transactions, err = s.wm.OverwriteElementProofs(tbr.V2Transactions)
+			if jc.Check("couldn't overwrite proofs", err) != nil {
+				return
+			}
 		}
 
 		if len(tbr.V2Transactions) == 1 {
