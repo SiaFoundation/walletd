@@ -1,3 +1,17 @@
+## 2.8.0 (2025-05-26)
+
+### Features
+
+- Implicitly fill v2 transaction proofs when in full index mode
+- Update core to v0.13.0 and coreutils to v0.15.0
+
+### Fixes
+
+- Check consensus database for invalid commitment and reset if necessary.
+- Fixed a panic when listening to localhost on some Windows 11 systems.
+- Fixed SQLite database is locked error.
+- Reduced batch size for slower hardware.
+
 ## 2.7.0 (2025-05-23)
 
 ### Features
