@@ -73,7 +73,7 @@ var cfg = config.Config{
 	},
 	Index: config.Index{
 		Mode:      wallet.IndexModePersonal,
-		BatchSize: 1000,
+		BatchSize: 10,
 	},
 	Log: config.Log{
 		Level: zap.NewAtomicLevelAt(zap.InfoLevel),
