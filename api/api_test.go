@@ -346,6 +346,8 @@ func TestWallet(t *testing.T) {
 		t.Fatal("should have two UTXOs, got", len(outputs))
 	} else if basis != cn.Chain.Tip() {
 		t.Fatalf("basis should be %v, got %v", cn.Chain.Tip(), basis)
+	} else if outputs[0].Confirmations != 1 {
+		t.Fatalf("expected 1 confirmation, got %v", outputs[0].Confirmations)
 	}
 
 	// mine a block to add an immature balance
@@ -2035,4 +2037,124 @@ func TestTxPoolOverwriteProofsEphemeral(t *testing.T) {
 	} else if len(confirmed) != 3 {
 		t.Fatalf("expected 3 confirmed events, got %v", len(confirmed)) // initial gift + setup + sent
 	}
+}
+
+func TestWalletConfirmations(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	// create syncer
+	syncerListener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer syncerListener.Close()
+
+	// create chain manager
+	n, genesisBlock := testutil.V1Network()
+	giftPrivateKey := types.GeneratePrivateKey()
+	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(1),
+		Address: giftAddress,
+	}
+	genesisBlock.Transactions[0].SiafundOutputs[0].Address = giftAddress
+
+	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
+	c := startWalletServer(t, cn, log)
+
+	w, err := c.AddWallet(api.WalletUpdateRequest{
+		Name: "primary",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wc := c.Wallet(w.ID)
+
+	// create and add an address
+	sk2 := types.GeneratePrivateKey()
+	addr := types.StandardUnlockHash(sk2.PublicKey())
+	err = wc.AddAddress(wallet.Address{
+		Address: addr,
+		SpendPolicy: &types.SpendPolicy{
+			Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(sk2.PublicKey())),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Rescan(0)
+
+	// send gift to wallet
+	giftSCOID := genesisBlock.Transactions[0].SiacoinOutputID(0)
+	txn := types.Transaction{
+		SiacoinInputs: []types.SiacoinInput{{
+			ParentID:         giftSCOID,
+			UnlockConditions: types.StandardUnlockConditions(giftPrivateKey.PublicKey()),
+		}},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{Address: addr, Value: types.Siacoins(1)},
+		},
+		SiafundInputs: []types.SiafundInput{{
+			ParentID:         genesisBlock.Transactions[0].SiafundOutputID(0),
+			UnlockConditions: types.StandardUnlockConditions(giftPrivateKey.PublicKey()),
+		}},
+		SiafundOutputs: []types.SiafundOutput{
+			{Address: addr, Value: genesisBlock.Transactions[0].SiafundOutputs[0].Value},
+		},
+		Signatures: []types.TransactionSignature{{
+			ParentID:      types.Hash256(giftSCOID),
+			CoveredFields: types.CoveredFields{WholeTransaction: true},
+		}, {
+			ParentID:      types.Hash256(genesisBlock.Transactions[0].SiafundOutputID(0)),
+			CoveredFields: types.CoveredFields{WholeTransaction: true},
+		}},
+	}
+
+	cs, err := c.ConsensusTipState()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sig := giftPrivateKey.SignHash(cs.WholeSigHash(txn, types.Hash256(giftSCOID), 0, 0, nil))
+	txn.Signatures[0].Signature = sig[:]
+	sig2 := giftPrivateKey.SignHash(cs.WholeSigHash(txn, types.Hash256(genesisBlock.Transactions[0].SiafundOutputID(0)), 0, 0, nil))
+	txn.Signatures[1].Signature = sig2[:]
+
+	// broadcast the transaction to the transaction pool
+	if _, err := c.TxpoolBroadcast(cs.Index, []types.Transaction{txn}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// confirm the transaction
+	cn.MineBlocks(t, types.VoidAddress, 1)
+
+	assertConfirmations := func(t *testing.T, n uint64) {
+		t.Helper()
+
+		outputs, basis, err := wc.SiacoinOutputs(0, 100)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(outputs) != 1 {
+			t.Fatal("should have one UTXOs, got", len(outputs))
+		} else if basis != cn.Chain.Tip() {
+			t.Fatalf("basis should be %v, got %v", cn.Chain.Tip(), basis)
+		} else if outputs[0].Confirmations != n {
+			t.Fatalf("expected %d confirmation, got %v", n, outputs[0].Confirmations)
+		}
+
+		sfe, basis, err := wc.SiafundOutputs(0, 100)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(sfe) != 1 {
+			t.Fatal("should have one siafund output, got", len(sfe))
+		} else if basis != cn.Chain.Tip() {
+			t.Fatalf("basis should be %v, got %v", cn.Chain.Tip(), basis)
+		} else if sfe[0].Confirmations != n {
+			t.Fatalf("expected %d confirmation, got %v", n, sfe[0].Confirmations)
+		}
+	}
+
+	assertConfirmations(t, 1)
+	cn.MineBlocks(t, types.VoidAddress, 10)
+	assertConfirmations(t, 11)
 }

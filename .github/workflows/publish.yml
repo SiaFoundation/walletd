@@ -26,3 +26,23 @@ jobs:
       project: walletd
       project-desc: "walletd: The new Sia wallet"
       version-tag: ${{ github.ref_name }}
+  upload:
+    if: github.event_name == 'push' && startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    needs: 
+      - publish
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Download artifacts
+        uses: actions/download-artifact@v4.3.0
+        with:
+          path: artifacts
+      - name: Upload artifacts to release
+        run: |
+          cd artifacts
+          gh release upload ${{ github.ref_name }} *
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
+        continue-on-error: true

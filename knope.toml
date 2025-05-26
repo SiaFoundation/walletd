@@ -1,7 +1,10 @@
 [package]
 changelog = "CHANGELOG.md"
 versioned_files = ["go.mod"]
-ignore_go_major_versioning = true
+assets = "marker"
+
+[bot.releases]
+enabled = true
 
 [[workflows]]
 name = "document-change"
@@ -44,12 +47,11 @@ variables = { "$version" = "Version" }
 template = "This PR was created automatically. Merging it will finalize the changelog for $version\n\n$changelog"
 variables = { "$changelog" = "ChangelogEntry", "$version" = "Version" }
 
-# Do not enable releases, just changelogs for now.
-# [[workflows]]
-# name = "release"
-#
-# [[workflows.steps]]
-# type = "Release"
+[[workflows]]
+name = "release"
+
+[[workflows.steps]]
+type = "Release"
 
 [github]
 owner = "SiaFoundation"
