@@ -112,7 +112,7 @@ func mineV2Block(state consensus.State, txns []types.V2Transaction, minerAddr ty
 func TestReserve(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestReserve(t *testing.T) {
 func TestSelectSiacoins(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestSelectSiacoins(t *testing.T) {
 func TestSelectSiafunds(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +502,7 @@ func TestReorg(t *testing.T) {
 
 		log := zaptest.NewLogger(t)
 		dir := t.TempDir()
-		db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+		db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -710,7 +710,7 @@ func TestEphemeralBalance(t *testing.T) {
 
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -906,7 +906,7 @@ func TestEphemeralBalance(t *testing.T) {
 func TestWalletAddresses(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1033,7 +1033,7 @@ func TestWalletAddresses(t *testing.T) {
 func TestScan(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1200,7 +1200,7 @@ func TestScan(t *testing.T) {
 func TestSiafunds(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1361,7 +1361,7 @@ func TestOrphans(t *testing.T) {
 
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1558,7 +1558,7 @@ func TestFullIndex(t *testing.T) {
 
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1782,7 +1782,7 @@ func TestEvents(t *testing.T) {
 
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2034,7 +2034,7 @@ func TestEvents(t *testing.T) {
 func TestWalletUnconfirmedEvents(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2222,7 +2222,7 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 func TestAddressUnconfirmedEvents(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2430,7 +2430,7 @@ func TestV2(t *testing.T) {
 
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2538,7 +2538,7 @@ func TestV2(t *testing.T) {
 func TestScanV2(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2733,7 +2733,7 @@ func TestReorgV2(t *testing.T) {
 
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2961,7 +2961,7 @@ func TestOrphansV2(t *testing.T) {
 
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3175,7 +3175,7 @@ func TestDeleteWallet(t *testing.T) {
 
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3273,7 +3273,7 @@ func TestEventTypes(t *testing.T) {
 
 	log := zap.NewNop()
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3859,7 +3859,7 @@ func TestSiafundClaims(t *testing.T) {
 
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4105,7 +4105,7 @@ func TestV2SiafundClaims(t *testing.T) {
 
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4392,7 +4392,7 @@ func TestReset(t *testing.T) {
 		}
 	}
 
-	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := sqlite.OpenDatabase(filepath.Join(t.TempDir(), "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}

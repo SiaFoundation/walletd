@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"go.sia.tech/core/types"
-	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -149,7 +148,7 @@ func TestMigrationConsistency(t *testing.T) {
 
 	expectedVersion := int64(len(migrations) + 1)
 	log := zaptest.NewLogger(t)
-	store, err := OpenDatabase(fp, log)
+	store, err := OpenDatabase(fp, WithLog(log))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +161,7 @@ func TestMigrationConsistency(t *testing.T) {
 	}
 
 	// ensure the database does not change version when opened again
-	store, err = OpenDatabase(fp, log)
+	store, err = OpenDatabase(fp, WithLog(log))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +172,7 @@ func TestMigrationConsistency(t *testing.T) {
 	}
 
 	fp2 := filepath.Join(t.TempDir(), "walletd.sqlite3")
-	baseline, err := OpenDatabase(fp2, zap.NewNop())
+	baseline, err := OpenDatabase(fp2)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,7 @@ func syncDB(tb testing.TB, store *Store, cm *chain.Manager) {
 func TestPruneSiacoins(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), WithLog(log.Named("sqlite3")), WithRetainSpentElements(20))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestPruneSiacoins(t *testing.T) {
 	assertUTXOs(0, 1)
 
 	// mine until the payout matures
-	for i := 0; i < int(maturityHeight); i++ {
+	for range maturityHeight {
 		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
 			t.Fatal(err)
 		}
@@ -173,7 +173,7 @@ func TestPruneSiacoins(t *testing.T) {
 	assertUTXOs(1, 0)
 
 	// mine until the element is pruned
-	for i := 0; i < spentElementRetentionBlocks-1; i++ {
+	for i := uint64(0); i < db.spentElementRetentionBlocks-1; i++ {
 		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
 			t.Fatal(err)
 		}
@@ -192,7 +192,7 @@ func TestPruneSiacoins(t *testing.T) {
 func TestPruneSiafunds(t *testing.T) {
 	log := zaptest.NewLogger(t)
 	dir := t.TempDir()
-	db, err := OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), log.Named("sqlite3"))
+	db, err := OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestPruneSiafunds(t *testing.T) {
 	assertUTXOs(1, 0)
 
 	// mine until the element is pruned
-	for i := 0; i < spentElementRetentionBlocks-1; i++ {
+	for i := uint64(0); i < db.spentElementRetentionBlocks-1; i++ {
 		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
 			t.Fatal(err)
 		}
