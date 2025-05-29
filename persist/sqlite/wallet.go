@@ -144,25 +144,45 @@ func (s *Store) Wallets() (wallets []wallet.Wallet, err error) {
 	return
 }
 
-// AddWalletAddress adds an address to a wallet.
-func (s *Store) AddWalletAddress(id wallet.ID, addr wallet.Address) error {
+// AddWalletAddresses adds the given addresses to a wallet.
+func (s *Store) AddWalletAddresses(id wallet.ID, walletAddresses ...wallet.Address) error {
 	return s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
+		} else if len(walletAddresses) == 0 {
+			return errors.New("no addresses to add")
 		}
 
-		addressID, err := insertAddress(tx, addr.Address)
+		addresses := make([]types.Address, 0, len(walletAddresses))
+		for _, wa := range walletAddresses {
+			addresses = append(addresses, wa.Address)
+		}
+
+		addressDBIDs, err := insertAddress(tx, addresses...)
 		if err != nil {
-			return fmt.Errorf("failed to insert address: %w", err)
+			return fmt.Errorf("failed to insert addresses: %w", err)
 		}
 
-		var encodedPolicy any
-		if addr.SpendPolicy != nil {
-			encodedPolicy = encode(*addr.SpendPolicy)
+		stmt, err := tx.Prepare(`INSERT INTO wallet_addresses (wallet_id, address_id, description, spend_policy, extra_data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (wallet_id, address_id) DO UPDATE set description=EXCLUDED.description, spend_policy=EXCLUDED.spend_policy, extra_data=EXCLUDED.extra_data`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare wallet address insert statement: %w", err)
 		}
+		defer stmt.Close()
 
-		_, err = tx.Exec(`INSERT INTO wallet_addresses (wallet_id, address_id, description, spend_policy, extra_data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (wallet_id, address_id) DO UPDATE set description=EXCLUDED.description, spend_policy=EXCLUDED.spend_policy, extra_data=EXCLUDED.extra_data`, id, addressID, addr.Description, encodedPolicy, addr.Metadata)
-		return err
+		for i, wa := range walletAddresses {
+			addressDBID := addressDBIDs[i]
+
+			var encodedPolicy any
+			if wa.SpendPolicy != nil {
+				encodedPolicy = encode(*wa.SpendPolicy)
+			}
+
+			_, err = stmt.Exec(id, addressDBID, wa.Description, encodedPolicy, wa.Metadata)
+			if err != nil {
+				return fmt.Errorf("failed to insert wallet address %q: %w", wa.Address, err)
+			}
+		}
+		return nil
 	})
 }
 
@@ -638,13 +658,28 @@ func scanSiafundElement(s scanner) (se types.SiafundElement, err error) {
 	return
 }
 
-func insertAddress(tx *txn, addr types.Address) (id int64, err error) {
+func insertAddress(tx *txn, addrs ...types.Address) (ids []int64, err error) {
 	const query = `INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance)
 VALUES ($1, $2, $3, 0) ON CONFLICT (sia_address) DO UPDATE SET sia_address=EXCLUDED.sia_address
 RETURNING id`
 
-	err = tx.QueryRow(query, encode(addr), encode(types.ZeroCurrency), encode(types.ZeroCurrency)).Scan(&id)
-	return
+	if len(addrs) == 0 {
+		return nil, errors.New("no addresses to insert")
+	}
+
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare address insert statement: %w", err)
+	}
+	defer stmt.Close()
+	for _, addr := range addrs {
+		var id int64
+		if err := stmt.QueryRow(encode(addr), encode(types.ZeroCurrency), encode(types.ZeroCurrency)).Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to insert address %q: %w", addr, err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func scanWalletAddress(s scanner) (wallet.Address, error) {

@@ -27,7 +27,7 @@ func runBenchmarkWalletEvents(b *testing.B, name string, addresses, eventsPerAdd
 
 		for i := 0; i < addresses; i++ {
 			addr := types.Address(frand.Entropy256())
-			if err := db.AddWalletAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+			if err := db.AddWalletAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 				b.Fatal(err)
 			}
 

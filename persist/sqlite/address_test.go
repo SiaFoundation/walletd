@@ -38,7 +38,7 @@ func TestCheckAddresses(t *testing.T) {
 	w, err := db.AddWallet(wallet.Wallet{})
 	if err != nil {
 		t.Fatal(err)
-	} else if err := db.AddWalletAddress(w.ID, wallet.Address{
+	} else if err := db.AddWalletAddresses(w.ID, wallet.Address{
 		Address: address,
 	}); err != nil {
 		t.Fatal(err)

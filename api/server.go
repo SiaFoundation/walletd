@@ -102,7 +102,7 @@ type (
 		DeleteWallet(wallet.ID) error
 		Wallets() ([]wallet.Wallet, error)
 
-		AddAddress(id wallet.ID, addr wallet.Address) error
+		AddAddresses(id wallet.ID, addrs ...wallet.Address) error
 		RemoveAddress(id wallet.ID, addr types.Address) error
 		Addresses(id wallet.ID) ([]wallet.Address, error)
 		WalletAddress(wallet.ID, types.Address) (wallet.Address, error)
@@ -603,7 +603,23 @@ func (s *server) walletsAddressHandlerPUT(jc jape.Context) {
 	var addr wallet.Address
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&addr) != nil {
 		return
-	} else if jc.Check("couldn't add address", s.wm.AddAddress(id, addr)) != nil {
+	} else if jc.Check("couldn't add address", s.wm.AddAddresses(id, addr)) != nil {
+		return
+	}
+	jc.Encode(nil)
+}
+
+func (s *server) walletsBatchAddressesHandlerPUT(jc jape.Context) {
+	const maxBatchAddressSize = 10000
+
+	var id wallet.ID
+	var addrs []wallet.Address
+	if jc.DecodeParam("id", &id) != nil || jc.Decode(&addrs) != nil {
+		return
+	} else if len(addrs) > maxBatchAddressSize {
+		jc.Error(fmt.Errorf("number of addresses exceeds the maximum batch size %d", maxBatchAddressSize), http.StatusBadRequest)
+		return
+	} else if jc.Check("couldn't add addresses", s.wm.AddAddresses(id, addrs...)) != nil {
 		return
 	}
 	jc.Encode(nil)
@@ -1576,6 +1592,7 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		"PUT /wallets/:id/addresses":                 wrapAuthHandler(srv.walletsAddressHandlerPUT),
 		"DELETE /wallets/:id/addresses/:addr":        wrapAuthHandler(srv.walletsAddressHandlerDELETE),
 		"GET /wallets/:id/addresses":                 wrapAuthHandler(srv.walletsAddressesHandlerGET),
+		"PUT /wallets/:id/batch/addresses":           wrapAuthHandler(srv.walletsBatchAddressesHandlerPUT),
 		"GET /wallets/:id/balance":                   wrapAuthHandler(srv.walletsBalanceHandler),
 		"GET /wallets/:id/events":                    wrapAuthHandler(srv.walletsEventsHandler),
 		"POST /wallets/:id/construct/transaction":    wrapAuthHandler(srv.walletsConstructHandler),

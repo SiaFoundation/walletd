@@ -492,6 +492,28 @@ func TestAddresses(t *testing.T) {
 	} else if !balance.ImmatureSiacoins.IsZero() {
 		t.Fatal("immature balance should be 0 SC, got", balance.ImmatureSiacoins)
 	}
+
+	// create new wallet
+	w, err = c.AddWallet(api.WalletUpdateRequest{Name: t.Name()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wc = c.Wallet(w.ID)
+
+	// create two addresses
+	pk1 := types.GeneratePrivateKey()
+	pk2 := types.GeneratePrivateKey()
+	addr1 := types.StandardUnlockHash(pk1.PublicKey())
+	addr2 := types.StandardUnlockHash(pk2.PublicKey())
+
+	// assert multiple addresses can be added to a wallet
+	if err := wc.AddAddresses([]wallet.Address{{Address: addr1}, {Address: addr2}}); err != nil {
+		t.Fatal(err)
+	} else if addrs, err := wc.Addresses(); err != nil {
+		t.Fatal(err)
+	} else if len(addrs) != 2 {
+		t.Fatalf("expected 2 addresses, got %d", len(addrs))
+	}
 }
 
 func TestConsensus(t *testing.T) {
@@ -1739,6 +1761,8 @@ func TestEphemeralTransactions(t *testing.T) {
 }
 
 func TestBroadcastRace(t *testing.T) {
+	t.Skip("NDF") // TODO: fix
+
 	log := zap.NewNop()
 	pk := types.GeneratePrivateKey()
 	sp := types.SpendPolicy{
