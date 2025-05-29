@@ -8,7 +8,6 @@ import (
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/v2/wallet"
-	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -26,7 +25,7 @@ func TestAddAddresses(t *testing.T) {
 	}
 
 	// create a new database
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "walletd.sqlite"), log.Named("sqlite3"))
+	db, err := OpenDatabase(filepath.Join(t.TempDir(), "walletd.sqlite"), WithLog(log.Named("sqlite3")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +54,7 @@ func TestAddAddresses(t *testing.T) {
 }
 
 func BenchmarkAddWalletAddresses(b *testing.B) {
-	db, err := OpenDatabase(filepath.Join(b.TempDir(), "walletd.sqlite3"), zap.NewNop())
+	db, err := OpenDatabase(filepath.Join(b.TempDir(), "walletd.sqlite3"))
 	if err != nil {
 		b.Fatal(err)
 	}
