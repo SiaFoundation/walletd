@@ -1,3 +1,9 @@
+## 2.8.1 (2025-05-29)
+
+### Fixes
+
+- Update coreutils to v0.15.1
+
 ## 2.8.0 (2025-05-26)
 
 ### Features
