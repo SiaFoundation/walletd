@@ -506,7 +506,7 @@ func TestAddresses(t *testing.T) {
 	addr1 := types.StandardUnlockHash(pk1.PublicKey())
 	addr2 := types.StandardUnlockHash(pk2.PublicKey())
 
-	// assert multpile addresses can be added to a wallet
+	// assert multiple addresses can be added to a wallet
 	if err := wc.AddAddresses([]wallet.Address{{Address: addr1}, {Address: addr2}}); err != nil {
 		t.Fatal(err)
 	} else if addrs, err := wc.Addresses(); err != nil {
