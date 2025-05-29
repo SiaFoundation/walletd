@@ -329,6 +329,13 @@ func (c *WalletClient) AddAddress(a wallet.Address) (err error) {
 	return
 }
 
+// AddAddresses adds the specified batch of addresses and associated metadata to
+// the wallet.
+func (c *WalletClient) AddAddresses(addrs []wallet.Address) (err error) {
+	err = c.c.PUT(context.Background(), fmt.Sprintf("/wallets/%v/addresses/batch", c.id), addrs)
+	return
+}
+
 // RemoveAddress removes the specified address from the wallet.
 func (c *WalletClient) RemoveAddress(addr types.Address) (err error) {
 	err = c.c.DELETE(context.Background(), fmt.Sprintf("/wallets/%v/addresses/%v", c.id, addr))

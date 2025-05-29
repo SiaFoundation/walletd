@@ -102,7 +102,7 @@ type (
 		DeleteWallet(wallet.ID) error
 		Wallets() ([]wallet.Wallet, error)
 
-		AddAddress(id wallet.ID, addr wallet.Address) error
+		AddAddress(id wallet.ID, addrs ...wallet.Address) error
 		RemoveAddress(id wallet.ID, addr types.Address) error
 		Addresses(id wallet.ID) ([]wallet.Address, error)
 		WalletAddress(wallet.ID, types.Address) (wallet.Address, error)
@@ -604,6 +604,20 @@ func (s *server) walletsAddressHandlerPUT(jc jape.Context) {
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&addr) != nil {
 		return
 	} else if jc.Check("couldn't add address", s.wm.AddAddress(id, addr)) != nil {
+		return
+	}
+	jc.Encode(nil)
+}
+
+func (s *server) walletsAddressBatchHandlerPUT(jc jape.Context) {
+	var id wallet.ID
+	var addrs []wallet.Address
+	if jc.DecodeParam("id", &id) != nil || jc.Decode(&addrs) != nil {
+		return
+	} else if len(addrs) > 1000 {
+		jc.Error(fmt.Errorf("number of addresses exceeds the maximum batch size of 1000"), http.StatusBadRequest)
+		return
+	} else if jc.Check("couldn't add addresses", s.wm.AddAddress(id, addrs...)) != nil {
 		return
 	}
 	jc.Encode(nil)
@@ -1574,6 +1588,7 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		"POST /wallets/:id":                          wrapAuthHandler(srv.walletsIDHandlerPOST),
 		"DELETE	/wallets/:id":                        wrapAuthHandler(srv.walletsIDHandlerDELETE),
 		"PUT /wallets/:id/addresses":                 wrapAuthHandler(srv.walletsAddressHandlerPUT),
+		"PUT /wallets/:id/addresses/batch":           wrapAuthHandler(srv.walletsAddressBatchHandlerPUT),
 		"DELETE /wallets/:id/addresses/:addr":        wrapAuthHandler(srv.walletsAddressHandlerDELETE),
 		"GET /wallets/:id/addresses":                 wrapAuthHandler(srv.walletsAddressesHandlerGET),
 		"GET /wallets/:id/balance":                   wrapAuthHandler(srv.walletsBalanceHandler),

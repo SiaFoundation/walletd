@@ -91,7 +91,7 @@ type (
 		WalletAddresses(walletID ID) ([]Address, error)
 		Wallets() ([]Wallet, error)
 
-		AddWalletAddress(walletID ID, address Address) error
+		AddWalletAddress(walletID ID, addresses ...Address) error
 		RemoveWalletAddress(walletID ID, address types.Address) error
 
 		AddressBalance(address types.Address) (balance Balance, err error)
@@ -263,9 +263,9 @@ func (m *Manager) Wallets() ([]Wallet, error) {
 	return m.store.Wallets()
 }
 
-// AddAddress adds the given address to the given wallet.
-func (m *Manager) AddAddress(walletID ID, addr Address) error {
-	return m.store.AddWalletAddress(walletID, addr)
+// AddAddress adds the addresses to the given wallet.
+func (m *Manager) AddAddress(walletID ID, addrs ...Address) error {
+	return m.store.AddWalletAddress(walletID, addrs...)
 }
 
 // RemoveAddress removes the given address from the given wallet.

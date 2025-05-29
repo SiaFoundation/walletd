@@ -144,25 +144,31 @@ func (s *Store) Wallets() (wallets []wallet.Wallet, err error) {
 	return
 }
 
-// AddWalletAddress adds an address to a wallet.
-func (s *Store) AddWalletAddress(id wallet.ID, addr wallet.Address) error {
+// AddWalletAddress adds the given addresses to a wallet.
+func (s *Store) AddWalletAddress(id wallet.ID, addr ...wallet.Address) error {
 	return s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
 		}
 
-		addressID, err := insertAddress(tx, addr.Address)
-		if err != nil {
-			return fmt.Errorf("failed to insert address: %w", err)
+		for _, addr := range addr {
+			addressID, err := insertAddress(tx, addr.Address)
+			if err != nil {
+				return fmt.Errorf("failed to insert address %q: %w", addr.Address, err)
+			}
+
+			var encodedPolicy any
+			if addr.SpendPolicy != nil {
+				encodedPolicy = encode(*addr.SpendPolicy)
+			}
+
+			_, err = tx.Exec(`INSERT INTO wallet_addresses (wallet_id, address_id, description, spend_policy, extra_data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (wallet_id, address_id) DO UPDATE set description=EXCLUDED.description, spend_policy=EXCLUDED.spend_policy, extra_data=EXCLUDED.extra_data`, id, addressID, addr.Description, encodedPolicy, addr.Metadata)
+			if err != nil {
+				return fmt.Errorf("failed to insert wallet address %q: %w", addr.Address, err)
+			}
 		}
 
-		var encodedPolicy any
-		if addr.SpendPolicy != nil {
-			encodedPolicy = encode(*addr.SpendPolicy)
-		}
-
-		_, err = tx.Exec(`INSERT INTO wallet_addresses (wallet_id, address_id, description, spend_policy, extra_data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (wallet_id, address_id) DO UPDATE set description=EXCLUDED.description, spend_policy=EXCLUDED.spend_policy, extra_data=EXCLUDED.extra_data`, id, addressID, addr.Description, encodedPolicy, addr.Metadata)
-		return err
+		return nil
 	})
 }
 
