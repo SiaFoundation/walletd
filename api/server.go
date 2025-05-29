@@ -610,12 +610,14 @@ func (s *server) walletsAddressHandlerPUT(jc jape.Context) {
 }
 
 func (s *server) walletsBatchAddressesHandlerPUT(jc jape.Context) {
+	const maxBatchAddressSize = 10000
+
 	var id wallet.ID
 	var addrs []wallet.Address
 	if jc.DecodeParam("id", &id) != nil || jc.Decode(&addrs) != nil {
 		return
-	} else if len(addrs) > 10000 {
-		jc.Error(fmt.Errorf("number of addresses exceeds the maximum batch size of 10000"), http.StatusBadRequest)
+	} else if len(addrs) > maxBatchAddressSize {
+		jc.Error(fmt.Errorf("number of addresses exceeds the maximum batch size %d", maxBatchAddressSize), http.StatusBadRequest)
 		return
 	} else if jc.Check("couldn't add addresses", s.wm.AddAddresses(id, addrs...)) != nil {
 		return
