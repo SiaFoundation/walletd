@@ -145,17 +145,17 @@ func (s *Store) Wallets() (wallets []wallet.Wallet, err error) {
 }
 
 // AddWalletAddresses adds the given addresses to a wallet.
-func (s *Store) AddWalletAddresses(id wallet.ID, addr ...wallet.Address) error {
+func (s *Store) AddWalletAddresses(id wallet.ID, walletAddresses ...wallet.Address) error {
 	return s.transaction(func(tx *txn) error {
 		if err := walletExists(tx, id); err != nil {
 			return err
-		} else if len(addr) == 0 {
+		} else if len(walletAddresses) == 0 {
 			return errors.New("no addresses to add")
 		}
 
-		addresses := make([]types.Address, 0, len(addr))
-		for _, a := range addr {
-			addresses = append(addresses, a.Address)
+		addresses := make([]types.Address, 0, len(walletAddresses))
+		for _, wa := range walletAddresses {
+			addresses = append(addresses, wa.Address)
 		}
 
 		addressDBIDs, err := insertAddress(tx, addresses...)
@@ -169,17 +169,17 @@ func (s *Store) AddWalletAddresses(id wallet.ID, addr ...wallet.Address) error {
 		}
 		defer stmt.Close()
 
-		for i, addr := range addr {
+		for i, wa := range walletAddresses {
 			addressDBID := addressDBIDs[i]
 
 			var encodedPolicy any
-			if addr.SpendPolicy != nil {
-				encodedPolicy = encode(*addr.SpendPolicy)
+			if wa.SpendPolicy != nil {
+				encodedPolicy = encode(*wa.SpendPolicy)
 			}
 
-			_, err = stmt.Exec(id, addressDBID, addr.Description, encodedPolicy, addr.Metadata)
+			_, err = stmt.Exec(id, addressDBID, wa.Description, encodedPolicy, wa.Metadata)
 			if err != nil {
-				return fmt.Errorf("failed to insert wallet address %q: %w", addr.Address, err)
+				return fmt.Errorf("failed to insert wallet address %q: %w", wa.Address, err)
 			}
 		}
 		return nil
