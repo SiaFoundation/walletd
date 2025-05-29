@@ -79,7 +79,7 @@ func TestPruneSiacoins(t *testing.T) {
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
 		t.Fatal(err)
-	} else if err := db.AddWalletAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+	} else if err := db.AddWalletAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -222,7 +222,7 @@ func TestPruneSiafunds(t *testing.T) {
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
 		t.Fatal(err)
-	} else if err := db.AddWalletAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+	} else if err := db.AddWalletAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 

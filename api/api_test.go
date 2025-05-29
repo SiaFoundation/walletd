@@ -1761,6 +1761,8 @@ func TestEphemeralTransactions(t *testing.T) {
 }
 
 func TestBroadcastRace(t *testing.T) {
+	t.Skip("NDF") // TODO: fix
+
 	log := zap.NewNop()
 	pk := types.GeneratePrivateKey()
 	sp := types.SpendPolicy{

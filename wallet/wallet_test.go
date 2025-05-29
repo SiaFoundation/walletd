@@ -146,7 +146,7 @@ func TestReserve(t *testing.T) {
 	sp := types.SpendPolicy{Type: types.PolicyTypePublicKey(sk.PublicKey())}
 	addr := sp.Address()
 
-	err = wm.AddAddress(w.ID, wallet.Address{
+	err = wm.AddAddresses(w.ID, wallet.Address{
 		Address:     addr,
 		SpendPolicy: &sp,
 	})
@@ -226,7 +226,7 @@ func TestSelectSiacoins(t *testing.T) {
 	}
 	addr := uc.UnlockHash()
 
-	err = wm.AddAddress(w.ID, wallet.Address{
+	err = wm.AddAddresses(w.ID, wallet.Address{
 		Address: addr,
 		SpendPolicy: &types.SpendPolicy{
 			Type: types.PolicyTypeUnlockConditions(uc),
@@ -396,7 +396,7 @@ func TestSelectSiafunds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = wm.AddAddress(w.ID, wallet.Address{
+	err = wm.AddAddresses(w.ID, wallet.Address{
 		Address: addr,
 		SpendPolicy: &types.SpendPolicy{
 			Type: types.PolicyTypeUnlockConditions(uc),
@@ -534,7 +534,7 @@ func TestReorg(t *testing.T) {
 		w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 		if err != nil {
 			t.Fatal(err)
-		} else if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+		} else if err := wm.AddAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 			t.Fatal(err)
 		}
 
@@ -739,7 +739,7 @@ func TestEphemeralBalance(t *testing.T) {
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
 		t.Fatal(err)
-	} else if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+	} else if err := wm.AddAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -972,7 +972,7 @@ func TestWalletAddresses(t *testing.T) {
 		SpendPolicy: &spendPolicy,
 		Description: "hello, world",
 	}
-	err = wm.AddAddress(w.ID, addr)
+	err = wm.AddAddresses(w.ID, addr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -995,7 +995,7 @@ func TestWalletAddresses(t *testing.T) {
 	addr.Description = "goodbye, world"
 	addr.Metadata = json.RawMessage(`{"foo": "bar"}`)
 
-	if err := wm.AddAddress(w.ID, addr); err != nil {
+	if err := wm.AddAddresses(w.ID, addr); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1076,7 +1076,7 @@ func TestScan(t *testing.T) {
 	}
 
 	// add the address to the wallet
-	if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+	if err := wm.AddAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 	// rescan to get the genesis Siafund state
@@ -1158,7 +1158,7 @@ func TestScan(t *testing.T) {
 	}
 
 	// add the second address to the wallet
-	if err := wm.AddAddress(w.ID, wallet.Address{Address: addr2}); err != nil {
+	if err := wm.AddAddresses(w.ID, wallet.Address{Address: addr2}); err != nil {
 		t.Fatal(err)
 	} else if err := checkBalance(expectedBalance1, types.ZeroCurrency); err != nil {
 		t.Fatal(err)
@@ -1243,7 +1243,7 @@ func TestSiafunds(t *testing.T) {
 	}
 
 	// add the address to the wallet
-	if err := wm.AddAddress(w1.ID, wallet.Address{Address: addr1}); err != nil {
+	if err := wm.AddAddresses(w1.ID, wallet.Address{Address: addr1}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1327,7 +1327,7 @@ func TestSiafunds(t *testing.T) {
 	w2, err := wm.AddWallet(wallet.Wallet{Name: "test2"})
 	if err != nil {
 		t.Fatal(err)
-	} else if err := wm.AddAddress(w2.ID, wallet.Address{Address: addr2}); err != nil {
+	} else if err := wm.AddAddresses(w2.ID, wallet.Address{Address: addr2}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1346,7 +1346,7 @@ func TestSiafunds(t *testing.T) {
 	}
 
 	// add the first address to the second wallet
-	if err := wm.AddAddress(w2.ID, wallet.Address{Address: addr1}); err != nil {
+	if err := wm.AddAddresses(w2.ID, wallet.Address{Address: addr1}); err != nil {
 		t.Fatal(err)
 	}
 	// rescan shouldn't be necessary since the address was already scanned
@@ -1392,7 +1392,7 @@ func TestOrphans(t *testing.T) {
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
 		t.Fatal(err)
-	} else if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+	} else if err := wm.AddAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2071,7 +2071,7 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 	}
 
 	// add the address to the wallet
-	if err := wm.AddAddress(w1.ID, wallet.Address{Address: addr1}); err != nil {
+	if err := wm.AddAddresses(w1.ID, wallet.Address{Address: addr1}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2141,7 +2141,7 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 	}
 
 	// add the second address to the wallet
-	if err := wm.AddAddress(w1.ID, wallet.Address{Address: addr2}); err != nil {
+	if err := wm.AddAddresses(w1.ID, wallet.Address{Address: addr2}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2259,7 +2259,7 @@ func TestAddressUnconfirmedEvents(t *testing.T) {
 	}
 
 	// add the address to the wallet
-	if err := wm.AddAddress(w1.ID, wallet.Address{Address: addr1}); err != nil {
+	if err := wm.AddAddresses(w1.ID, wallet.Address{Address: addr1}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2330,7 +2330,7 @@ func TestAddressUnconfirmedEvents(t *testing.T) {
 	}
 
 	// add the second address to the wallet
-	if err := wm.AddAddress(w1.ID, wallet.Address{Address: addr2}); err != nil {
+	if err := wm.AddAddresses(w1.ID, wallet.Address{Address: addr2}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2459,7 +2459,7 @@ func TestV2(t *testing.T) {
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
 		t.Fatal(err)
-	} else if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+	} else if err := wm.AddAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2578,7 +2578,7 @@ func TestScanV2(t *testing.T) {
 	}
 
 	// add the address to the wallet
-	if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+	if err := wm.AddAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 	// rescan to get the genesis Siafund state
@@ -2656,7 +2656,7 @@ func TestScanV2(t *testing.T) {
 	}
 
 	// add the second address to the wallet
-	if err := wm.AddAddress(w.ID, wallet.Address{Address: addr2}); err != nil {
+	if err := wm.AddAddresses(w.ID, wallet.Address{Address: addr2}); err != nil {
 		t.Fatal(err)
 	} else if err := checkBalance(expectedBalance1, types.ZeroCurrency); err != nil {
 		t.Fatal(err)
@@ -2762,7 +2762,7 @@ func TestReorgV2(t *testing.T) {
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
 		t.Fatal(err)
-	} else if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+	} else if err := wm.AddAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2989,7 +2989,7 @@ func TestOrphansV2(t *testing.T) {
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
 		t.Fatal(err)
-	} else if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+	} else if err := wm.AddAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3204,7 +3204,7 @@ func TestDeleteWallet(t *testing.T) {
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
 		t.Fatal(err)
-	} else if err := wm.AddAddress(w.ID, wallet.Address{Address: addr}); err != nil {
+	} else if err := wm.AddAddresses(w.ID, wallet.Address{Address: addr}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3894,7 +3894,7 @@ func TestSiafundClaims(t *testing.T) {
 	}
 
 	uc := types.StandardUnlockConditions(pk.PublicKey())
-	err = wm.AddAddress(w.ID, wallet.Address{
+	err = wm.AddAddresses(w.ID, wallet.Address{
 		Address: addr,
 		SpendPolicy: &types.SpendPolicy{
 			Type: types.PolicyTypeUnlockConditions(uc),
@@ -4145,7 +4145,7 @@ func TestV2SiafundClaims(t *testing.T) {
 	sp := types.SpendPolicy{
 		Type: types.PolicyTypePublicKey(pk.PublicKey()),
 	}
-	err = wm.AddAddress(w.ID, wallet.Address{
+	err = wm.AddAddresses(w.ID, wallet.Address{
 		Address:     addr,
 		SpendPolicy: &sp,
 	})
