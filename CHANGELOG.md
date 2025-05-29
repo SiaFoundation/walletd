@@ -1,3 +1,16 @@
+## 2.9.0 (2025-05-29)
+
+### Features
+
+#### Added `[POST] /api/wallets/:id/batch/addresses
+
+This new endpoint allows clients to add up to 10000 addresses in a single API call
+
+### Fixes
+
+- Updated core to v0.13.1 and coreutils to v0.15.2.
+- Updated build to use Go 1.24
+
 ## 2.8.1 (2025-05-29)
 
 ### Fixes
