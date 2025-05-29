@@ -2,4 +2,6 @@
 default: minor
 ---
 
-# Add batch endpoint to allow adding multiple addresses to a wallet at a time.
+# Added `[POST] /api/wallet/:id/batch/addresses
+
+This new endpoint allows clients to add up to 10000 addresses in a single API call
