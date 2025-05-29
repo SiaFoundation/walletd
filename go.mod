@@ -1,13 +1,11 @@
 module go.sia.tech/walletd/v2 // v2.8.1
 
-go 1.23.2
-
-toolchain go1.24.1
+go 1.24.2
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.28
-	go.sia.tech/core v0.13.0
-	go.sia.tech/coreutils v0.15.1
+	go.sia.tech/core v0.13.1
+	go.sia.tech/coreutils v0.15.2
 	go.sia.tech/jape v0.14.0
 	go.sia.tech/web/walletd v0.29.2
 	go.uber.org/zap v1.27.0
