@@ -94,10 +94,15 @@ type (
 		AddWalletAddresses(walletID ID, addresses ...Address) error
 		RemoveWalletAddress(walletID ID, address types.Address) error
 
-		AddressBalance(address types.Address) (balance Balance, err error)
+		AddressBalance(address ...types.Address) (balance Balance, err error)
 		AddressEvents(address types.Address, offset, limit int) (events []Event, err error)
 		AddressSiacoinOutputs(address types.Address, tpoolSpent []types.SiacoinOutputID, offset, limit int) ([]UnspentSiacoinElement, types.ChainIndex, error)
 		AddressSiafundOutputs(address types.Address, tpoolSpent []types.SiafundOutputID, offset, limit int) ([]UnspentSiafundElement, types.ChainIndex, error)
+
+		BatchAddressEvents(addresses []types.Address, offset, limit int) ([]Event, error)
+		BatchAddressSiacoinOutputs(addresses []types.Address, offset, limit int) ([]UnspentSiacoinElement, types.ChainIndex, error)
+		BatchAddressSiafundOutputs(addresses []types.Address, offset, limit int) ([]UnspentSiafundElement, types.ChainIndex, error)
+
 		// CheckAddresses returns true if any of the addresses have been seen on the
 		// blockchain. This is a quick way to scan wallets for lookaheads.
 		//

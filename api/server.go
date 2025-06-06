@@ -114,11 +114,15 @@ type (
 		UnspentSiafundOutputs(id wallet.ID, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error)
 		WalletBalance(id wallet.ID) (wallet.Balance, error)
 
-		AddressBalance(address types.Address) (wallet.Balance, error)
+		AddressBalance(address ...types.Address) (wallet.Balance, error)
 		AddressEvents(address types.Address, offset, limit int) ([]wallet.Event, error)
 		AddressUnconfirmedEvents(address types.Address) ([]wallet.Event, error)
 		AddressSiacoinOutputs(address types.Address, tpool bool, offset, limit int) ([]wallet.UnspentSiacoinElement, types.ChainIndex, error)
 		AddressSiafundOutputs(address types.Address, tpool bool, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error)
+
+		BatchAddressEvents(addresses []types.Address, offset, limit int) ([]wallet.Event, error)
+		BatchAddressSiacoinOutputs(addresses []types.Address, offset, limit int) ([]wallet.UnspentSiacoinElement, types.ChainIndex, error)
+		BatchAddressSiafundOutputs(addresses []types.Address, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error)
 
 		Events(eventIDs []types.Hash256) ([]wallet.Event, error)
 
@@ -1420,7 +1424,7 @@ func (s *server) checkAddressesHandlerPOST(jc jape.Context) {
 	var req CheckAddressesRequest
 	if jc.Decode(&req) != nil {
 		return
-	} else if len(req.Addresses) > 10000 {
+	} else if len(req.Addresses) > 1000 {
 		jc.Error(errors.New("too many addresses"), http.StatusBadRequest)
 		return
 	}
@@ -1432,6 +1436,91 @@ func (s *server) checkAddressesHandlerPOST(jc jape.Context) {
 
 	jc.Encode(CheckAddressesResponse{
 		Known: ok,
+	})
+}
+
+func (s *server) batchAddressesBalanceHandlerPOST(jc jape.Context) {
+	var req BatchAddressesRequest
+	if jc.Decode(&req) != nil {
+		return
+	} else if len(req.Addresses) > 1000 {
+		jc.Error(errors.New("too many addresses"), http.StatusBadRequest)
+		return
+	}
+
+	balance, err := s.wm.AddressBalance(req.Addresses...)
+	if jc.Check("couldn't get balances", err) != nil {
+		return
+	}
+	jc.Encode(BalanceResponse(balance))
+}
+
+func (s *server) batchAddressesEventsHandlerPOST(jc jape.Context) {
+	var req BatchAddressesRequest
+	if jc.Decode(&req) != nil {
+		return
+	} else if len(req.Addresses) > 1000 {
+		jc.Error(errors.New("too many addresses"), http.StatusBadRequest)
+		return
+	}
+
+	offset, limit := 0, 100
+	if jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
+		return
+	}
+
+	events, err := s.wm.BatchAddressEvents(req.Addresses, offset, limit)
+	if jc.Check("couldn't load events", err) != nil {
+		return
+	}
+	jc.Encode(events)
+}
+
+func (s *server) batchAddressesOutputsSCHandlerPOST(jc jape.Context) {
+	var req BatchAddressesRequest
+	if jc.Decode(&req) != nil {
+		return
+	} else if len(req.Addresses) > 1000 {
+		jc.Error(errors.New("too many addresses"), http.StatusBadRequest)
+		return
+	}
+
+	offset, limit := 0, 100
+	if jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
+		return
+	}
+
+	utxos, basis, err := s.wm.BatchAddressSiacoinOutputs(req.Addresses, offset, limit)
+	if jc.Check("couldn't load siacoin outputs", err) != nil {
+		return
+	}
+	jc.Encode(AddressSiacoinElementsResponse{
+		Basis:   basis,
+		Outputs: utxos,
+	})
+}
+
+func (s *server) batchAddressesOutputsSFHandlerPOST(jc jape.Context) {
+	var req BatchAddressesRequest
+	if jc.Decode(&req) != nil {
+		return
+	} else if len(req.Addresses) > 1000 {
+		jc.Error(errors.New("too many addresses"), http.StatusBadRequest)
+		return
+	}
+
+	offset, limit := 0, 100
+	if jc.DecodeForm("offset", &offset) != nil || jc.DecodeForm("limit", &limit) != nil {
+		return
+	}
+
+	utxos, basis, err := s.wm.BatchAddressSiafundOutputs(req.Addresses, offset, limit)
+	if jc.Check("couldn't load siafund outputs", err) != nil {
+		return
+	}
+	jc.Encode(AddressSiafundElementsResponse{
+		Basis:   basis,
+		Outputs: utxos,
 	})
 }
 
@@ -1572,6 +1661,11 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		"GET /addresses/:addr/events/unconfirmed": wrapPublicAuthHandler(srv.addressesAddrEventsUnconfirmedHandlerGET),
 		"GET /addresses/:addr/outputs/siacoin":    wrapPublicAuthHandler(srv.addressesAddrOutputsSCHandler),
 		"GET /addresses/:addr/outputs/siafund":    wrapPublicAuthHandler(srv.addressesAddrOutputsSFHandler),
+
+		"POST /batch/addresses/balance":         wrapPublicAuthHandler(srv.batchAddressesBalanceHandlerPOST),
+		"POST /batch/addresses/events":          wrapPublicAuthHandler(srv.batchAddressesEventsHandlerPOST),
+		"POST /batch/addresses/outputs/siacoin": wrapPublicAuthHandler(srv.batchAddressesOutputsSCHandlerPOST),
+		"POST /batch/addresses/outputs/siafund": wrapPublicAuthHandler(srv.batchAddressesOutputsSFHandlerPOST),
 
 		"GET /outputs/siacoin/:id":       wrapPublicAuthHandler(srv.outputsSiacoinHandlerGET),
 		"GET /outputs/siacoin/:id/spent": wrapPublicAuthHandler(srv.outputsSiacoinSpentHandlerGET),

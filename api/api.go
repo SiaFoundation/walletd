@@ -248,3 +248,9 @@ type ElementSpentResponse struct {
 	Spent bool          `json:"spent"`
 	Event *wallet.Event `json:"event,omitempty"`
 }
+
+// BatchAddressesRequest is the request type for batch
+// address operations.
+type BatchAddressesRequest struct {
+	Addresses []types.Address `json:"addresses"`
+}

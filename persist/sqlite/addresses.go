@@ -39,42 +39,225 @@ func (s *Store) CheckAddresses(addresses []types.Address) (known bool, err error
 	return
 }
 
-// AddressBalance returns the balance of a single address.
-func (s *Store) AddressBalance(address types.Address) (balance wallet.Balance, err error) {
+// AddressBalance returns the aggregate balance of the addresses.
+func (s *Store) AddressBalance(address ...types.Address) (balance wallet.Balance, err error) {
+	if len(address) == 0 {
+		return wallet.Balance{}, nil // no addresses, no balance
+	}
 	err = s.transaction(func(tx *txn) error {
 		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses WHERE sia_address=$1`
-		err := tx.QueryRow(query, encode(address)).Scan(decode(&balance.Siacoins), decode(&balance.ImmatureSiacoins), &balance.Siafunds)
-		if errors.Is(err, sql.ErrNoRows) {
-			balance = wallet.Balance{}
-			return nil
+		stmt, err := tx.Prepare(query)
+		if err != nil {
+			return fmt.Errorf("failed to prepare statement: %w", err)
 		}
-		return err
+		defer stmt.Close()
+
+		for _, addr := range address {
+			var siacoins, immatureSiacoins types.Currency
+			var siafunds uint64
+
+			if err := stmt.QueryRow(encode(addr)).Scan(decode(&siacoins), decode(&immatureSiacoins), &siafunds); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("failed to query address %q: %w", addr, err)
+			}
+			balance.Siacoins = balance.Siacoins.Add(siacoins)
+			balance.ImmatureSiacoins = balance.ImmatureSiacoins.Add(immatureSiacoins)
+			balance.Siafunds += siafunds
+		}
+		return nil
 	})
 	return
 }
 
-func getAddressEvents(tx *txn, address types.Address, offset, limit int) (eventIDs []int64, err error) {
-	const query = `SELECT DISTINCT ea.event_id
-FROM event_addresses ea
-INNER JOIN sia_addresses sa ON ea.address_id = sa.id
-WHERE sa.sia_address = $1
-ORDER BY ea.event_maturity_height DESC, ea.event_id DESC
-LIMIT $2 OFFSET $3;`
-
-	rows, err := tx.Query(query, encode(address), limit, offset)
-	if err != nil {
-		return nil, err
+// BatchAddressEvents returns the events for a batch of addresses.
+func (s *Store) BatchAddressEvents(addresses []types.Address, offset, limit int) (events []wallet.Event, err error) {
+	if len(addresses) == 0 {
+		return nil, nil // no addresses, no events
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
+	err = s.transaction(func(tx *txn) error {
+		dbIDs, err := s.getAddressesEvents(tx, addresses, offset, limit)
+		if err != nil {
+			return fmt.Errorf("failed to get events for addresses: %w", err)
 		}
-		eventIDs = append(eventIDs, id)
-	}
-	return eventIDs, rows.Err()
+		if len(dbIDs) == 0 {
+			return nil // no events found
+		}
+
+		events, err = getEventsByID(tx, dbIDs)
+		if err != nil {
+			return fmt.Errorf("failed to get events by ID: %w", err)
+		}
+
+		addressMap := make(map[types.Address]bool)
+		for _, addr := range addresses {
+			addressMap[addr] = true
+		}
+		for i := range events {
+			seen := make(map[types.Address]bool)
+			switch ev := events[i].Data.(type) {
+			case wallet.EventV1Transaction:
+				for _, sci := range ev.Transaction.SiacoinInputs {
+					addr := sci.UnlockConditions.UnlockHash()
+					if addressMap[addr] && !seen[addr] {
+						seen[addr] = true
+						events[i].Relevant = append(events[i].Relevant, addr)
+					}
+				}
+				for _, sco := range ev.Transaction.SiacoinOutputs {
+					if addressMap[sco.Address] && !seen[sco.Address] {
+						seen[sco.Address] = true
+						events[i].Relevant = append(events[i].Relevant, sco.Address)
+					}
+				}
+				for _, sfi := range ev.Transaction.SiafundInputs {
+					addr := sfi.UnlockConditions.UnlockHash()
+					if addressMap[addr] && !seen[addr] {
+						seen[addr] = true
+						events[i].Relevant = append(events[i].Relevant, addr)
+					}
+				}
+				for _, sfo := range ev.Transaction.SiafundOutputs {
+					if addressMap[sfo.Address] && !seen[sfo.Address] {
+						seen[sfo.Address] = true
+						events[i].Relevant = append(events[i].Relevant, sfo.Address)
+					}
+				}
+			case wallet.EventV2Transaction:
+				for _, sci := range ev.SiacoinInputs {
+					if addressMap[sci.Parent.SiacoinOutput.Address] && !seen[sci.Parent.SiacoinOutput.Address] {
+						seen[sci.Parent.SiacoinOutput.Address] = true
+						events[i].Relevant = append(events[i].Relevant, sci.Parent.SiacoinOutput.Address)
+					}
+				}
+				for _, sco := range ev.SiacoinOutputs {
+					if addressMap[sco.Address] && !seen[sco.Address] {
+						seen[sco.Address] = true
+						events[i].Relevant = append(events[i].Relevant, sco.Address)
+					}
+				}
+				for _, sfi := range ev.SiafundInputs {
+					if addressMap[sfi.Parent.SiafundOutput.Address] && !seen[sfi.Parent.SiafundOutput.Address] {
+						seen[sfi.Parent.SiafundOutput.Address] = true
+						events[i].Relevant = append(events[i].Relevant, sfi.Parent.SiafundOutput.Address)
+					}
+				}
+				for _, sfo := range ev.SiafundOutputs {
+					if addressMap[sfo.Address] && !seen[sfo.Address] {
+						seen[sfo.Address] = true
+						events[i].Relevant = append(events[i].Relevant, sfo.Address)
+					}
+				}
+			case wallet.EventPayout:
+				events[i].Relevant = append(events[i].Relevant, ev.SiacoinElement.SiacoinOutput.Address)
+			}
+		}
+		return nil
+	})
+	return
+}
+
+// BatchAddressSiacoinOutputs returns the unspent siacoin outputs for an address.
+func (s *Store) BatchAddressSiacoinOutputs(addresses []types.Address, offset, limit int) (siacoins []wallet.UnspentSiacoinElement, basis types.ChainIndex, err error) {
+	err = s.transaction(func(tx *txn) error {
+		basis, err = getScanBasis(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get basis: %w", err)
+		}
+
+		query := `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address, ci.height 
+		FROM siacoin_elements se
+		INNER JOIN chain_indices ci ON (se.chain_index_id = ci.id)
+		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
+		WHERE sa.sia_address IN (` + queryPlaceHolders(len(addresses)) + `) AND se.maturity_height <= ? AND se.spent_index_id IS NULL
+		ORDER BY se.maturity_height DESC, se.id DESC
+		LIMIT ? OFFSET ?`
+
+		rows, err := tx.Query(query, append(encodeSlice(addresses), basis.Height, limit, offset)...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			siacoin, err := scanUnspentSiacoinElement(rows, basis.Height)
+			if err != nil {
+				return fmt.Errorf("failed to scan siacoin element: %w", err)
+			}
+
+			siacoins = append(siacoins, siacoin)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		// retrieve the merkle proofs for the siacoin elements
+		if s.indexMode == wallet.IndexModeFull {
+			indices := make([]uint64, len(siacoins))
+			for i, se := range siacoins {
+				indices[i] = se.StateElement.LeafIndex
+			}
+			proofs, err := fillElementProofs(tx, indices)
+			if err != nil {
+				return fmt.Errorf("failed to fill element proofs: %w", err)
+			}
+			for i, proof := range proofs {
+				siacoins[i].StateElement.MerkleProof = proof
+			}
+		}
+		return nil
+	})
+	return
+}
+
+// BatchAddressSiafundOutputs returns the unspent siafund outputs for an address.
+func (s *Store) BatchAddressSiafundOutputs(addresses []types.Address, offset, limit int) (siafunds []wallet.UnspentSiafundElement, basis types.ChainIndex, err error) {
+	err = s.transaction(func(tx *txn) error {
+		basis, err = getScanBasis(tx)
+		if err != nil {
+			return fmt.Errorf("failed to get basis: %w", err)
+		}
+
+		query := `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address, ci.height
+		FROM siafund_elements se
+		INNER JOIN chain_indices ci ON (se.chain_index_id = ci.id)
+		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
+		WHERE sa.sia_address IN(` + queryPlaceHolders(len(addresses)) + `) AND se.spent_index_id IS NULL
+		ORDER BY se.id DESC
+		LIMIT ? OFFSET ?`
+
+		rows, err := tx.Query(query, append(encodeSlice(addresses), limit, offset)...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			siafund, err := scanUnspentSiafundElement(rows, basis.Height)
+			if err != nil {
+				return fmt.Errorf("failed to scan siafund element: %w", err)
+			}
+			siafunds = append(siafunds, siafund)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		// retrieve the merkle proofs for the siafund elements
+		if s.indexMode == wallet.IndexModeFull {
+			indices := make([]uint64, len(siafunds))
+			for i, se := range siafunds {
+				indices[i] = se.StateElement.LeafIndex
+			}
+			proofs, err := fillElementProofs(tx, indices)
+			if err != nil {
+				return fmt.Errorf("failed to fill element proofs: %w", err)
+			}
+			for i, proof := range proofs {
+				siafunds[i].StateElement.MerkleProof = proof
+			}
+		}
+		return nil
+	})
+	return
 }
 
 // AddressEvents returns the events of a single address.
@@ -346,4 +529,63 @@ func (s *Store) AnnotateV1Events(index types.ChainIndex, timestamp time.Time, v1
 		return nil
 	})
 	return
+}
+
+func getAddressEvents(tx *txn, address types.Address, offset, limit int) (eventIDs []int64, err error) {
+	const query = `SELECT DISTINCT ea.event_id
+FROM event_addresses ea
+INNER JOIN sia_addresses sa ON ea.address_id = sa.id
+WHERE sa.sia_address = $1
+ORDER BY ea.event_maturity_height DESC, ea.event_id DESC
+LIMIT $2 OFFSET $3;`
+
+	rows, err := tx.Query(query, encode(address), limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		eventIDs = append(eventIDs, id)
+	}
+	return eventIDs, rows.Err()
+}
+
+func (s *Store) getAddressesEvents(tx *txn, addresses []types.Address, offset, limit int) (eventIDs []int64, err error) {
+	if len(addresses) == 0 {
+		return nil, nil // no addresses, no events
+	}
+
+	query := `SELECT DISTINCT ea.event_id
+FROM event_addresses ea
+INNER JOIN sia_addresses sa ON ea.address_id = sa.id
+WHERE sa.sia_address IN (` + queryPlaceHolders(len(addresses)) + `)
+ORDER BY ea.event_maturity_height DESC, ea.event_id DESC
+LIMIT ? OFFSET ?;`
+
+	params := make([]any, 0, len(addresses)+2)
+	for _, addr := range addresses {
+		params = append(params, encode(addr))
+	}
+	params = append(params, limit, offset)
+	rows, err := tx.Query(query, params...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query address events: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan event ID: %w", err)
+		}
+		eventIDs = append(eventIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over rows: %w", err)
+	}
+	return eventIDs, nil
 }
