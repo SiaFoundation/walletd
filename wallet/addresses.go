@@ -13,8 +13,8 @@ func (m *Manager) CheckAddresses(address []types.Address) (bool, error) {
 }
 
 // AddressBalance returns the balance of a single address.
-func (m *Manager) AddressBalance(address types.Address) (balance Balance, err error) {
-	return m.store.AddressBalance(address)
+func (m *Manager) AddressBalance(addresses ...types.Address) (balance Balance, err error) {
+	return m.store.AddressBalance(addresses...)
 }
 
 // AddressSiacoinOutputs returns the unspent siacoin outputs for an address.
@@ -81,6 +81,30 @@ func (m *Manager) AddressSiafundOutputs(address types.Address, usePool bool, off
 // AddressEvents returns the events of a single address.
 func (m *Manager) AddressEvents(address types.Address, offset, limit int) (events []Event, err error) {
 	return m.store.AddressEvents(address, offset, limit)
+}
+
+// BatchAddressEvents returns the events for a batch of addresses.
+func (m *Manager) BatchAddressEvents(addresses []types.Address, offset, limit int) ([]Event, error) {
+	if len(addresses) == 0 {
+		return nil, nil // no addresses, no events
+	}
+	return m.store.BatchAddressEvents(addresses, offset, limit)
+}
+
+// BatchAddressSiacoinOutputs returns the unspent siacoin outputs for a batch of addresses.
+func (m *Manager) BatchAddressSiacoinOutputs(addresses []types.Address, offset, limit int) ([]UnspentSiacoinElement, types.ChainIndex, error) {
+	if len(addresses) == 0 {
+		return nil, types.ChainIndex{}, nil // no addresses, no outputs
+	}
+	return m.store.BatchAddressSiacoinOutputs(addresses, offset, limit)
+}
+
+// BatchAddressSiafundOutputs returns the unspent siafund outputs for a batch of addresses.
+func (m *Manager) BatchAddressSiafundOutputs(addresses []types.Address, offset, limit int) ([]UnspentSiafundElement, types.ChainIndex, error) {
+	if len(addresses) == 0 {
+		return nil, types.ChainIndex{}, nil // no addresses, no outputs
+	}
+	return m.store.BatchAddressSiafundOutputs(addresses, offset, limit)
 }
 
 // AddressUnconfirmedEvents returns the unconfirmed events for a single address.
