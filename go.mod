@@ -5,7 +5,7 @@ go 1.24.2
 require (
 	github.com/mattn/go-sqlite3 v1.14.28
 	go.sia.tech/core v0.13.1
-	go.sia.tech/coreutils v0.15.2
+	go.sia.tech/coreutils v0.16.1-0.20250607184904-8c78c1233ed4
 	go.sia.tech/jape v0.14.0
 	go.sia.tech/web/walletd v0.29.3
 	go.uber.org/zap v1.27.0
