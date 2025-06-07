@@ -125,6 +125,7 @@ type (
 		BatchAddressSiafundOutputs(addresses []types.Address, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error)
 
 		Events(eventIDs []types.Hash256) ([]wallet.Event, error)
+		UnconfirmedEvents() ([]wallet.Event, error)
 
 		SiacoinElement(types.SiacoinOutputID) (types.SiacoinElement, error)
 		SiafundElement(types.SiafundOutputID) (types.SiafundElement, error)
@@ -1524,6 +1525,14 @@ func (s *server) batchAddressesOutputsSFHandlerPOST(jc jape.Context) {
 	})
 }
 
+func (s *server) txpoolEventsUnconfirmedHandlerGET(jc jape.Context) {
+	events, err := s.wm.UnconfirmedEvents()
+	if jc.Check("couldn't load unconfirmed events", err) != nil {
+		return
+	}
+	jc.Encode(events)
+}
+
 func (s *server) debugMineHandler(jc jape.Context) {
 	var req DebugMineRequest
 	if jc.Decode(&req) != nil {
@@ -1655,6 +1664,7 @@ func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption
 		"GET /txpool/fee":                    wrapPublicAuthHandler(srv.txpoolFeeHandler),
 		"POST /txpool/parents":               wrapPublicAuthHandler(srv.txpoolParentsHandler),
 		"POST /txpool/broadcast":             wrapPublicAuthHandler(srv.txpoolBroadcastHandler),
+		"GET /txpool/events":                 wrapPublicAuthHandler(srv.txpoolEventsUnconfirmedHandlerGET),
 
 		"GET /addresses/:addr/balance":            wrapPublicAuthHandler(srv.addressesAddrBalanceHandler),
 		"GET /addresses/:addr/events":             wrapPublicAuthHandler(srv.addressesAddrEventsHandlerGET),

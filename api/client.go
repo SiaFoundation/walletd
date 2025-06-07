@@ -285,6 +285,42 @@ func (c *Client) AddressSiafundOutputs(addr types.Address, useTpool bool, offset
 	return resp.Outputs, resp.Basis, err
 }
 
+// BatchAddressBalance returns the balance of a batch of addresses.
+func (c *Client) BatchAddressBalance(addresses []types.Address) (BalanceResponse, error) {
+	var resp BalanceResponse
+	err := c.c.POST(context.Background(), "/batch/addresses/balance", BatchAddressesRequest{
+		Addresses: addresses,
+	}, &resp)
+	return resp, err
+}
+
+// BatchAddressSiacoinOutputs returns the unspent siacoin outputs for a batch of addresses.
+func (c *Client) BatchAddressSiacoinOutputs(addresses []types.Address, offset, limit int) ([]wallet.UnspentSiacoinElement, types.ChainIndex, error) {
+	var resp AddressSiacoinElementsResponse
+	err := c.c.POST(context.Background(), fmt.Sprintf("/batch/addresses/outputs/siacoin?offset=%d&limit=%d", offset, limit), BatchAddressesRequest{
+		Addresses: addresses,
+	}, &resp)
+	return resp.Outputs, resp.Basis, err
+}
+
+// BatchAddressSiafundOutputs returns the unspent siafund outputs for a batch of addresses.
+func (c *Client) BatchAddressSiafundOutputs(addresses []types.Address, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error) {
+	var resp AddressSiafundElementsResponse
+	err := c.c.POST(context.Background(), fmt.Sprintf("/batch/addresses/outputs/siafund?offset=%d&limit=%d", offset, limit), BatchAddressesRequest{
+		Addresses: addresses,
+	}, &resp)
+	return resp.Outputs, resp.Basis, err
+}
+
+// BatchAddressEvents returns the events for a batch of addresses.
+func (c *Client) BatchAddressEvents(addresses []types.Address, offset, limit int) ([]wallet.Event, error) {
+	var resp []wallet.Event
+	err := c.c.POST(context.Background(), fmt.Sprintf("/batch/addresses/events?offset=%d&limit=%d", offset, limit), BatchAddressesRequest{
+		Addresses: addresses,
+	}, &resp)
+	return resp, err
+}
+
 // CheckAddresses checks whether the specified addresses are known to the wallet.
 // In full index mode, this will return true if any of the addresses have been seen on chain.
 func (c *Client) CheckAddresses(addresses []types.Address) (bool, error) {
@@ -298,6 +334,12 @@ func (c *Client) CheckAddresses(addresses []types.Address) (bool, error) {
 // Event returns the event with the specified ID.
 func (c *Client) Event(id types.Hash256) (resp wallet.Event, err error) {
 	err = c.c.GET(context.Background(), fmt.Sprintf("/events/%v", id), &resp)
+	return
+}
+
+// TPoolEvents returns all unconfirmed events in the transaction pool.
+func (c *Client) TPoolEvents() (resp []wallet.Event, err error) {
+	err = c.c.GET(context.Background(), "/txpool/events", &resp)
 	return
 }
 
