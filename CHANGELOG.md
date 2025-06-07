@@ -1,3 +1,15 @@
+## 2.10.0 (2025-06-07)
+
+### Features
+
+#### Add batch endpoints
+
+- `[POST] /batch/addresses/balance`
+- `[POST] /batch/addresses/events`
+- `[POST] /batch/addresses/unconfirmed`
+- `[POST] /batch/addresses/outputs/siacoin`
+- `[POST] /batch/addresses/outputs/siafund`
+
 ## 2.9.0 (2025-05-29)
 
 ### Features
