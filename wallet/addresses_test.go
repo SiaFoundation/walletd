@@ -222,7 +222,6 @@ func TestBatchSiafundOutputs(t *testing.T) {
 			t.Fatal(err)
 		}
 		cn.MineBlocks(t, types.VoidAddress, 1)
-		cn.WaitForSync(t)
 	}
 
 	sfes, _, err := wm.BatchAddressSiafundOutputs(addresses, 0, 10000)

@@ -168,7 +168,6 @@ func (s *Store) BatchAddressSiacoinOutputs(addresses []types.Address, offset, li
 		INNER JOIN chain_indices ci ON (se.chain_index_id = ci.id)
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE sa.sia_address IN (` + queryPlaceHolders(len(addresses)) + `) AND se.maturity_height <= ? AND se.spent_index_id IS NULL
-		ORDER BY se.maturity_height DESC, se.id DESC
 		LIMIT ? OFFSET ?`
 
 		rows, err := tx.Query(query, append(encodeSlice(addresses), basis.Height, limit, offset)...)

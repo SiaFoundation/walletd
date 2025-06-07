@@ -1033,6 +1033,18 @@ func TestConstructV2Siacoins(t *testing.T) {
 	case !sent.SiacoinOutflow().Sub(sent.SiacoinInflow()).Equals(expectedValue):
 		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", expectedValue, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
 	}
+
+	unconfirmed, err = c.TPoolEvents()
+	if err != nil {
+		t.Fatal(err)
+	} else if len(unconfirmed) != 1 {
+		t.Fatalf("expected 1 unconfirmed event, got %v", len(unconfirmed))
+	} else if unconfirmed[0].Type != wallet.EventTypeV2Transaction {
+		t.Fatalf("expected unconfirmed event to have type %q, got %q", wallet.EventTypeV2Transaction, unconfirmed[0].Type)
+	} else if unconfirmed[0].ID != sent.ID {
+		t.Fatalf("expected unconfirmed event to have ID %q, got %q", sent.ID, unconfirmed[0].ID)
+	}
+
 	cm.MineBlocks(t, types.VoidAddress, 1)
 
 	confirmed, err := wc.Events(0, 5)
