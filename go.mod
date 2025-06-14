@@ -1,4 +1,4 @@
-module go.sia.tech/walletd/v2 // v2.10.0
+module go.sia.tech/walletd/v2 // v2.10.1
 
 go 1.24.2
 
