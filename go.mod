@@ -5,7 +5,7 @@ go 1.24.2
 require (
 	github.com/mattn/go-sqlite3 v1.14.28
 	go.sia.tech/core v0.13.2
-	go.sia.tech/coreutils v0.16.2-0.20250614154532-fc51637947af
+	go.sia.tech/coreutils v0.16.2
 	go.sia.tech/jape v0.14.0
 	go.sia.tech/web/walletd v0.30.0
 	go.uber.org/zap v1.27.0
@@ -25,7 +25,7 @@ require (
 	github.com/quic-go/qpack v0.5.1 // indirect
 	github.com/quic-go/quic-go v0.52.0 // indirect
 	github.com/quic-go/webtransport-go v0.8.1-0.20241018022711-4ac2c9250e66 // indirect
-	go.etcd.io/bbolt v1.4.0 // indirect
+	go.etcd.io/bbolt v1.4.1 // indirect
 	go.sia.tech/mux v1.4.0 // indirect
 	go.sia.tech/web v0.0.0-20240610131903-5611d44a533e // indirect
 	go.uber.org/mock v0.5.0 // indirect
