@@ -240,7 +240,7 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	if err != nil {
 		return fmt.Errorf("failed to create chain store: %w", err)
 	}
-	cm := chain.NewManager(dbstore, tipState)
+	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
 
 	syncerListener, err := net.Listen("tcp", cfg.Syncer.Address)
 	if err != nil {
