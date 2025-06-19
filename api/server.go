@@ -421,8 +421,15 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		if err != nil {
 			jc.Error(fmt.Errorf("invalid transaction set: %w", err), http.StatusBadRequest)
 			return
-		} else if jc.Check("failed to broadcast transaction set", s.s.BroadcastTransactionSet(tbr.Transactions)) != nil {
-			return
+		}
+
+		err = s.s.BroadcastTransactionSet(tbr.Transactions)
+		if err != nil {
+			if s.debugEnabled {
+				s.log.Warn("failed to broadcast transaction set", zap.Error(err), zap.Any("transactions", tbr.Transactions))
+			} else {
+				jc.Error(fmt.Errorf("failed to broadcast transaction set: %w", err), http.StatusInternalServerError)
+			}
 		}
 	}
 	if len(tbr.V2Transactions) != 0 {
@@ -456,8 +463,16 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		if _, err := s.cm.AddV2PoolTransactions(tbr.Basis, tbr.V2Transactions); err != nil {
 			jc.Error(fmt.Errorf("invalid v2 transaction set: %w", err), http.StatusBadRequest)
 			return
-		} else if jc.Check("failed to broadcast transaction set", s.s.BroadcastV2TransactionSet(tbr.Basis, tbr.V2Transactions)) != nil {
-			return
+		}
+
+		err = s.s.BroadcastV2TransactionSet(tbr.Basis, tbr.V2Transactions)
+		if err != nil {
+			if s.debugEnabled {
+				s.log.Warn("failed to broadcast v2 transaction set", zap.Error(err), zap.Any("basis", tbr.Basis), zap.Any("transactions", tbr.V2Transactions))
+			} else {
+				jc.Error(fmt.Errorf("failed to broadcast v2 transaction set: %w", err), http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 	resp.Basis = tbr.Basis
