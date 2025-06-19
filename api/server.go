@@ -1553,12 +1553,12 @@ func (s *server) debugMineHandler(jc jape.Context) {
 		}
 
 		if b.V2 == nil {
-			if jc.Check("failed to broadcast header", s.s.BroadcastHeader(b.Header())) != nil {
-				return
+			if err := s.s.BroadcastHeader(b.Header()); err != nil {
+				log.Warn("failed to broadcast header", zap.Error(err))
 			}
 		} else {
-			if jc.Check("failed to broadcast block outline", s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions()))) != nil {
-				return
+			if err := s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions())); err != nil {
+				log.Warn("failed to broadcast block outline", zap.Error(err))
 			}
 		}
 
