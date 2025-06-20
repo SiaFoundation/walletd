@@ -176,11 +176,13 @@ func TestBatchSiafundOutputs(t *testing.T) {
 	}
 	defer wm.Close()
 
+	cn.WaitForSync(t)
+
 	// distribute the siafund output to multiple addresses
 	var addresses []types.Address
 	outputID := genesisBlock.Transactions[0].SiafundOutputID(0)
 	outputValue := genesisBlock.Transactions[0].SiafundOutputs[0].Value
-	for range 100 {
+	for i := range 100 {
 		txn := types.V2Transaction{
 			SiafundInputs: []types.V2SiafundInput{
 				{
@@ -216,10 +218,10 @@ func TestBatchSiafundOutputs(t *testing.T) {
 		outputID = txn.SiafundOutputID(txn.ID(), len(txn.SiafundOutputs)-1)
 		basis, txns, err := db.OverwriteElementProofs([]types.V2Transaction{txn})
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("failed to update element proofs %d: %s", i, err)
 		}
 		if _, err := cm.AddV2PoolTransactions(basis, txns); err != nil {
-			t.Fatal(err)
+			t.Fatalf("failed to add pool transactions %d: %s", i, err)
 		}
 		cn.MineBlocks(t, types.VoidAddress, 1)
 	}
