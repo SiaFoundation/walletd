@@ -1,3 +1,11 @@
+## 2.10.3 (2025-06-20)
+
+### Fixes
+
+- Fixed debug miner error.
+- Ignore broadcast error when debug is enabled.
+- Update core to v0.14.0 and coreutils to v0.16.3
+
 ## 2.10.2 (2025-06-17)
 
 ### Fixes
