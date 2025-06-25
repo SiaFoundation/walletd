@@ -92,7 +92,7 @@ Flags:
   -index.batch int
         max number of blocks to index at a time. Increasing this will increase scan speed, but also increase memory and cpu usage. (default 1000)
   -index.mode string
-        address index mode (personal, full, none) (default "full")
+        address index mode (personal, full, none) (default "personal")
   -network string
         network to connect to; must be one of 'mainnet', 'zen', 'anagami', or the path to a custom network file for a local testnet
   -upnp
