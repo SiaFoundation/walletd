@@ -5,7 +5,7 @@ go 1.24.2
 require (
 	github.com/mattn/go-sqlite3 v1.14.28
 	go.sia.tech/core v0.14.1
-	go.sia.tech/coreutils v0.16.3
+	go.sia.tech/coreutils v0.16.4
 	go.sia.tech/jape v0.14.0
 	go.sia.tech/web/walletd v0.30.0
 	go.uber.org/zap v1.27.0
@@ -18,17 +18,14 @@ require (
 )
 
 require (
-	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
-	github.com/google/pprof v0.0.0-20230821062121-407c9e7a662f // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
-	github.com/onsi/ginkgo/v2 v2.12.0 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
-	github.com/quic-go/quic-go v0.52.0 // indirect
-	github.com/quic-go/webtransport-go v0.8.1-0.20241018022711-4ac2c9250e66 // indirect
-	go.etcd.io/bbolt v1.4.1 // indirect
+	github.com/quic-go/quic-go v0.53.0 // indirect
+	github.com/quic-go/webtransport-go v0.9.0 // indirect
+	go.etcd.io/bbolt v1.4.2 // indirect
 	go.sia.tech/mux v1.4.0 // indirect
 	go.sia.tech/web v0.0.0-20240610131903-5611d44a533e // indirect
-	go.uber.org/mock v0.5.0 // indirect
+	go.uber.org/mock v0.5.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/mod v0.25.0 // indirect
