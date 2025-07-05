@@ -169,12 +169,12 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 	anythingRelevant := func() bool {
 		for _, sced := range cu.SiacoinElementDiffs() {
-			if relevant(sced.SiacoinElement.SiacoinOutput.Address) {
+			if relevant(sced.SiacoinElement.SiacoinOutput.Address) && !sced.SiacoinElement.SiacoinOutput.Value.IsZero() {
 				return true
 			}
 		}
 		for _, sfed := range cu.SiafundElementDiffs() {
-			if relevant(sfed.SiafundElement.SiafundOutput.Address) {
+			if relevant(sfed.SiafundElement.SiafundOutput.Address) && sfed.SiafundElement.SiafundOutput.Value != 0 {
 				return true
 			}
 		}
@@ -320,8 +320,9 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 		if fced.Valid {
 			for i := range fce.FileContract.ValidProofOutputs {
-				address := fce.FileContract.ValidProofOutputs[i].Address
-				if !relevant(address) {
+				sco := fce.FileContract.ValidProofOutputs[i]
+				address := sco.Address
+				if !relevant(address) || sco.Value.IsZero() {
 					continue
 				}
 
@@ -334,8 +335,9 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 			}
 		} else {
 			for i := range fce.FileContract.MissedProofOutputs {
-				address := fce.FileContract.MissedProofOutputs[i].Address
-				if !relevant(address) {
+				sco := fce.FileContract.MissedProofOutputs[i]
+				address := sco.Address
+				if !relevant(address) || sco.Value.IsZero() {
 					continue
 				}
 
@@ -364,32 +366,36 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 
 		if relevant(fce.V2FileContract.HostOutput.Address) {
 			element := sces[types.FileContractID(fce.ID).V2HostOutputID()]
-			addEvent(types.Hash256(element.ID), element.MaturityHeight, EventTypeV2ContractResolution, wallet.EventV2ContractResolution{
-				Resolution: types.V2FileContractResolution{
-					Parent:     fce,
-					Resolution: res,
-				},
-				SiacoinElement: element,
-				Missed:         missed,
-			}, []types.Address{fce.V2FileContract.HostOutput.Address})
+			if !element.SiacoinOutput.Value.IsZero() {
+				addEvent(types.Hash256(element.ID), element.MaturityHeight, EventTypeV2ContractResolution, wallet.EventV2ContractResolution{
+					Resolution: types.V2FileContractResolution{
+						Parent:     fce,
+						Resolution: res,
+					},
+					SiacoinElement: element,
+					Missed:         missed,
+				}, []types.Address{fce.V2FileContract.HostOutput.Address})
+			}
 		}
 
 		if relevant(fce.V2FileContract.RenterOutput.Address) {
 			element := sces[types.FileContractID(fce.ID).V2RenterOutputID()]
-			addEvent(types.Hash256(element.ID), element.MaturityHeight, EventTypeV2ContractResolution, wallet.EventV2ContractResolution{
-				Resolution: types.V2FileContractResolution{
-					Parent:     fce,
-					Resolution: res,
-				},
-				SiacoinElement: element,
-				Missed:         missed,
-			}, []types.Address{fce.V2FileContract.RenterOutput.Address})
+			if !element.SiacoinOutput.Value.IsZero() {
+				addEvent(types.Hash256(element.ID), element.MaturityHeight, EventTypeV2ContractResolution, wallet.EventV2ContractResolution{
+					Resolution: types.V2FileContractResolution{
+						Parent:     fce,
+						Resolution: res,
+					},
+					SiacoinElement: element,
+					Missed:         missed,
+				}, []types.Address{fce.V2FileContract.RenterOutput.Address})
+			}
 		}
 	}
 
 	// handle block rewards
 	for i := range b.MinerPayouts {
-		if relevant(b.MinerPayouts[i].Address) {
+		if relevant(b.MinerPayouts[i].Address) && !b.MinerPayouts[i].Value.IsZero() {
 			element := sces[cs.Index.ID.MinerOutputID(i)]
 			addEvent(types.Hash256(element.ID), element.MaturityHeight, EventTypeMinerPayout, wallet.EventPayout{
 				SiacoinElement: element,
@@ -400,7 +406,7 @@ func AppliedEvents(cs consensus.State, b types.Block, cu ChainUpdate, relevant f
 	// handle foundation subsidy
 	if relevant(cs.FoundationManagementAddress) {
 		element, ok := sces[cs.Index.ID.FoundationOutputID()]
-		if ok {
+		if ok && !element.SiacoinOutput.Value.IsZero() {
 			addEvent(types.Hash256(element.ID), element.MaturityHeight, EventTypeFoundationSubsidy, wallet.EventPayout{
 				SiacoinElement: element,
 			}, []types.Address{element.SiacoinOutput.Address})
