@@ -83,8 +83,6 @@ type (
 		Peers() []*syncer.Peer
 		PeerInfo(addr string) (syncer.PeerInfo, error)
 		Connect(ctx context.Context, addr string) (*syncer.Peer, error)
-		BroadcastHeader(types.BlockHeader) error
-		BroadcastTransactionSet(txns []types.Transaction) error
 		BroadcastV2TransactionSet(index types.ChainIndex, txns []types.V2Transaction) error
 		BroadcastV2BlockOutline(bo gateway.V2BlockOutline) error
 	}
@@ -364,15 +362,11 @@ func (s *server) syncerBroadcastBlockHandler(jc jape.Context) {
 		return
 	} else if jc.Check("block is invalid", s.cm.AddBlocks([]types.Block{b})) != nil {
 		return
-	}
-	if b.V2 == nil {
-		if jc.Check("failed to broadcast header", s.s.BroadcastHeader(b.Header())) != nil {
-			return
-		}
-	} else {
-		if jc.Check("failed to broadcast block outline", s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions()))) != nil {
-			return
-		}
+	} else if b.V2 == nil {
+		jc.Error(errors.New("v1 blocks are unsupported"), http.StatusBadRequest)
+		return
+	} else if jc.Check("failed to broadcast block outline", s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions()))) != nil {
+		return
 	}
 	jc.Encode(nil)
 }
@@ -399,6 +393,7 @@ func (s *server) txpoolFeeHandler(jc jape.Context) {
 }
 
 func (s *server) txpoolBroadcastHandler(jc jape.Context) {
+	// TODO: remove support for V1 transactions in a follow up
 	var tbr TxpoolBroadcastRequest
 	if jc.Decode(&tbr) != nil {
 		return
@@ -421,15 +416,6 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		if err != nil {
 			jc.Error(fmt.Errorf("invalid transaction set: %w", err), http.StatusBadRequest)
 			return
-		}
-
-		err = s.s.BroadcastTransactionSet(tbr.Transactions)
-		if err != nil {
-			if s.debugEnabled {
-				s.log.Warn("failed to broadcast transaction set", zap.Error(err), zap.Any("transactions", tbr.Transactions))
-			} else {
-				jc.Error(fmt.Errorf("failed to broadcast transaction set: %w", err), http.StatusInternalServerError)
-			}
 		}
 	}
 	if len(tbr.V2Transactions) != 0 {
@@ -1567,11 +1553,8 @@ func (s *server) debugMineHandler(jc jape.Context) {
 			log.Warn("failed to add block", zap.Error(err))
 		}
 
-		if b.V2 == nil {
-			if err := s.s.BroadcastHeader(b.Header()); err != nil {
-				log.Warn("failed to broadcast header", zap.Error(err))
-			}
-		} else {
+		// TODO: remove support for V1 blocks in a follow up
+		if b.V2 != nil {
 			if err := s.s.BroadcastV2BlockOutline(gateway.OutlineBlock(b, s.cm.PoolTransactions(), s.cm.V2PoolTransactions())); err != nil {
 				log.Warn("failed to broadcast block outline", zap.Error(err))
 			}
