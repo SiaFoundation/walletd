@@ -50,7 +50,7 @@ func mineBlock(ctx context.Context, cm ChainManager, addr types.Address) (types.
 
 	b.Nonce = 0
 	factor := cs.NonceFactor()
-	for b.ID().CmpWork(cs.ChildTarget) < 0 {
+	for b.ID().CmpWork(cs.PoWTarget()) < 0 {
 		select {
 		case <-ctx.Done():
 			return types.Block{}, ctx.Err()

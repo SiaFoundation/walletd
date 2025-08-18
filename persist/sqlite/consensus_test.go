@@ -20,7 +20,7 @@ func mineBlock(state consensus.State, txns []types.Transaction, minerAddr types.
 		Transactions: txns,
 		MinerPayouts: []types.SiacoinOutput{{Address: minerAddr, Value: state.BlockReward()}},
 	}
-	for b.ID().CmpWork(state.ChildTarget) < 0 {
+	for b.ID().CmpWork(state.PoWTarget()) < 0 {
 		b.Nonce += state.NonceFactor()
 	}
 	return b
