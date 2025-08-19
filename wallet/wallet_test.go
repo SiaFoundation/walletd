@@ -85,7 +85,7 @@ func mineBlock(state consensus.State, txns []types.Transaction, minerAddr types.
 		Transactions: txns,
 		MinerPayouts: []types.SiacoinOutput{{Address: minerAddr, Value: state.BlockReward()}},
 	}
-	for b.ID().CmpWork(state.ChildTarget) < 0 {
+	for b.ID().CmpWork(state.PoWTarget()) < 0 {
 		b.Nonce += state.NonceFactor()
 	}
 	return b
@@ -103,7 +103,7 @@ func mineV2Block(state consensus.State, txns []types.V2Transaction, minerAddr ty
 		},
 	}
 	b.V2.Commitment = state.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions())
-	for b.ID().CmpWork(state.ChildTarget) < 0 {
+	for b.ID().CmpWork(state.PoWTarget()) < 0 {
 		b.Nonce += state.NonceFactor()
 	}
 	return b
