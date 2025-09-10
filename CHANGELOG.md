@@ -1,3 +1,9 @@
+## 2.10.5 (2025-09-10)
+
+### Fixes
+
+- Update core to v0.17.1 and coreutils to v0.18.0
+
 ## 2.10.4 (2025-07-01)
 
 ### Fixes
