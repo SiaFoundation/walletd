@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
@@ -47,8 +48,16 @@ func (c *Client) State() (resp StateResponse, err error) {
 }
 
 // TxpoolBroadcast broadcasts a set of transaction to the network.
-func (c *Client) TxpoolBroadcast(basis types.ChainIndex, txns []types.Transaction, v2txns []types.V2Transaction) (resp TxpoolBroadcastResponse, err error) {
-	err = c.c.POST(context.Background(), "/txpool/broadcast", TxpoolBroadcastRequest{
+func (c *Client) TxpoolBroadcast(basis types.ChainIndex, txns []types.Transaction, v2txns []types.V2Transaction, opts ...TxPoolOpt) (resp TxpoolBroadcastResponse, err error) {
+	v := url.Values{}
+	for _, opt := range opts {
+		opt(&v)
+	}
+	broadcastUrl := "/txpool/broadcast"
+	if len(v) > 0 {
+		broadcastUrl += "?" + v.Encode()
+	}
+	err = c.c.POST(context.Background(), broadcastUrl, TxpoolBroadcastRequest{
 		Basis:          basis,
 		Transactions:   txns,
 		V2Transactions: v2txns,
