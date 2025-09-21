@@ -1543,7 +1543,7 @@ func TestV2TransactionUpdateBasis(t *testing.T) {
 			},
 		},
 		SiacoinOutputs: []types.SiacoinOutput{
-			{Address: types.VoidAddress, Value: sce.SiacoinOutput.Value},
+			{Address: frand.Entropy256(), Value: sce.SiacoinOutput.Value},
 		},
 	}
 	childSigHash := cs.InputSigHash(childTxn)
@@ -1636,7 +1636,7 @@ func TestAddressTPool(t *testing.T) {
 		},
 		SiacoinOutputs: []types.SiacoinOutput{
 			{
-				Address: types.VoidAddress,
+				Address: frand.Entropy256(),
 				Value:   types.Siacoins(25),
 			},
 			{
@@ -1695,7 +1695,7 @@ func TestEphemeralTransactions(t *testing.T) {
 		},
 		SiacoinOutputs: []types.SiacoinOutput{
 			{
-				Address: types.VoidAddress,
+				Address: frand.Entropy256(),
 				Value:   types.Siacoins(50),
 			},
 			{
@@ -1738,7 +1738,7 @@ func TestEphemeralTransactions(t *testing.T) {
 		},
 		SiacoinOutputs: []types.SiacoinOutput{
 			{
-				Address: types.VoidAddress,
+				Address: frand.Entropy256(),
 				Value:   sces[0].SiacoinOutput.Value,
 			},
 		},
@@ -1831,7 +1831,7 @@ func TestBroadcastRace(t *testing.T) {
 				},
 				SiacoinOutputs: []types.SiacoinOutput{
 					{
-						Address: types.VoidAddress,
+						Address: frand.Entropy256(),
 						Value:   burn,
 					},
 					{
@@ -2193,4 +2193,89 @@ func TestWalletConfirmations(t *testing.T) {
 	assertConfirmations(t, 1)
 	cn.MineBlocks(t, types.VoidAddress, 10)
 	assertConfirmations(t, 11)
+}
+
+func TestTxPoolAllowVoid(t *testing.T) {
+	log := zaptest.NewLogger(t)
+
+	n, genesisBlock := testutil.V2Network()
+	senderPrivateKey := types.GeneratePrivateKey()
+	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
+	senderAddr := senderPolicy.Address()
+
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   types.Siacoins(100),
+		Address: senderAddr,
+	}
+
+	cm := testutil.NewConsensusNode(t, n, genesisBlock, log)
+	c := startWalletServer(t, cm, log)
+
+	w, err := c.AddWallet(api.WalletUpdateRequest{
+		Name: "primary",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wc := c.Wallet(w.ID)
+	err = wc.AddAddress(wallet.Address{
+		Address:     senderAddr,
+		SpendPolicy: &senderPolicy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Rescan(0); err != nil {
+		t.Fatal(err)
+	}
+	cm.MineBlocks(t, types.VoidAddress, 1)
+
+	sces, basis, err := wc.SiacoinOutputs(0, 100)
+	if err != nil {
+		t.Fatal(err)
+	} else if len(sces) != 1 {
+		t.Fatalf("expected 1 siacoin output, got %v", len(sces))
+	}
+
+	txn := types.V2Transaction{
+		SiacoinInputs: []types.V2SiacoinInput{
+			{
+				Parent: sces[0].SiacoinElement,
+				SatisfiedPolicy: types.SatisfiedPolicy{
+					Policy: senderPolicy,
+				},
+			},
+		},
+		SiacoinOutputs: []types.SiacoinOutput{
+			{
+				Address: types.VoidAddress,
+				Value:   types.Siacoins(50),
+			},
+			{
+				Address: senderAddr,
+				Value:   sces[0].SiacoinElement.SiacoinOutput.Value.Sub(types.Siacoins(50)),
+			},
+		},
+	}
+
+	cs, err := c.ConsensusTipState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sigHash := cs.InputSigHash(txn)
+	txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{senderPrivateKey.SignHash(sigHash)}
+
+	// attempt to broadcast without allowing void
+	if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err == nil {
+		t.Fatal("expected error")
+	} else if !strings.Contains(err.Error(), "cannot send to void address") {
+		t.Fatalf("expected error to contain %q, got %v", "cannot send to void address", err)
+	}
+
+	// broadcast with allowing void
+	if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}, api.WithAllowVoid()); err != nil {
+		t.Fatal(err)
+	}
 }

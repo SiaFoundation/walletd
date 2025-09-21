@@ -399,6 +399,44 @@ func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 		return
 	}
 
+	var allowVoid bool
+	if jc.DecodeForm("allowVoid", &allowVoid) != nil {
+		return
+	}
+
+	if !allowVoid {
+		for _, txn := range tbr.Transactions {
+			for _, sco := range txn.SiacoinOutputs {
+				if sco.Address == types.VoidAddress {
+					jc.Error(errors.New("cannot send to void address"), http.StatusBadRequest)
+					return
+				}
+			}
+
+			for _, sfo := range txn.SiafundOutputs {
+				if sfo.Address == types.VoidAddress {
+					jc.Error(errors.New("cannot send to void address"), http.StatusBadRequest)
+					return
+				}
+			}
+		}
+
+		for _, txn := range tbr.V2Transactions {
+			for _, sco := range txn.SiacoinOutputs {
+				if sco.Address == types.VoidAddress {
+					jc.Error(errors.New("cannot send to void address"), http.StatusBadRequest)
+					return
+				}
+			}
+			for _, sfo := range txn.SiafundOutputs {
+				if sfo.Address == types.VoidAddress {
+					jc.Error(errors.New("cannot send to void address"), http.StatusBadRequest)
+					return
+				}
+			}
+		}
+	}
+
 	// the transactions are sent back to the client because the
 	// transaction set may have been modified and the transactions
 	// include additional convenience fields when being marshalled
