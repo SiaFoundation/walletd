@@ -1,3 +1,15 @@
+## 2.11.0 (2025-10-01)
+
+### Features
+
+#### Adds an `allowVoid` query parameter to [POST] /txpool/broadcast to guard against accidental burns.
+
+By default, transactions sent to the void (zero) address are rejected. Integrators must explicitly set allowVoid=true to broadcast to the void. This prevents cases where address parsing errors (e.g. ignoring the error from UnmarshalText and falling back to the zero address) would unintentionally destroy funds.
+
+#### Added support for V2 Final Cut Hardfork
+
+Includes minor improvements to the consensus state and accumulator in preparation for instant syncing and light node support.
+
 ## 2.10.5 (2025-09-10)
 
 ### Fixes
