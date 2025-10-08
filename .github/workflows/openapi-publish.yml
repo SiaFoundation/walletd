@@ -16,7 +16,7 @@ jobs:
     with:
       slug: walletd
       spec_path: openapi.yml
-      docs_slug: sia
+      docs_slug: walletd
     secrets:
       SCALAR_API_KEY: ${{ secrets.SCALAR_API_KEY }}
       SCALAR_ACCESS_TOKEN: ${{ secrets.SCALAR_ACCESS_TOKEN }}
