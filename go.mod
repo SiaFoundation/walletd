@@ -20,7 +20,7 @@ require (
 require (
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
-	github.com/quic-go/quic-go v0.54.0 // indirect
+	github.com/quic-go/quic-go v0.54.1 // indirect
 	github.com/quic-go/webtransport-go v0.9.0 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
 	go.sia.tech/mux v1.4.0 // indirect
