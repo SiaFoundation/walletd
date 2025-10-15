@@ -662,7 +662,7 @@ paths:
   /check/addresses:
     post:
       tags:
-        - addresses
+        - misc
       summary: Check address membership
       description: >
         Returns whether any supplied addresses are currently tracked by walletd.
@@ -685,7 +685,7 @@ paths:
   /events/{id}:
     get:
       tags:
-        - outputs
+        - events
       summary: Fetch event by ID
       operationId: getEvent
       parameters:
@@ -902,7 +902,7 @@ paths:
   /wallets/{id}/events:
     get:
       tags:
-        - events
+        - wallets
       summary: Wallet events
       operationId: getWalletEvents
       parameters:
