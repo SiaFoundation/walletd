@@ -212,7 +212,8 @@ You can create a custom local testnet by creating a network.json file locally an
     "hardforkASIC": {
       "height": 20,
       "oakTime": 10000000000000,
-      "oakTarget": "0000000100000000000000000000000000000000000000000000000000000000"
+      "oakTarget": "0000000100000000000000000000000000000000000000000000000000000000",
+      "nonceFactor": 1009
     },
     "hardforkFoundation": {
       "height": 30,
@@ -221,7 +222,8 @@ You can create a custom local testnet by creating a network.json file locally an
     },
     "hardforkV2": {
       "allowHeight": 112000,
-      "requireHeight": 114000
+      "requireHeight": 114000,
+      "finalCutHeight": 116000,
     }
   },
   "genesis": {
