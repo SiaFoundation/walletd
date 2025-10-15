@@ -147,6 +147,7 @@ type WalletConstructV2Response struct {
 	ID           types.TransactionID `json:"id"`
 	Transaction  types.V2Transaction `json:"transaction"`
 	EstimatedFee types.Currency      `json:"estimatedFee"`
+	InputSigHash types.Hash256       `json:"inputSigHash"`
 }
 
 // SeedSignRequest requests that a transaction be signed using the keys derived

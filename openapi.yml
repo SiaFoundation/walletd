@@ -2077,7 +2077,9 @@ components:
           $ref: "#/components/schemas/V2Transaction"
         estimatedFee:
           $ref: "#/components/schemas/Currency"
-      required: [basis, id, transaction, estimatedFee]
+        inputSigHash:
+          $ref: "#/components/schemas/Hash256"
+      required: [basis, id, transaction, estimatedFee, inputSigHash]
 
     UnspentSiacoinElementsResponse:
       type: object
