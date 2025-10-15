@@ -1,0 +1,2854 @@
+openapi: "3.0.0"
+info:
+  title: Walletd API
+  description: >
+    Walletd exposes a REST API for managing wallets, querying blockchain data, and
+    broadcasting transactions on the Sia network. These endpoints are primarily
+    intended for integrators that need low-level access to wallet state, UTXOs,
+    and transaction construction utilities.
+  version: 2.11.0
+
+servers:
+  - url: http://localhost:9980/api
+
+tags:
+  - name: misc
+    description: Build information and basic health probes.
+  - name: consensus
+    description: Access on-chain state, blocks, and historical updates.
+  - name: syncer
+    description: Manage P2P peers and broadcast blocks.
+  - name: txpool
+    description: Inspect and broadcast transactions.
+  - name: wallets
+    description: Create wallets, manage addresses, and build transactions.
+  - name: addresses
+    description: Query balances, events, and UTXOs for individual addresses.
+  - name: batch
+    description: Batch operations that act on multiple addresses at once.
+  - name: outputs
+    description: Inspect individual siacoin and siafund outputs.
+  - name: events
+    description: Fetch individual wallet events by ID.
+  - name: rescan
+    description: Control background chain rescans.
+  - name: debug
+    description: Debug and profiling endpoints. Only available when walletd runs with debug options.
+
+paths:
+  /state:
+    get:
+      tags:
+        - misc
+      summary: Get daemon state
+      description: Returns build metadata and runtime information about the walletd instance.
+      operationId: getState
+      responses:
+        "200":
+          description: Current daemon state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StateResponse"
+
+  /health:
+    get:
+      tags:
+        - misc
+      summary: Health probe
+      description: Returns 200 when walletd is healthy.
+      operationId: getHealth
+      responses:
+        "200":
+          description: Walletd is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                nullable: true
+                description: Always `null` on success.
+
+  /consensus/network:
+    get:
+      tags:
+        - consensus
+      summary: Network parameters
+      description: Returns consensus parameters for the active network.
+      operationId: getConsensusNetwork
+      responses:
+        "200":
+          description: Consensus network parameters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsensusNetwork"
+
+  /consensus/tip:
+    get:
+      tags:
+        - consensus
+      summary: Current chain tip index
+      operationId: getConsensusTip
+      responses:
+        "200":
+          description: Current best chain index.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChainIndex"
+
+  /consensus/tipstate:
+    get:
+      tags:
+        - consensus
+      summary: Current consensus state
+      operationId: getConsensusTipState
+      responses:
+        "200":
+          description: Consensus state at the current tip.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsensusState"
+
+  /consensus/checkpoint/{id}:
+    get:
+      tags:
+        - consensus
+      summary: Retrieve checkpoint by block ID or height
+      description: >
+        Returns the consensus state and block associated with the supplied block ID
+        or height.
+      operationId: getConsensusCheckpoint
+      parameters:
+        - name: id
+          in: path
+          description: Block ID (hex) or height.
+          required: true
+          schema:
+            oneOf:
+              - type: string
+                pattern: "^[0-9a-fA-F]{64}$"
+              - type: integer
+                format: uint64
+      responses:
+        "200":
+          description: Consensus checkpoint for the supplied block.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsensusCheckpointResponse"
+        "404":
+          description: Block not found.
+
+  /consensus/blocks/{id}:
+    get:
+      tags:
+        - consensus
+      summary: Fetch block by ID or height
+      operationId: getConsensusBlock
+      parameters:
+        - name: id
+          in: path
+          description: Block ID (hex) or height.
+          required: true
+          schema:
+            oneOf:
+              - type: string
+                pattern: "^[0-9a-fA-F]{64}$"
+              - type: integer
+                format: uint64
+      responses:
+        "200":
+          description: Block data.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Block"
+        "404":
+          description: Block not found.
+
+  /consensus/updates/{index}:
+    get:
+      tags:
+        - consensus
+      summary: Stream consensus updates since an index
+      description: >
+        Returns the set of reverted and applied updates needed to move from the supplied
+        chain index to the current tip.
+      operationId: getConsensusUpdates
+      parameters:
+        - name: index
+          in: path
+          required: true
+          description: Starting chain index.
+          schema:
+            $ref: "#/components/schemas/ChainIndex"
+        - name: limit
+          in: query
+          description: Maximum number of updates to return (default 10, max 100).
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Consensus updates needed to synchronize the supplied index.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsensusUpdatesResponse"
+
+  /consensus/index/{height}:
+    get:
+      tags:
+        - consensus
+      summary: Resolve a chain index by height
+      operationId: getConsensusIndexByHeight
+      parameters:
+        - name: height
+          in: path
+          required: true
+          description: Block height to resolve.
+          schema:
+            type: integer
+            format: uint64
+      responses:
+        "200":
+          description: Chain index at the requested height.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChainIndex"
+        "404":
+          description: Height not found.
+
+  /syncer/connect:
+    post:
+      tags:
+        - syncer
+      summary: Connect to a peer
+      description: Attempts to connect to the supplied peer address.
+      operationId: postSyncerConnect
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+              description: Peer address in `host:port` form.
+      responses:
+        "200":
+          description: Connection initiated.
+        "500":
+          description: Failed to connect to peer.
+
+  /syncer/peers:
+    get:
+      tags:
+        - syncer
+      summary: List connected peers
+      operationId: getSyncerPeers
+      responses:
+        "200":
+          description: Connected peers and their metadata.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GatewayPeer"
+
+  /syncer/broadcast/block:
+    post:
+      tags:
+        - syncer
+      summary: Broadcast a block to peers
+      description: >
+        Adds the supplied block to the local chain (if valid) and broadcasts it to peers.
+        When broadcasting a v2 block, walletd sends the block outline.
+      operationId: postSyncerBroadcastBlock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Block"
+      responses:
+        "200":
+          description: Block accepted and broadcast.
+        "400":
+          description: Submitted block was invalid.
+
+  /txpool/transactions:
+    get:
+      tags:
+        - txpool
+      summary: List unconfirmed transactions
+      operationId: getTxpoolTransactions
+      responses:
+        "200":
+          description: Current contents of the transaction pools.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TxpoolTransactionsResponse"
+
+  /txpool/transactions/v2/basis:
+    post:
+      tags:
+        - txpool
+      summary: Rebase v2 transaction set
+      description: >
+        Adjusts a v2 transaction set from one basis chain index to another.
+        Use this to keep proofs and references valid when the chain advances.
+      operationId: postTxpoolV2TransactionsBasis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxpoolUpdateV2TransactionsRequest"
+      responses:
+        "200":
+          description: Updated transaction set anchored at the target basis.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TxpoolUpdateV2TransactionsResponse"
+        "400":
+          description: Invalid transaction set.
+
+  /txpool/fee:
+    get:
+      tags:
+        - txpool
+      summary: Recommended miner fee
+      operationId: getTxpoolFee
+      responses:
+        "200":
+          description: Fee rate recommended for prompt confirmation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Currency"
+
+  /txpool/parents:
+    post:
+      tags:
+        - txpool
+      summary: Lookup unconfirmed parents
+      description: Returns unconfirmed parent transactions required to validate the supplied transaction.
+      operationId: postTxpoolParents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Transaction"
+      responses:
+        "200":
+          description: Parent transactions that must be included ahead of the supplied transaction.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+
+  /txpool/broadcast:
+    post:
+      tags:
+        - txpool
+      summary: Broadcast transaction set
+      description: >
+        Broadcasts v1 or v2 transaction sets. Walletd may augment the submitted transactions
+        with missing parents or overwritten proofs before sending them to peers.
+      operationId: postTxpoolBroadcast
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxpoolBroadcastRequest"
+      responses:
+        "200":
+          description: Transactions accepted by the pool and broadcast to peers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TxpoolBroadcastResponse"
+        "400":
+          description: Invalid transaction set.
+
+  /txpool/events:
+    get:
+      tags:
+        - txpool
+      summary: List unconfirmed wallet events
+      description: Returns unconfirmed wallet events backed by transactions in the pool.
+      operationId: getTxpoolEvents
+      responses:
+        "200":
+          description: Pending wallet events derived from the transaction pool.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+
+  /addresses/{addr}/balance:
+    get:
+      tags:
+        - addresses
+      summary: Address balance
+      operationId: getAddressBalance
+      parameters:
+        - $ref: "#/components/parameters/AddressParam"
+      responses:
+        "200":
+          description: Aggregated siacoin and siafund balance for the address.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Balance"
+
+  /addresses/{addr}/events:
+    get:
+      tags:
+        - addresses
+      summary: Address events
+      description: Returns confirmed events affecting the supplied address.
+      operationId: getAddressEvents
+      parameters:
+        - $ref: "#/components/parameters/AddressParam"
+        - $ref: "#/components/parameters/OffsetParam"
+        - $ref: "#/components/parameters/LimitParamLarge"
+      responses:
+        "200":
+          description: Events involving the address.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+
+  /addresses/{addr}/events/unconfirmed:
+    get:
+      tags:
+        - addresses
+      summary: Address unconfirmed events
+      description: Returns unconfirmed events generated by unconfirmed transactions that reference the address.
+      operationId: getAddressEventsUnconfirmed
+      parameters:
+        - $ref: "#/components/parameters/AddressParam"
+      responses:
+        "200":
+          description: Unconfirmed events touching the address.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+
+  /addresses/{addr}/outputs/siacoin:
+    get:
+      tags:
+        - addresses
+      summary: Address siacoin outputs
+      operationId: getAddressSiacoinOutputs
+      parameters:
+        - $ref: "#/components/parameters/AddressParam"
+        - name: tpool
+          in: query
+          description: Include unconfirmed txpool outputs.
+          schema:
+            type: boolean
+            default: false
+        - $ref: "#/components/parameters/OffsetParam"
+        - $ref: "#/components/parameters/LimitParamLarge"
+      responses:
+        "200":
+          description: Unspent siacoin outputs owned by the address.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressSiacoinElementsResponse"
+
+  /addresses/{addr}/outputs/siafund:
+    get:
+      tags:
+        - addresses
+      summary: Address siafund outputs
+      operationId: getAddressSiafundOutputs
+      parameters:
+        - $ref: "#/components/parameters/AddressParam"
+        - name: tpool
+          in: query
+          description: Include unconfirmed txpool outputs.
+          schema:
+            type: boolean
+            default: false
+        - $ref: "#/components/parameters/OffsetParam"
+        - $ref: "#/components/parameters/LimitParamLarge"
+      responses:
+        "200":
+          description: Unspent siafund outputs owned by the address.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressSiafundElementsResponse"
+
+  /batch/addresses/balance:
+    post:
+      tags:
+        - batch
+      summary: Batch balance lookup
+      description: Returns the aggregate balance for all supplied addresses.
+      operationId: postBatchAddressesBalance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchAddressesRequest"
+      responses:
+        "200":
+          description: Combined balance across addresses.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Balance"
+
+  /batch/addresses/events:
+    post:
+      tags:
+        - batch
+      summary: Batch events lookup
+      operationId: postBatchAddressesEvents
+      parameters:
+        - $ref: "#/components/parameters/OffsetParam"
+        - $ref: "#/components/parameters/LimitParamSmall"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchAddressesRequest"
+      responses:
+        "200":
+          description: Events touching any of the supplied addresses.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+
+  /batch/addresses/outputs/siacoin:
+    post:
+      tags:
+        - batch
+      summary: Batch siacoin outputs lookup
+      operationId: postBatchAddressesSiacoinOutputs
+      parameters:
+        - $ref: "#/components/parameters/OffsetParam"
+        - $ref: "#/components/parameters/LimitParamSmall"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchAddressesRequest"
+      responses:
+        "200":
+          description: Unspent siacoin outputs for the supplied addresses.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressSiacoinElementsResponse"
+
+  /batch/addresses/outputs/siafund:
+    post:
+      tags:
+        - batch
+      summary: Batch siafund outputs lookup
+      operationId: postBatchAddressesSiafundOutputs
+      parameters:
+        - $ref: "#/components/parameters/OffsetParam"
+        - $ref: "#/components/parameters/LimitParamSmall"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BatchAddressesRequest"
+      responses:
+        "200":
+          description: Unspent siafund outputs for the supplied addresses.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressSiafundElementsResponse"
+
+  /outputs/siacoin/{id}:
+    get:
+      tags:
+        - outputs
+      summary: Fetch siacoin output
+      operationId: getSiacoinOutput
+      parameters:
+        - $ref: "#/components/parameters/SiacoinOutputIDParam"
+      responses:
+        "200":
+          description: Siacoin element details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiacoinElement"
+
+  /outputs/siacoin/{id}/spent:
+    get:
+      tags:
+        - outputs
+      summary: Check siacoin output spent status
+      operationId: getSiacoinOutputSpent
+      parameters:
+        - $ref: "#/components/parameters/SiacoinOutputIDParam"
+      responses:
+        "200":
+          description: Spent status and optional spend event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ElementSpentResponse"
+
+  /outputs/siafund/{id}:
+    get:
+      tags:
+        - outputs
+      summary: Fetch siafund output
+      operationId: getSiafundOutput
+      parameters:
+        - $ref: "#/components/parameters/SiafundOutputIDParam"
+      responses:
+        "200":
+          description: Siafund element details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiafundElement"
+
+  /outputs/siafund/{id}/spent:
+    get:
+      tags:
+        - outputs
+      summary: Check siafund output spent status
+      operationId: getSiafundOutputSpent
+      parameters:
+        - $ref: "#/components/parameters/SiafundOutputIDParam"
+      responses:
+        "200":
+          description: Spent status and optional spend event.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ElementSpentResponse"
+
+  /check/addresses:
+    post:
+      tags:
+        - misc
+      summary: Check address membership
+      description: >
+        Returns whether any supplied addresses are currently tracked by walletd.
+        In personal indexing mode, only registered wallet addresses are recognized.
+      operationId: postCheckAddresses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckAddressesRequest"
+      responses:
+        "200":
+          description: Address membership check result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckAddressesResponse"
+
+  /events/{id}:
+    get:
+      tags:
+        - events
+      summary: Fetch event by ID
+      operationId: getEvent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Event ID (hash).
+          schema:
+            $ref: "#/components/schemas/Hash256"
+      responses:
+        "200":
+          description: Event information.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "404":
+          description: Event not found.
+
+  /rescan:
+    get:
+      tags:
+        - rescan
+      summary: Get rescan status
+      operationId: getRescan
+      responses:
+        "200":
+          description: Current rescan progress.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RescanResponse"
+    post:
+      tags:
+        - rescan
+      summary: Start a rescan
+      description: >
+        Initiates a background rescan from the supplied height. Omitting the height
+        or providing zero triggers a full rescan from genesis.
+      operationId: postRescan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: integer
+              format: uint64
+              description: >
+                Height to begin rescanning from. Set to 0 for a full rescan.
+      responses:
+        "200":
+          description: Rescan started.
+        "409":
+          description: A rescan is already running.
+
+  /wallets:
+    get:
+      tags:
+        - wallets
+      summary: List wallets
+      operationId: getWallets
+      responses:
+        "200":
+          description: Wallets registered with walletd.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Wallet"
+    post:
+      tags:
+        - wallets
+      summary: Create wallet
+      operationId: postWallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletUpdateRequest"
+      responses:
+        "200":
+          description: Wallet created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+
+  /wallets/{id}:
+    post:
+      tags:
+        - wallets
+      summary: Update wallet metadata
+      operationId: postWalletByID
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletUpdateRequest"
+      responses:
+        "200":
+          description: Wallet updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "404":
+          description: Wallet not found.
+    delete:
+      tags:
+        - wallets
+      summary: Delete wallet
+      operationId: deleteWalletByID
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      responses:
+        "200":
+          description: Wallet removed.
+        "404":
+          description: Wallet not found.
+
+  /wallets/{id}/addresses:
+    put:
+      tags:
+        - wallets
+      summary: Add address to wallet
+      operationId: putWalletAddress
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletAddress"
+      responses:
+        "200":
+          description: Address added to wallet.
+    get:
+      tags:
+        - wallets
+      summary: List wallet addresses
+      operationId: getWalletAddresses
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      responses:
+        "200":
+          description: Addresses assigned to the wallet.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WalletAddress"
+
+  /wallets/{id}/batch/addresses:
+    put:
+      tags:
+        - wallets
+      summary: Add multiple addresses
+      operationId: putWalletBatchAddresses
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 10000
+              items:
+                $ref: "#/components/schemas/WalletAddress"
+      responses:
+        "200":
+          description: Addresses added to wallet.
+
+  /wallets/{id}/addresses/{addr}:
+    delete:
+      tags:
+        - wallets
+      summary: Remove wallet address
+      operationId: deleteWalletAddress
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+        - $ref: "#/components/parameters/AddressParam"
+      responses:
+        "200":
+          description: Address removed.
+        "404":
+          description: Wallet or address not found.
+
+  /wallets/{id}/balance:
+    get:
+      tags:
+        - wallets
+      summary: Wallet balance
+      operationId: getWalletBalance
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      responses:
+        "200":
+          description: Wallet balance with immature breakdown.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Balance"
+        "404":
+          description: Wallet not found.
+
+  /wallets/{id}/events:
+    get:
+      tags:
+        - wallets
+      summary: Wallet events
+      operationId: getWalletEvents
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+        - $ref: "#/components/parameters/OffsetParam"
+        - $ref: "#/components/parameters/LimitParamDefault"
+      responses:
+        "200":
+          description: Events relevant to the wallet.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+        "404":
+          description: Wallet not found.
+
+  /wallets/{id}/events/unconfirmed:
+    get:
+      tags:
+        - wallets
+      summary: Wallet unconfirmed events
+      operationId: getWalletEventsUnconfirmed
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      responses:
+        "200":
+          description: Unconfirmed events referencing the wallet.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+        "404":
+          description: Wallet not found.
+
+  /wallets/{id}/outputs/siacoin:
+    get:
+      tags:
+        - wallets
+      summary: Wallet siacoin outputs
+      operationId: getWalletSiacoinOutputs
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+        - $ref: "#/components/parameters/OffsetParam"
+        - $ref: "#/components/parameters/LimitParamLarge"
+      responses:
+        "200":
+          description: Unspent siacoin elements tracked by the wallet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnspentSiacoinElementsResponse"
+
+  /wallets/{id}/outputs/siafund:
+    get:
+      tags:
+        - wallets
+      summary: Wallet siafund outputs
+      operationId: getWalletSiafundOutputs
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+        - $ref: "#/components/parameters/OffsetParam"
+        - $ref: "#/components/parameters/LimitParamLarge"
+      responses:
+        "200":
+          description: Unspent siafund elements tracked by the wallet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnspentSiafundElementsResponse"
+
+  /wallets/{id}/reserve:
+    post:
+      tags:
+        - wallets
+      summary: Reserve UTXOs
+      operationId: postWalletReserve
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletReserveRequest"
+      responses:
+        "200":
+          description: Outputs reserved.
+
+  /wallets/{id}/release:
+    post:
+      tags:
+        - wallets
+      summary: Release reserved UTXOs
+      operationId: postWalletRelease
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletReleaseRequest"
+      responses:
+        "200":
+          description: Outputs released.
+
+  /wallets/{id}/fund:
+    post:
+      tags:
+        - wallets
+      summary: Fund v1 transaction
+      operationId: postWalletFund
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletFundRequest"
+      responses:
+        "200":
+          description: Transaction funded and inputs listed for signing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletFundResponse"
+
+  /wallets/{id}/fundsf:
+    post:
+      tags:
+        - wallets
+      summary: Fund v1 transaction with siafunds
+      operationId: postWalletFundSiafunds
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletFundSFRequest"
+      responses:
+        "200":
+          description: Transaction funded with siafund inputs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletFundResponse"
+
+  /wallets/{id}/construct/transaction:
+    post:
+      tags:
+        - wallets
+      summary: Construct v1 transaction
+      description: >
+        Selects wallet-managed UTXOs, adds change outputs as needed, and returns a
+        fully-formed v1 transaction with signature placeholders.
+      operationId: postWalletConstructTransaction
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletConstructRequest"
+      responses:
+        "200":
+          description: Constructed v1 transaction and metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletConstructResponse"
+
+  /wallets/{id}/construct/v2/transaction:
+    post:
+      tags:
+        - wallets
+      summary: Construct v2 transaction
+      description: >
+        Builds a v2 transaction using wallet-managed UTXOs and optional outputs.
+        Walletd fills in satisfied spend policies and updates proofs to the latest basis.
+      operationId: postWalletConstructV2Transaction
+      parameters:
+        - $ref: "#/components/parameters/WalletIDParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletConstructRequest"
+      responses:
+        "200":
+          description: Constructed v2 transaction and metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletConstructV2Response"
+
+  /debug/mine:
+    post:
+      tags:
+        - debug
+      summary: Mine blocks locally
+      description: >
+        Mines the requested number of blocks to the supplied address using the integrated CPU miner.
+        Only available when debug endpoints are enabled.
+      operationId: postDebugMine
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DebugMineRequest"
+      responses:
+        "200":
+          description: Requested blocks mined or mining stopped early.
+
+  /debug/pprof/{handler}:
+    get:
+      tags:
+        - debug
+      summary: Get pprof profiling data
+      description: >
+        Returns profiling data for the specified handler. This is useful for
+        debugging and performance analysis.
+      operationId: getPprofData
+      parameters:
+        - name: handler
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              [
+                allocs,
+                block,
+                cmdline,
+                goroutine,
+                heap,
+                mutex,
+                profile,
+                threadcreate,
+                trace,
+              ]
+      responses:
+        "200":
+          description: Profiling data in binary format
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+components:
+  schemas:
+    Hash256:
+      type: string
+      pattern: ^[0-9a-fA-F]{64}$
+      description: A 256-bit blake2b hash
+
+    BlockHeight:
+      type: integer
+      format: uint64
+      description: The height of a block
+      example: 92813
+
+    BlockID:
+      allOf:
+        - $ref: "#/components/schemas/Hash256"
+        - description: A unique identifier for a block
+
+    Currency:
+      type: string
+      pattern: "^\\d+$"
+      maxLength: 39 # fits 2^128 - 1
+      description: An unsigned amount of Hastings, the smallest unit of currency in Sia. 1 Siacoin (SC) equals 10^24 Hastings (H).
+
+    Address:
+      allOf:
+        - $ref: "#/components/schemas/Hash256"
+        - description: The hash of a set of UnlockConditions
+
+    PublicKey:
+      type: string
+      pattern: "^ed25519:[0-9a-fA-F]{64}$"
+      description: Ed25519 public key encoded with algorithm prefix.
+
+    TransactionID:
+      allOf:
+        - $ref: "#/components/schemas/Hash256"
+        - description: Unique identifier for a transaction.
+
+    Signature:
+      type: string
+      pattern: "^[0-9a-fA-F]{128}$"
+      description: Hex-encoded Ed25519 signature.
+
+    SiacoinOutputID:
+      allOf:
+        - $ref: "#/components/schemas/Hash256"
+        - description: Identifier for a siacoin output.
+
+    SiafundOutputID:
+      allOf:
+        - $ref: "#/components/schemas/Hash256"
+        - description: Identifier for a siafund output.
+
+    FileContractID:
+      allOf:
+        - $ref: "#/components/schemas/Hash256"
+        - description: Identifier for a file contract.
+
+    Event:
+      type: object
+      description: A transaction or other event that affects the wallet including miner payouts, siafund claims, and file contract payouts.
+      properties:
+        id:
+          allOf:
+            - $ref: "#/components/schemas/Hash256"
+            - description: The event's ID
+        index:
+          allOf:
+            - $ref: "#/components/schemas/ChainIndex"
+            - description: Information about the block that triggered the creation of this event
+        confirmations:
+          type: integer
+          format: uint64
+          description: The number of blocks on top of the block that triggered the creation of this event
+        type:
+          type: string
+          enum:
+            - miner
+            - foundation
+            - siafundClaim
+            - v1Transaction
+            - v1ContractResolution
+            - v2Transaction
+            - v2ContractResolution
+          description: The type of the event
+        data:
+          type: object
+        maturityHeight:
+          allOf:
+            - $ref: "#/components/schemas/BlockHeight"
+            - description: The block height at which the payout matures.
+        timestamp:
+          type: string
+          format: date-time
+          description: The time the event was created
+        relevant:
+          type: array
+          items:
+            $ref: "#/components/schemas/Address"
+
+    StateResponse:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Walletd semantic version.
+        commit:
+          type: string
+          description: Git commit hash walletd was built from.
+        os:
+          type: string
+          description: Operating system of the running binary.
+        buildTime:
+          type: string
+          format: date-time
+          description: Build timestamp embedded in the binary.
+        startTime:
+          type: string
+          format: date-time
+          description: Time when walletd started.
+        indexMode:
+          $ref: "#/components/schemas/IndexMode"
+      required: [version, commit, os, buildTime, startTime, indexMode]
+
+    IndexMode:
+      type: string
+      description: Wallet index mode that determines how chain data is tracked.
+      enum: [personal, full, none]
+
+    ConsensusNetwork:
+      type: object
+      description: Parameters that define network-wide consensus constants.
+      properties:
+        name:
+          type: string
+          description: Human friendly name of the network (e.g. mainnet, zen, anagami).
+        initialCoinbase:
+          $ref: "#/components/schemas/Currency"
+        minimumCoinbase:
+          $ref: "#/components/schemas/Currency"
+        initialTarget:
+          $ref: "#/components/schemas/BlockID"
+        blockInterval:
+          type: string
+          description: Target block interval expressed as a Go duration string (e.g. "600s").
+        maturityDelay:
+          type: integer
+          format: uint64
+          description: Number of confirmations before miner payouts mature.
+        hardforkDevAddr:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: uint64
+            oldAddress:
+              $ref: "#/components/schemas/Address"
+            newAddress:
+              $ref: "#/components/schemas/Address"
+          required: [height, oldAddress, newAddress]
+        hardforkTax:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: uint64
+          required: [height]
+        hardforkStorageProof:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: uint64
+          required: [height]
+        hardforkOak:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: uint64
+            fixHeight:
+              type: integer
+              format: uint64
+            genesisTimestamp:
+              type: string
+              format: date-time
+          required: [height, fixHeight, genesisTimestamp]
+        hardforkASIC:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: uint64
+            oakTime:
+              type: string
+              description: Duration encoded as a Go duration string.
+            oakTarget:
+              $ref: "#/components/schemas/BlockID"
+            nonceFactor:
+              type: integer
+              format: uint64
+          required: [height, oakTime, oakTarget, nonceFactor]
+        hardforkFoundation:
+          type: object
+          properties:
+            height:
+              type: integer
+              format: uint64
+            primaryAddress:
+              $ref: "#/components/schemas/Address"
+            failsafeAddress:
+              $ref: "#/components/schemas/Address"
+          required: [height, primaryAddress, failsafeAddress]
+        hardforkV2:
+          type: object
+          properties:
+            allowHeight:
+              type: integer
+              format: uint64
+            requireHeight:
+              type: integer
+              format: uint64
+            finalCutHeight:
+              type: integer
+              format: uint64
+          required: [allowHeight, requireHeight, finalCutHeight]
+      required:
+        [
+          name,
+          initialCoinbase,
+          minimumCoinbase,
+          initialTarget,
+          blockInterval,
+          maturityDelay,
+          hardforkDevAddr,
+          hardforkTax,
+          hardforkStorageProof,
+          hardforkOak,
+          hardforkASIC,
+          hardforkFoundation,
+          hardforkV2,
+        ]
+
+    ChainIndex:
+      type: object
+      properties:
+        height:
+          allOf:
+            - $ref: "#/components/schemas/BlockHeight"
+            - description: The height of the block in the blockchain
+        id:
+          allOf:
+            - $ref: "#/components/schemas/BlockID"
+            - description: The ID of the block
+
+    ConsensusState:
+      type: object
+      description: Snapshot of consensus-related chain state at a specific tip.
+      properties:
+        index:
+          $ref: "#/components/schemas/ChainIndex"
+        prevTimestamps:
+          type: array
+          description: Last 11 block timestamps, newest first.
+          items:
+            type: string
+            format: date-time
+        depth:
+          $ref: "#/components/schemas/BlockID"
+        childTarget:
+          $ref: "#/components/schemas/BlockID"
+        siafundTaxRevenue:
+          $ref: "#/components/schemas/Currency"
+        oakTime:
+          type: string
+          description: Weighted average block time encoded as a Go duration string.
+        oakTarget:
+          $ref: "#/components/schemas/BlockID"
+        foundationSubsidyAddress:
+          $ref: "#/components/schemas/Address"
+        foundationManagementAddress:
+          $ref: "#/components/schemas/Address"
+        totalWork:
+          $ref: "#/components/schemas/Work"
+        difficulty:
+          $ref: "#/components/schemas/Work"
+        oakWork:
+          $ref: "#/components/schemas/Work"
+        elements:
+          $ref: "#/components/schemas/ElementAccumulator"
+        attestations:
+          type: integer
+          format: uint64
+      required:
+        [
+          index,
+          prevTimestamps,
+          depth,
+          childTarget,
+          siafundTaxRevenue,
+          oakTime,
+          oakTarget,
+          foundationSubsidyAddress,
+          foundationManagementAddress,
+          totalWork,
+          difficulty,
+          oakWork,
+          elements,
+          attestations,
+        ]
+
+    Block:
+      type: object
+      description: Block as returned by the walletd consensus endpoints.
+      properties:
+        parentID:
+          $ref: "#/components/schemas/BlockID"
+        nonce:
+          type: integer
+          format: uint64
+        timestamp:
+          type: string
+          format: date-time
+        minerPayouts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiacoinOutput"
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        v2:
+          $ref: "#/components/schemas/V2BlockData"
+      required: [parentID, nonce, timestamp, minerPayouts, transactions]
+
+    ConsensusCheckpointResponse:
+      type: object
+      properties:
+        state:
+          $ref: "#/components/schemas/ConsensusState"
+        block:
+          $ref: "#/components/schemas/Block"
+      required: [state, block]
+
+    GatewayPeer:
+      type: object
+      properties:
+        address:
+          type: string
+          description: Peer network address.
+        inbound:
+          type: boolean
+          description: Whether the connection was inbound.
+        version:
+          type: string
+          description: Peer-reported version.
+        firstSeen:
+          type: string
+          format: date-time
+          nullable: true
+          description: Time the peer was first observed, if known.
+        connectedSince:
+          type: string
+          format: date-time
+          nullable: true
+          description: Time the peer connection was established.
+        syncedBlocks:
+          type: integer
+          format: uint64
+          nullable: true
+          description: Number of blocks synced during the last session.
+        syncDuration:
+          type: string
+          nullable: true
+          description: Duration of the last sync, encoded as a Go duration string.
+      required: [address, inbound, version]
+
+    TxpoolBroadcastRequest:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+          description: v1 transactions to broadcast.
+        v2transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2Transaction"
+          description: v2 transactions to broadcast.
+      description: >
+        At least one of `transactions` or `v2transactions` must be supplied. When broadcasting
+        v2 transactions, `basis` should match the chain index the proofs are anchored to.
+
+    TxpoolBroadcastResponse:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        v2transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2Transaction"
+      required: [basis]
+
+    TxpoolTransactionsResponse:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        v2transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2Transaction"
+      required: [basis, transactions, v2transactions]
+
+    TxpoolUpdateV2TransactionsRequest:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        target:
+          $ref: "#/components/schemas/ChainIndex"
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2Transaction"
+      required: [basis, target, transactions]
+
+    TxpoolUpdateV2TransactionsResponse:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2Transaction"
+      required: [basis, transactions]
+
+    Transaction:
+      type: object
+      description: Sia v1 transaction including derived identifiers returned by walletd.
+      properties:
+        id:
+          $ref: "#/components/schemas/TransactionID"
+        siacoinInputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiacoinInput"
+        siacoinOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiacoinOutputWithID"
+        fileContracts:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContract"
+        fileContractRevisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContractRevision"
+        storageProofs:
+          type: array
+          items:
+            $ref: "#/components/schemas/StorageProof"
+        siafundInputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiafundInput"
+        siafundOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiafundOutputWithID"
+        minerFees:
+          type: array
+          items:
+            $ref: "#/components/schemas/Currency"
+        arbitraryData:
+          type: array
+          description: Arbitrary data entries encoded as base64 strings.
+          items:
+            type: string
+            format: byte
+        signatures:
+          type: array
+          items:
+            $ref: "#/components/schemas/TransactionSignature"
+      required: [id]
+
+    V2Transaction:
+      type: object
+      description: Sia v2 transaction including derived identifiers returned by walletd.
+      properties:
+        id:
+          $ref: "#/components/schemas/TransactionID"
+        minerFee:
+          $ref: "#/components/schemas/Currency"
+        siacoinInputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2SiacoinInput"
+        siacoinOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiacoinOutputWithID"
+        siafundInputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2SiafundInput"
+        siafundOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiafundOutputWithID"
+        fileContracts:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2FileContract"
+        fileContractRevisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2FileContractRevision"
+        fileContractResolutions:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2FileContractResolution"
+        attestations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attestation"
+        arbitraryData:
+          type: string
+          format: byte
+          description: Arbitrary payload encoded as base64.
+        newFoundationAddress:
+          allOf:
+            - $ref: "#/components/schemas/Address"
+            - nullable: true
+      required: [id, minerFee]
+
+    Balance:
+      type: object
+      properties:
+        siacoins:
+          $ref: "#/components/schemas/Currency"
+        immatureSiacoins:
+          $ref: "#/components/schemas/Currency"
+        siafunds:
+          type: integer
+          format: uint64
+      required: [siacoins, immatureSiacoins, siafunds]
+
+    Work:
+      type: string
+      description: Cumulative work value represented as a base-10 stringified big integer.
+      example: "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+
+    ElementAccumulator:
+      type: object
+      description: Accumulator used to track Merkle proofs for chain elements.
+      properties:
+        numLeaves:
+          type: integer
+          format: uint64
+        trees:
+          type: array
+          description: Roots of the accumulator trees currently populated.
+          items:
+            $ref: "#/components/schemas/Hash256"
+      required: [numLeaves, trees]
+
+    V2BlockData:
+      type: object
+      description: Additional data present when a block contains v2 transactions.
+      properties:
+        height:
+          type: integer
+          format: uint64
+        commitment:
+          $ref: "#/components/schemas/Hash256"
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2Transaction"
+      required: [height, commitment, transactions]
+
+    Wallet:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+        dateCreated:
+          type: string
+          format: date-time
+        lastUpdated:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+      required: [id, name, description, dateCreated, lastUpdated]
+
+    WalletUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+
+    WalletAddress:
+      type: object
+      properties:
+        address:
+          $ref: "#/components/schemas/Address"
+        description:
+          type: string
+        spendPolicy:
+          $ref: "#/components/schemas/SpendPolicy"
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+      required: [address, description]
+
+    SpendPolicy:
+      type: object
+      description: Polymorphic spend policy serialized by `go.sia.tech/core/types.SpendPolicy`.
+      properties:
+        type:
+          type: string
+          description: Policy discriminator.
+          enum: [above, after, pk, h, thresh, opaque, uc]
+        policy:
+          description: Policy-specific payload; structure depends on the `type`.
+          nullable: true
+      required: [type, policy]
+      additionalProperties: true
+
+    UnlockKey:
+      type: string
+      description: Unlock key encoded as `<algorithm>:<hex public key>`.
+      example: ed25519:29d666f502bd8e3f83ae599434662d9ef7eed1c61fbfd83bcdca15330434353a
+
+    UnlockConditions:
+      type: object
+      properties:
+        timelock:
+          type: integer
+          format: uint64
+        publicKeys:
+          type: array
+          items:
+            $ref: "#/components/schemas/UnlockKey"
+        signaturesRequired:
+          type: integer
+          format: uint64
+      required: [timelock, publicKeys, signaturesRequired]
+
+    SiacoinInput:
+      type: object
+      properties:
+        parentID:
+          $ref: "#/components/schemas/SiacoinOutputID"
+        unlockConditions:
+          $ref: "#/components/schemas/UnlockConditions"
+        address:
+          $ref: "#/components/schemas/Address"
+      required: [parentID, unlockConditions, address]
+
+    SiafundInput:
+      type: object
+      properties:
+        parentID:
+          $ref: "#/components/schemas/SiafundOutputID"
+        unlockConditions:
+          $ref: "#/components/schemas/UnlockConditions"
+        claimAddress:
+          $ref: "#/components/schemas/Address"
+        address:
+          $ref: "#/components/schemas/Address"
+      required: [parentID, unlockConditions, claimAddress, address]
+
+    SiacoinOutputWithID:
+      allOf:
+        - $ref: "#/components/schemas/SiacoinOutput"
+        - type: object
+          properties:
+            id:
+              $ref: "#/components/schemas/SiacoinOutputID"
+          required: [id]
+
+    SiafundOutputWithID:
+      allOf:
+        - $ref: "#/components/schemas/SiafundOutput"
+        - type: object
+          properties:
+            id:
+              $ref: "#/components/schemas/SiafundOutputID"
+          required: [id]
+
+    StorageProof:
+      type: object
+      properties:
+        parentID:
+          $ref: "#/components/schemas/FileContractID"
+        leaf:
+          type: string
+          description: Hex-encoded 64 byte leaf.
+        proof:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hash256"
+      required: [parentID, leaf, proof]
+
+    CoveredFields:
+      type: object
+      properties:
+        wholeTransaction:
+          type: boolean
+        siacoinInputs:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        siacoinOutputs:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        fileContracts:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        fileContractRevisions:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        storageProofs:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        siafundInputs:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        siafundOutputs:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        minerFees:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        arbitraryData:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        signatures:
+          type: array
+          items:
+            type: integer
+            format: uint64
+
+    TransactionSignature:
+      type: object
+      properties:
+        parentID:
+          $ref: "#/components/schemas/Hash256"
+        publicKeyIndex:
+          type: integer
+          format: uint64
+        timelock:
+          type: integer
+          format: uint64
+        coveredFields:
+          $ref: "#/components/schemas/CoveredFields"
+        signature:
+          type: string
+          description: Hex-encoded signature.
+      required: [parentID, publicKeyIndex, coveredFields, signature]
+
+    WalletReserveRequest:
+      type: object
+      properties:
+        siacoinOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hash256"
+        siafundOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hash256"
+
+    WalletReleaseRequest:
+      type: object
+      properties:
+        siacoinOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hash256"
+        siafundOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hash256"
+
+    WalletFundRequest:
+      type: object
+      properties:
+        transaction:
+          $ref: "#/components/schemas/Transaction"
+        amount:
+          $ref: "#/components/schemas/Currency"
+        changeAddress:
+          $ref: "#/components/schemas/Address"
+      required: [transaction, amount]
+
+    WalletFundSFRequest:
+      type: object
+      properties:
+        transaction:
+          $ref: "#/components/schemas/Transaction"
+        amount:
+          type: integer
+          format: uint64
+        changeAddress:
+          $ref: "#/components/schemas/Address"
+        claimAddress:
+          $ref: "#/components/schemas/Address"
+      required: [transaction, amount]
+
+    WalletFundResponse:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        transaction:
+          $ref: "#/components/schemas/Transaction"
+        toSign:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hash256"
+        dependsOn:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+      required: [basis, transaction, toSign, dependsOn]
+
+    WalletConstructRequest:
+      type: object
+      properties:
+        siacoins:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiacoinOutput"
+        siafunds:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiafundOutput"
+        changeAddress:
+          $ref: "#/components/schemas/Address"
+      required: [changeAddress]
+
+    WalletConstructResponse:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        id:
+          $ref: "#/components/schemas/TransactionID"
+        transaction:
+          $ref: "#/components/schemas/Transaction"
+        estimatedFee:
+          $ref: "#/components/schemas/Currency"
+      required: [basis, id, transaction, estimatedFee]
+
+    WalletConstructV2Response:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        id:
+          $ref: "#/components/schemas/TransactionID"
+        transaction:
+          $ref: "#/components/schemas/V2Transaction"
+        estimatedFee:
+          $ref: "#/components/schemas/Currency"
+      required: [basis, id, transaction, estimatedFee]
+
+    UnspentSiacoinElementsResponse:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/UnspentSiacoinElement"
+      required: [basis, outputs]
+
+    UnspentSiafundElementsResponse:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/UnspentSiafundElement"
+      required: [basis, outputs]
+
+    AddressSiacoinElementsResponse:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/UnspentSiacoinElement"
+      required: [basis, outputs]
+
+    AddressSiafundElementsResponse:
+      type: object
+      properties:
+        basis:
+          $ref: "#/components/schemas/ChainIndex"
+        outputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/UnspentSiafundElement"
+      required: [basis, outputs]
+
+    UnspentSiacoinElement:
+      type: object
+      properties:
+        confirmations:
+          type: integer
+          format: uint64
+        id:
+          $ref: "#/components/schemas/Hash256"
+        stateElement:
+          $ref: "#/components/schemas/StateElement"
+        siacoinOutput:
+          $ref: "#/components/schemas/SiacoinOutput"
+        maturityHeight:
+          type: integer
+          format: uint64
+      required: [confirmations, id, stateElement, siacoinOutput, maturityHeight]
+      description: Combines a siacoin element with confirmation count.
+
+    UnspentSiafundElement:
+      type: object
+      properties:
+        confirmations:
+          type: integer
+          format: uint64
+        id:
+          $ref: "#/components/schemas/Hash256"
+        stateElement:
+          $ref: "#/components/schemas/StateElement"
+        siafundOutput:
+          $ref: "#/components/schemas/SiafundOutput"
+        claimStart:
+          $ref: "#/components/schemas/Currency"
+      required: [confirmations, id, stateElement, siafundOutput, claimStart]
+      description: Combines a siafund element with confirmation count.
+
+    SiacoinElement:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Hash256"
+        stateElement:
+          $ref: "#/components/schemas/StateElement"
+        siacoinOutput:
+          $ref: "#/components/schemas/SiacoinOutput"
+        maturityHeight:
+          type: integer
+          format: uint64
+      required: [id, stateElement, siacoinOutput, maturityHeight]
+
+    SiafundElement:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Hash256"
+        stateElement:
+          $ref: "#/components/schemas/StateElement"
+        siafundOutput:
+          $ref: "#/components/schemas/SiafundOutput"
+        claimStart:
+          $ref: "#/components/schemas/Currency"
+      required: [id, stateElement, siafundOutput, claimStart]
+
+    FileContract:
+      type: object
+      properties:
+        filesize:
+          type: integer
+          format: uint64
+        fileMerkleRoot:
+          $ref: "#/components/schemas/Hash256"
+        windowStart:
+          type: integer
+          format: uint64
+        windowEnd:
+          type: integer
+          format: uint64
+        payout:
+          $ref: "#/components/schemas/Currency"
+        validProofOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiacoinOutput"
+        missedProofOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiacoinOutput"
+        unlockHash:
+          $ref: "#/components/schemas/Address"
+        revisionNumber:
+          type: integer
+          format: uint64
+      required:
+        [
+          filesize,
+          fileMerkleRoot,
+          windowStart,
+          windowEnd,
+          payout,
+          validProofOutputs,
+          missedProofOutputs,
+          unlockHash,
+          revisionNumber,
+        ]
+
+    FileContractElement:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Hash256"
+        stateElement:
+          $ref: "#/components/schemas/StateElement"
+        fileContract:
+          $ref: "#/components/schemas/FileContract"
+      required: [id, stateElement, fileContract]
+
+    FileContractRevision:
+      type: object
+      properties:
+        parentID:
+          $ref: "#/components/schemas/FileContractID"
+        unlockConditions:
+          $ref: "#/components/schemas/UnlockConditions"
+        filesize:
+          type: integer
+          format: uint64
+        fileMerkleRoot:
+          $ref: "#/components/schemas/Hash256"
+        windowStart:
+          type: integer
+          format: uint64
+        windowEnd:
+          type: integer
+          format: uint64
+        validProofOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiacoinOutput"
+        missedProofOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiacoinOutput"
+        unlockHash:
+          $ref: "#/components/schemas/Address"
+        revisionNumber:
+          type: integer
+          format: uint64
+      required:
+        [
+          parentID,
+          unlockConditions,
+          filesize,
+          fileMerkleRoot,
+          windowStart,
+          windowEnd,
+          validProofOutputs,
+          missedProofOutputs,
+          unlockHash,
+          revisionNumber,
+        ]
+
+    V2FileContract:
+      type: object
+      properties:
+        capacity:
+          type: integer
+          format: uint64
+        filesize:
+          type: integer
+          format: uint64
+        fileMerkleRoot:
+          $ref: "#/components/schemas/Hash256"
+        proofHeight:
+          type: integer
+          format: uint64
+        expirationHeight:
+          type: integer
+          format: uint64
+        renterOutput:
+          $ref: "#/components/schemas/SiacoinOutput"
+        hostOutput:
+          $ref: "#/components/schemas/SiacoinOutput"
+        missedHostValue:
+          $ref: "#/components/schemas/Currency"
+        totalCollateral:
+          $ref: "#/components/schemas/Currency"
+        renterPublicKey:
+          $ref: "#/components/schemas/PublicKey"
+        hostPublicKey:
+          $ref: "#/components/schemas/PublicKey"
+        revisionNumber:
+          type: integer
+          format: uint64
+        renterSignature:
+          $ref: "#/components/schemas/Signature"
+        hostSignature:
+          $ref: "#/components/schemas/Signature"
+      required:
+        [
+          capacity,
+          filesize,
+          fileMerkleRoot,
+          proofHeight,
+          expirationHeight,
+          renterOutput,
+          hostOutput,
+          missedHostValue,
+          totalCollateral,
+          renterPublicKey,
+          hostPublicKey,
+          revisionNumber,
+          renterSignature,
+          hostSignature,
+        ]
+
+    V2FileContractElement:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Hash256"
+        stateElement:
+          $ref: "#/components/schemas/StateElement"
+        v2FileContract:
+          $ref: "#/components/schemas/V2FileContract"
+      required: [id, stateElement, v2FileContract]
+
+    StateElement:
+      type: object
+      properties:
+        leafIndex:
+          type: integer
+          format: uint64
+        merkleProof:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hash256"
+      required: [leafIndex]
+
+    SiacoinOutput:
+      type: object
+      properties:
+        value:
+          $ref: "#/components/schemas/Currency"
+        address:
+          $ref: "#/components/schemas/Address"
+      required: [value, address]
+
+    SiafundOutput:
+      type: object
+      properties:
+        value:
+          type: integer
+          format: uint64
+        address:
+          $ref: "#/components/schemas/Address"
+      required: [value, address]
+
+    ChainIndexElement:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/BlockID"
+        stateElement:
+          $ref: "#/components/schemas/StateElement"
+        chainIndex:
+          $ref: "#/components/schemas/ChainIndex"
+      required: [id, stateElement, chainIndex]
+
+    Attestation:
+      type: object
+      properties:
+        publicKey:
+          $ref: "#/components/schemas/PublicKey"
+        key:
+          type: string
+        value:
+          type: string
+          format: byte
+        signature:
+          $ref: "#/components/schemas/Signature"
+      required: [publicKey, key, value, signature]
+
+    AttestationElement:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Hash256"
+        stateElement:
+          $ref: "#/components/schemas/StateElement"
+        attestation:
+          $ref: "#/components/schemas/Attestation"
+      required: [id, stateElement, attestation]
+
+    SatisfiedPolicy:
+      type: object
+      properties:
+        policy:
+          $ref: "#/components/schemas/SpendPolicy"
+        signatures:
+          type: array
+          items:
+            $ref: "#/components/schemas/Signature"
+        preimages:
+          type: array
+          items:
+            type: string
+            pattern: "^[0-9a-fA-F]{64}$"
+      required: [policy]
+
+    V2SiacoinInput:
+      type: object
+      properties:
+        parent:
+          $ref: "#/components/schemas/SiacoinElement"
+        satisfiedPolicy:
+          $ref: "#/components/schemas/SatisfiedPolicy"
+      required: [parent, satisfiedPolicy]
+
+    V2SiafundInput:
+      type: object
+      properties:
+        parent:
+          $ref: "#/components/schemas/SiafundElement"
+        claimAddress:
+          $ref: "#/components/schemas/Address"
+        satisfiedPolicy:
+          $ref: "#/components/schemas/SatisfiedPolicy"
+      required: [parent, claimAddress, satisfiedPolicy]
+
+    V2FileContractRevision:
+      type: object
+      properties:
+        parent:
+          $ref: "#/components/schemas/V2FileContractElement"
+        revision:
+          $ref: "#/components/schemas/V2FileContract"
+      required: [parent, revision]
+
+    V2FileContractRenewal:
+      type: object
+      properties:
+        finalRenterOutput:
+          $ref: "#/components/schemas/SiacoinOutput"
+        finalHostOutput:
+          $ref: "#/components/schemas/SiacoinOutput"
+        renterRollover:
+          $ref: "#/components/schemas/Currency"
+        hostRollover:
+          $ref: "#/components/schemas/Currency"
+        newContract:
+          $ref: "#/components/schemas/V2FileContract"
+        renterSignature:
+          $ref: "#/components/schemas/Signature"
+        hostSignature:
+          $ref: "#/components/schemas/Signature"
+      required:
+        [
+          finalRenterOutput,
+          finalHostOutput,
+          renterRollover,
+          hostRollover,
+          newContract,
+          renterSignature,
+          hostSignature,
+        ]
+
+    V2StorageProof:
+      type: object
+      properties:
+        proofIndex:
+          $ref: "#/components/schemas/ChainIndexElement"
+        leaf:
+          type: string
+          description: Hex-encoded 64 byte leaf.
+        proof:
+          type: array
+          items:
+            $ref: "#/components/schemas/Hash256"
+      required: [proofIndex, leaf, proof]
+
+    V2FileContractExpiration:
+      type: object
+      description: Empty object used to signal a contract expiration event.
+
+    V2FileContractResolution:
+      type: object
+      properties:
+        parent:
+          $ref: "#/components/schemas/V2FileContractElement"
+        type:
+          type: string
+          enum: [renewal, storageProof, expiration]
+        resolution:
+          oneOf:
+            - $ref: "#/components/schemas/V2FileContractRenewal"
+            - $ref: "#/components/schemas/V2StorageProof"
+            - $ref: "#/components/schemas/V2FileContractExpiration"
+      required: [parent, type, resolution]
+
+    SiacoinElementDiff:
+      type: object
+      properties:
+        siacoinElement:
+          $ref: "#/components/schemas/SiacoinElement"
+        created:
+          type: boolean
+        spent:
+          type: boolean
+      required: [siacoinElement, created, spent]
+
+    SiafundElementDiff:
+      type: object
+      properties:
+        siafundElement:
+          $ref: "#/components/schemas/SiafundElement"
+        created:
+          type: boolean
+        spent:
+          type: boolean
+      required: [siafundElement, created, spent]
+
+    FileContractElementDiff:
+      type: object
+      properties:
+        fileContractElement:
+          $ref: "#/components/schemas/FileContractElement"
+        created:
+          type: boolean
+        revision:
+          allOf:
+            - $ref: "#/components/schemas/FileContract"
+            - nullable: true
+        resolved:
+          type: boolean
+        valid:
+          type: boolean
+      required: [fileContractElement, created, resolved, valid]
+
+    V2FileContractElementDiff:
+      type: object
+      properties:
+        v2FileContractElement:
+          $ref: "#/components/schemas/V2FileContractElement"
+        created:
+          type: boolean
+        revision:
+          allOf:
+            - $ref: "#/components/schemas/V2FileContract"
+            - nullable: true
+        resolution:
+          nullable: true
+          oneOf:
+            - $ref: "#/components/schemas/V2FileContractRenewal"
+            - $ref: "#/components/schemas/V2StorageProof"
+            - $ref: "#/components/schemas/V2FileContractExpiration"
+      required: [v2FileContractElement, created]
+
+    ElementSpentResponse:
+      type: object
+      properties:
+        spent:
+          type: boolean
+        event:
+          $ref: "#/components/schemas/Event"
+      required: [spent]
+
+    CheckAddressesRequest:
+      type: object
+      properties:
+        addresses:
+          type: array
+          items:
+            $ref: "#/components/schemas/Address"
+          minItems: 1
+          maxItems: 1000
+      required: [addresses]
+
+    CheckAddressesResponse:
+      type: object
+      properties:
+        known:
+          type: boolean
+      required: [known]
+
+    BatchAddressesRequest:
+      type: object
+      properties:
+        addresses:
+          type: array
+          items:
+            $ref: "#/components/schemas/Address"
+          minItems: 1
+          maxItems: 1000
+      required: [addresses]
+
+    RescanResponse:
+      type: object
+      properties:
+        startIndex:
+          $ref: "#/components/schemas/ChainIndex"
+        index:
+          $ref: "#/components/schemas/ChainIndex"
+        startTime:
+          type: string
+          format: date-time
+        error:
+          type: string
+          nullable: true
+      required: [startIndex, index, startTime]
+
+    ConsensusUpdatesResponse:
+      type: object
+      properties:
+        applied:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApplyUpdate"
+        reverted:
+          type: array
+          items:
+            $ref: "#/components/schemas/RevertUpdate"
+      required: [applied, reverted]
+
+    ApplyUpdate:
+      type: object
+      properties:
+        update:
+          $ref: "#/components/schemas/ApplyUpdateData"
+        state:
+          $ref: "#/components/schemas/ConsensusState"
+        block:
+          $ref: "#/components/schemas/Block"
+      required: [update, state, block]
+
+    RevertUpdate:
+      type: object
+      properties:
+        update:
+          $ref: "#/components/schemas/RevertUpdateData"
+        state:
+          $ref: "#/components/schemas/ConsensusState"
+        block:
+          $ref: "#/components/schemas/Block"
+      required: [update, state, block]
+
+    ApplyUpdateData:
+      type: object
+      properties:
+        siacoinElements:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiacoinElementDiff"
+        siafundElementDiffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiafundElementDiff"
+        fileContractElementDiffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContractElementDiff"
+        v2FileContractElementDiffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2FileContractElementDiff"
+        attestationElements:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttestationElement"
+        chainIndexElement:
+          $ref: "#/components/schemas/ChainIndexElement"
+        updatedLeaves:
+          type: object
+          additionalProperties:
+            type: array
+            description: Updated leaf proofs keyed by tree height.
+            items:
+              $ref: "#/components/schemas/StateElement"
+        treeGrowth:
+          type: object
+          additionalProperties:
+            type: array
+            description: Merkle subtree hashes added during the update keyed by tree height.
+            items:
+              $ref: "#/components/schemas/Hash256"
+        oldNumLeaves:
+          type: integer
+          format: uint64
+        numLeaves:
+          type: integer
+          format: uint64
+      required:
+        [
+          siacoinElements,
+          siafundElementDiffs,
+          fileContractElementDiffs,
+          v2FileContractElementDiffs,
+          attestationElements,
+          chainIndexElement,
+          updatedLeaves,
+          treeGrowth,
+          oldNumLeaves,
+          numLeaves,
+        ]
+
+    RevertUpdateData:
+      type: object
+      properties:
+        siacoinElements:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiacoinElementDiff"
+        siafundElementDiffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiafundElementDiff"
+        fileContractElementDiffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContractElementDiff"
+        v2FileContractElementDiffs:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2FileContractElementDiff"
+        attestationElements:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttestationElement"
+        chainIndexElement:
+          $ref: "#/components/schemas/ChainIndexElement"
+        updatedLeaves:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/StateElement"
+        numLeaves:
+          type: integer
+          format: uint64
+      required:
+        [
+          siacoinElements,
+          siafundElementDiffs,
+          fileContractElementDiffs,
+          v2FileContractElementDiffs,
+          attestationElements,
+          chainIndexElement,
+          updatedLeaves,
+          numLeaves,
+        ]
+
+    DebugMineRequest:
+      type: object
+      properties:
+        blocks:
+          type: integer
+          minimum: 1
+          description: Number of blocks to mine.
+        address:
+          $ref: "#/components/schemas/Address"
+      required: [blocks, address]
+
+  parameters:
+    AddressParam:
+      name: addr
+      in: path
+      required: true
+      description: Sia address (unlock hash).
+      schema:
+        $ref: "#/components/schemas/Address"
+    WalletIDParam:
+      name: id
+      in: path
+      required: true
+      description: Wallet identifier.
+      schema:
+        type: integer
+        format: int64
+    OffsetParam:
+      name: offset
+      in: query
+      required: false
+      description: Number of items to skip.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    LimitParamDefault:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items to return (default 500).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 500
+    LimitParamLarge:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items to return (default 1000).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 1000
+    LimitParamSmall:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items to return (default 100).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 100
+    SiacoinOutputIDParam:
+      name: id
+      in: path
+      required: true
+      description: Siacoin output ID (hex).
+      schema:
+        $ref: "#/components/schemas/Hash256"
+    SiafundOutputIDParam:
+      name: id
+      in: path
+      required: true
+      description: Siafund output ID (hex).
+      schema:
+        $ref: "#/components/schemas/Hash256"
