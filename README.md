@@ -221,7 +221,8 @@ You can create a custom local testnet by creating a network.json file locally an
     },
     "hardforkV2": {
       "allowHeight": 112000,
-      "requireHeight": 114000
+      "requireHeight": 114000,
+      "finalCutHeight": 116000
     }
   },
   "genesis": {
