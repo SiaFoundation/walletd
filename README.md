@@ -138,6 +138,7 @@ log:
     level: debug # override the global log level for the file
     path: /var/log/walletd.log
     format: json # human or JSON
+    checkpoint: 530000::0000000000000000abb98e3b587fba3a0c4e723ac1e078e9d6a4d13d1d131a2c
 ```
 
 ## Building
