@@ -224,6 +224,12 @@ func (s *Store) LastCommittedIndex() (index types.ChainIndex, err error) {
 	return
 }
 
+// SetCheckpoint sets the last indexed tip to the given index.
+func (s *Store) SetCheckpoint(index types.ChainIndex) error {
+	_, err := s.db.Exec(`UPDATE global_settings SET last_indexed_height=$1, last_indexed_id=$2`, index.Height, encode(index.ID))
+	return err
+}
+
 // ResetLastIndex resets the last indexed tip to trigger a full rescan.
 func (s *Store) ResetLastIndex() error {
 	_, err := s.db.Exec(`UPDATE global_settings SET last_indexed_height=0, last_indexed_id=$1`, encode(types.BlockID{}))

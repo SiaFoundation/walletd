@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/v2/wallet"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
@@ -73,6 +74,8 @@ type (
 		Syncer    Syncer    `yaml:"syncer,omitempty"`
 		Log       Log       `yaml:"log,omitempty"`
 		Index     Index     `yaml:"index,omitempty"`
+
+		Checkpoint types.ChainIndex `yaml:"checkpoint,omitempty"`
 	}
 )
 

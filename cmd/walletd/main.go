@@ -204,6 +204,8 @@ func main() {
 	rootCmd.BoolVar(&cfg.Log.File.Enabled, "log.file.enabled", cfg.Log.File.Enabled, "enable file logging")
 	rootCmd.BoolVar(&cfg.Log.StdOut.Enabled, "log.stdout.enabled", cfg.Log.StdOut.Enabled, "enable stdout logging")
 
+	rootCmd.TextVar(&cfg.Checkpoint, "checkpoint", cfg.Checkpoint, "instant-sync to a chain index, e.g. 530000::0000000000000000abb98e3b587fba3a0c4e723ac1e078e9d6a4d13d1d131a2c")
+
 	versionCmd := flagg.New("version", versionUsage)
 	seedCmd := flagg.New("seed", seedUsage)
 	configCmd := flagg.New("config", "interactively configure walletd")
