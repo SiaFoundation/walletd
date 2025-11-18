@@ -1320,6 +1320,7 @@ func (s *server) walletsConstructV2Handler(jc jape.Context) {
 
 	resp.ID = txn.ID()
 	resp.Transaction = txn
+	resp.InputSigHash = cs.InputSigHash(txn)
 	sent = true // locks are released in defer
 	jc.Encode(resp)
 }
