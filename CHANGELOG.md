@@ -1,3 +1,13 @@
+## 2.12.0 (2025-11-26)
+
+### Features
+
+- Add `inputSigHash` to response body of `/wallets/:id/construct/v2/transaction`
+
+### Fixes
+
+- Update core dependency from 0.17.5 to 0.18.0.
+
 ## 2.11.0 (2025-10-01)
 
 ### Features
