@@ -146,52 +146,6 @@ func loadCustomNetwork(fp string) (*consensus.Network, types.Block, error) {
 	return &network.Network, network.Genesis, nil
 }
 
-// migrateConsensusDB checks if the consensus database needs to be migrated
-// to match the new v2 commitment.
-func migrateConsensusDB(fp string, n *consensus.Network, genesis types.Block, log *zap.Logger) error {
-	bdb, err := coreutils.OpenBoltChainDB(fp)
-	if err != nil {
-		return fmt.Errorf("failed to open consensus database: %w", err)
-	}
-	defer bdb.Close()
-
-	dbstore, tipState, err := chain.NewDBStore(bdb, n, genesis, chain.NewZapMigrationLogger(log.Named("chaindb")))
-	if err != nil {
-		return fmt.Errorf("failed to create chain store: %w", err)
-	} else if tipState.Index.Height < n.HardforkV2.AllowHeight {
-		return nil // no migration needed, the chain is still on v1
-	}
-
-	log.Debug("checking for v2 commitment migration")
-	b, _, ok := dbstore.Block(tipState.Index.ID)
-	if !ok {
-		return fmt.Errorf("failed to get tip block %q", tipState.Index)
-	} else if b.V2 == nil {
-		log.Debug("tip block is not a v2 block, skipping commitment migration")
-		return nil
-	}
-
-	parentState, ok := dbstore.State(b.ParentID)
-	if !ok {
-		return fmt.Errorf("failed to get parent state for tip block %q", b.ParentID)
-	}
-	commitment := parentState.Commitment(b.MinerPayouts[0].Address, b.Transactions, b.V2Transactions())
-	log = log.With(zap.Stringer("tip", b.ID()), zap.Stringer("commitment", b.V2.Commitment), zap.Stringer("expected", commitment))
-	if b.V2.Commitment == commitment {
-		log.Debug("tip block commitment matches parent state, no migration needed")
-		return nil
-	}
-	// reset the database if the commitment is not a merkle root
-	log.Debug("resetting consensus database for new v2 commitment")
-	if err := bdb.Close(); err != nil {
-		return fmt.Errorf("failed to close old consensus database: %w", err)
-	} else if err := os.RemoveAll(fp); err != nil {
-		return fmt.Errorf("failed to remove old consensus database: %w", err)
-	}
-	log.Debug("consensus database reset")
-	return nil
-}
-
 func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	store, err := sqlite.OpenDatabase(filepath.Join(cfg.Directory, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
 	if err != nil {
@@ -219,22 +173,45 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		}
 	}
 
-	consensusPath := filepath.Join(cfg.Directory, "consensus.db")
-	if err := migrateConsensusDB(consensusPath, network, genesisBlock, log.Named("migrate")); err != nil {
-		return fmt.Errorf("failed to open consensus database: %w", err)
-	}
-
-	bdb, err := coreutils.OpenBoltChainDB(consensusPath)
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
 	if err != nil {
 		return fmt.Errorf("failed to open consensus database: %w", err)
 	}
 	defer bdb.Close()
 
-	dbstore, tipState, err := chain.NewDBStore(bdb, network, genesisBlock, chain.NewZapMigrationLogger(log.Named("chaindb")))
-	if err != nil {
-		return fmt.Errorf("failed to create chain store: %w", err)
+	var cm *chain.Manager
+	if cfg.Checkpoint != (types.ChainIndex{}) {
+		log.Info("beginning instant sync", zap.Stringer("checkpoint", cfg.Checkpoint))
+		peers := append(cfg.Syncer.Peers, bootstrapPeers...)
+		cs, b, err := func() (consensus.State, types.Block, error) {
+			for _, peer := range peers {
+				log.Info("attempt to fetch checkpoint", zap.String("peer", peer))
+				cs, b, err := syncer.SendCheckpoint(ctx, peer, cfg.Checkpoint, network, genesisBlock.ID())
+				if err == nil {
+					return cs, b, nil
+				}
+			}
+			return consensus.State{}, types.Block{}, errors.New("failed to fetch checkpoint from any peer")
+		}()
+		if err != nil {
+			return err
+		}
+		dbstore, tipState, err := chain.NewDBStoreAtCheckpoint(bdb, cs, b, chain.NewZapMigrationLogger(log.Named("chaindb")))
+		if err != nil {
+			return fmt.Errorf("failed to create chain store: %w", err)
+		}
+		cm = chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
+		if err := store.SetCheckpoint(cfg.Checkpoint); err != nil {
+			return fmt.Errorf("failed to set wallet db checkpoint: %w", err)
+		}
+		log.Info("instant sync successful", zap.Stringer("tip", cm.Tip()))
+	} else {
+		dbstore, tipState, err := chain.NewDBStore(bdb, network, genesisBlock, chain.NewZapMigrationLogger(log.Named("chaindb")))
+		if err != nil {
+			return fmt.Errorf("failed to create chain store: %w", err)
+		}
+		cm = chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
 	}
-	cm := chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
 
 	syncerListener, err := net.Listen("tcp", cfg.Syncer.Address)
 	if err != nil {
