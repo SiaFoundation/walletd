@@ -81,6 +81,8 @@ Flags:
         p2p address to listen on (default ":9981")
   -bootstrap
         attempt to bootstrap the network (default true)
+  -checkpoint
+        instant-sync to a chain index, e.g. 530000::0000000000000000abb98e3b587fba3a0c4e723ac1e078e9d6a4d13d1d131a2c
   -debug
         enable debug mode with additional profiling and mining endpoints
   -dir string
@@ -112,6 +114,7 @@ the working directory. All fields are optional.
 ```yaml
 directory: /etc/walletd
 autoOpenWebUI: true
+checkpoint: 530000::0000000000000000abb98e3b587fba3a0c4e723ac1e078e9d6a4d13d1d131a2c
 http:
   address: :9980
   password: sia is cool
