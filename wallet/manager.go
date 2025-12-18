@@ -775,7 +775,7 @@ func NewManager(cm ChainManager, store Store, opts ...Option) (*Manager, error) 
 		log := m.log.Named("sync")
 		ctx, cancel, err := m.tg.AddWithContext(context.Background())
 		if err != nil {
-			log.Panic("failed to add to threadgroup", zap.Error(err))
+			return
 		}
 		defer cancel()
 
