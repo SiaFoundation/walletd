@@ -173,29 +173,25 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		}
 	}
 
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(cfg.Directory, "consensus.db"))
-	if err != nil {
-		return fmt.Errorf("failed to open consensus database: %w", err)
-	}
-	defer bdb.Close()
+	consensusDBPath := filepath.Join(cfg.Directory, "consensus.db")
+	_, existsErr := os.Open(consensusDBPath)
+	consensusExists := !errors.Is(existsErr, os.ErrNotExist)
 
 	var cm *chain.Manager
-	if cfg.Checkpoint != (types.ChainIndex{}) {
+	if cfg.Checkpoint != (types.ChainIndex{}) && !consensusExists {
 		log.Info("beginning instant sync", zap.Stringer("checkpoint", cfg.Checkpoint))
 		peers := append(cfg.Syncer.Peers, bootstrapPeers...)
-		cs, b, err := func() (consensus.State, types.Block, error) {
-			for _, peer := range peers {
-				log.Info("attempt to fetch checkpoint", zap.String("peer", peer))
-				cs, b, err := syncer.SendCheckpoint(ctx, peer, cfg.Checkpoint, network, genesisBlock.ID())
-				if err == nil {
-					return cs, b, nil
-				}
-			}
-			return consensus.State{}, types.Block{}, errors.New("failed to fetch checkpoint from any peer")
-		}()
+		cs, b, err := syncer.RetrieveCheckpoint(ctx, peers, cfg.Checkpoint, network, genesisBlock.ID())
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to retrieve checkpoint: %w", err)
 		}
+
+		bdb, err := coreutils.OpenBoltChainDB(consensusDBPath)
+		if err != nil {
+			return fmt.Errorf("failed to open consensus database: %w", err)
+		}
+		defer bdb.Close()
+
 		dbstore, tipState, err := chain.NewDBStoreAtCheckpoint(bdb, cs, b, chain.NewZapMigrationLogger(log.Named("chaindb")))
 		if err != nil {
 			return fmt.Errorf("failed to create chain store: %w", err)
@@ -206,6 +202,17 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		}
 		log.Info("instant sync successful", zap.Stringer("tip", cm.Tip()))
 	} else {
+		if cfg.Checkpoint != (types.ChainIndex{}) {
+			// checkpoint specified but consensus db already exists
+			log.Warn("skipping instant sync. consensus database already exists")
+		}
+
+		bdb, err := coreutils.OpenBoltChainDB(consensusDBPath)
+		if err != nil {
+			return fmt.Errorf("failed to open consensus database: %w", err)
+		}
+		defer bdb.Close()
+
 		dbstore, tipState, err := chain.NewDBStore(bdb, network, genesisBlock, chain.NewZapMigrationLogger(log.Named("chaindb")))
 		if err != nil {
 			return fmt.Errorf("failed to create chain store: %w", err)
