@@ -10,7 +10,6 @@ import (
 	"go.sia.tech/coreutils/chain"
 	"go.sia.tech/coreutils/testutil"
 	"go.sia.tech/walletd/v2/wallet"
-	"go.uber.org/zap/zaptest"
 )
 
 func mineBlock(state consensus.State, txns []types.Transaction, minerAddr types.Address) types.Block {
@@ -49,15 +48,9 @@ func syncDB(tb testing.TB, store *Store, cm *chain.Manager) {
 }
 
 func TestPruneSiacoins(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), WithLog(log.Named("sqlite3")), WithRetainSpentElements(20))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := newTestStore(t, WithRetainSpentElements(20))
 
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(t.TempDir(), "consensus.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,15 +183,9 @@ func TestPruneSiacoins(t *testing.T) {
 }
 
 func TestPruneSiafunds(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := newTestStore(t)
 
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
+	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(t.TempDir(), "consensus.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
