@@ -17,7 +17,8 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils"
 	"go.sia.tech/coreutils/chain"
-	"go.sia.tech/coreutils/testutil"
+	ctestutil "go.sia.tech/coreutils/testutil"
+	"go.sia.tech/walletd/v2/internal/testutil"
 	"go.sia.tech/walletd/v2/persist/sqlite"
 	"go.sia.tech/walletd/v2/wallet"
 	"go.uber.org/zap"
@@ -39,10 +40,35 @@ func waitForBlock(tb testing.TB, cm *chain.Manager, ws wallet.Store) {
 
 func mineAndSync(tb testing.TB, cm *chain.Manager, ws wallet.Store, addr types.Address, n int) {
 	tb.Helper()
-
 	for i := 0; i < n; i++ {
-		testutil.MineBlocks(tb, cm, addr, 1)
+		ctestutil.MineBlocks(tb, cm, addr, 1)
 		waitForBlock(tb, cm, ws)
+	}
+}
+
+type testNode struct {
+	*testutil.ConsensusNode
+	log     *zap.Logger
+	manager *wallet.Manager
+}
+
+func newTestNode(tb testing.TB, network *consensus.Network, genesisBlock types.Block, walletOpts ...wallet.Option) *testNode {
+	tb.Helper()
+
+	log := zaptest.NewLogger(tb)
+	cn := testutil.NewConsensusNode(tb, network, genesisBlock, log.Named("consensus"))
+
+	opts := append([]wallet.Option{wallet.WithLogger(log.Named("wallet"))}, walletOpts...)
+	wm, err := wallet.NewManager(cn.Chain, cn.Store, opts...)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() { wm.Close() })
+
+	return &testNode{
+		ConsensusNode: cn,
+		log:           log,
+		manager:       wm,
 	}
 }
 
@@ -110,32 +136,9 @@ func mineV2Block(state consensus.State, txns []types.V2Transaction, minerAddr ty
 }
 
 func TestReserve(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
 	network, genesisBlock := testutil.V2Network()
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithLockDuration(2*time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesisBlock, wallet.WithLockDuration(2*time.Second))
+	wm := tn.manager
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -184,35 +187,11 @@ func TestReserve(t *testing.T) {
 }
 
 func TestSelectSiacoins(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	network, genesisBlock := testutil.Network()
+	network, genesisBlock := ctestutil.Network()
 	network.InitialCoinbase = types.Siacoins(100)
 	network.MinimumCoinbase = types.Siacoins(100)
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesisBlock)
+	wm, cm := tn.manager, tn.Chain
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -238,18 +217,10 @@ func TestSelectSiacoins(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mineAndSync := func(t *testing.T, addr types.Address, n int) {
-		t.Helper()
-
-		for i := 0; i < n; i++ {
-			testutil.MineBlocks(t, cm, addr, 1)
-			waitForBlock(t, cm, db)
-		}
-	}
 	// mine enough utxos to ensure the pagination works
-	mineAndSync(t, addr, 200)
+	tn.MineBlocks(t, addr, 200)
 	// mine until all the wallet's outputs are mature
-	mineAndSync(t, types.VoidAddress, int(cm.TipState().Network.MaturityDelay))
+	tn.MineBlocks(t, types.VoidAddress, int(cm.TipState().Network.MaturityDelay))
 
 	// check that the wallet has 200 matured outputs
 	utxos, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 1000)
@@ -336,7 +307,7 @@ func TestSelectSiacoins(t *testing.T) {
 		t.Fatal("transaction was already known")
 	}
 
-	mineAndSync(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	events, err := wm.WalletEvents(w.ID, 0, 1)
 	if err != nil {
@@ -353,20 +324,6 @@ func TestSelectSiacoins(t *testing.T) {
 }
 
 func TestSelectSiafunds(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
 	sk := types.GeneratePrivateKey()
 	uc := types.UnlockConditions{
 		PublicKeys:         []types.UnlockKey{sk.PublicKey().UnlockKey()},
@@ -374,22 +331,12 @@ func TestSelectSiafunds(t *testing.T) {
 	}
 	addr := uc.UnlockHash()
 
-	network, genesisBlock := testutil.Network()
+	network, genesisBlock := ctestutil.Network()
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = addr
 	network.InitialCoinbase = types.Siacoins(100)
 	network.MinimumCoinbase = types.Siacoins(100)
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesisBlock)
+	wm, cm := tn.manager, tn.Chain
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -408,15 +355,7 @@ func TestSelectSiafunds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mineAndSync := func(t *testing.T, addr types.Address, n int) {
-		t.Helper()
-
-		for i := 0; i < n; i++ {
-			testutil.MineBlocks(t, cm, addr, 1)
-			waitForBlock(t, cm, db)
-		}
-	}
-	mineAndSync(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	// check that the wallet has a siafund utxo
 	utxos, _, err := wm.UnspentSiafundOutputs(w.ID, 0, 1000)
@@ -477,7 +416,7 @@ func TestSelectSiafunds(t *testing.T) {
 		t.Fatal("transaction was already known")
 	}
 
-	mineAndSync(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	events, err := wm.WalletEvents(w.ID, 0, 1)
 	if err != nil {
@@ -497,40 +436,15 @@ func TestReorg(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	setupNode := func(t *testing.T, mode wallet.IndexMode) (consensus.State, *sqlite.Store, *chain.Manager, *wallet.Manager) {
+	setupNode := func(t *testing.T, mode wallet.IndexMode) (*testNode, consensus.State) {
 		t.Helper()
-
-		log := zaptest.NewLogger(t)
-		dir := t.TempDir()
-		db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { db.Close() })
-
-		bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { bdb.Close() })
-
-		network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
-
-		store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		cm := chain.NewManager(store, genesisState)
-
-		wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(mode))
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { wm.Close() })
-		return genesisState, db, cm, wm
+		network, genesisBlock := testV1Network(types.VoidAddress)
+		tn := newTestNode(t, network, genesisBlock, wallet.WithIndexMode(mode))
+		return tn, tn.Chain.TipState()
 	}
 
-	testReorg := func(t *testing.T, genesisState consensus.State, db *sqlite.Store, cm *chain.Manager, wm *wallet.Manager) {
+	testReorg := func(t *testing.T, tn *testNode, genesisState consensus.State) {
+		db, cm, wm := tn.Store, tn.Chain, tn.manager
 		w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 		if err != nil {
 			t.Fatal(err)
@@ -694,13 +608,13 @@ func TestReorg(t *testing.T) {
 	}
 
 	t.Run("IndexModePersonal", func(t *testing.T) {
-		state, db, cm, w := setupNode(t, wallet.IndexModePersonal)
-		testReorg(t, state, db, cm, w)
+		tn, state := setupNode(t, wallet.IndexModePersonal)
+		testReorg(t, tn, state)
 	})
 
 	t.Run("IndexModeFull", func(t *testing.T) {
-		state, db, cm, w := setupNode(t, wallet.IndexModeFull)
-		testReorg(t, state, db, cm, w)
+		tn, state := setupNode(t, wallet.IndexModeFull)
+		testReorg(t, tn, state)
 	})
 }
 
@@ -708,33 +622,9 @@ func TestEphemeralBalance(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cm := chain.NewManager(store, genesisState)
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	network, genesisBlock := testV1Network(types.VoidAddress)
+	tn := newTestNode(t, network, genesisBlock)
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -904,33 +794,9 @@ func TestEphemeralBalance(t *testing.T) {
 }
 
 func TestWalletAddresses(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cm := chain.NewManager(store, genesisState)
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	network, genesisBlock := testV1Network(types.VoidAddress)
+	tn := newTestNode(t, network, genesisBlock)
+	wm := tn.manager
 
 	// Add a wallet
 	w := wallet.Wallet{
@@ -938,7 +804,7 @@ func TestWalletAddresses(t *testing.T) {
 		Description: "hello, world!",
 		Metadata:    json.RawMessage(`{"foo": "bar"}`),
 	}
-	w, err = wm.AddWallet(w)
+	w, err := wm.AddWallet(w)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1031,40 +897,14 @@ func TestWalletAddresses(t *testing.T) {
 }
 
 func TestScan(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	// mine a single payout to the wallet
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	network, genesisBlock := testutil.Network()
-	// send the siafunds to the owned address
+	network, genesisBlock := ctestutil.Network()
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = addr
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesisBlock)
+	genesisState := tn.Chain.TipState()
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	pk2 := types.GeneratePrivateKey()
 	addr2 := types.StandardUnlockHash(pk2.PublicKey())
@@ -1198,40 +1038,13 @@ func TestScan(t *testing.T) {
 }
 
 func TestSiafunds(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	// mine a single payout to the wallet
 	pk := types.GeneratePrivateKey()
 	addr1 := types.StandardUnlockHash(pk.PublicKey())
 
-	network, genesisBlock := testutil.Network()
-	// send the siafunds to the owned address
+	network, genesisBlock := ctestutil.Network()
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = addr1
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesisBlock)
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	pk2 := types.GeneratePrivateKey()
 	addr2 := types.StandardUnlockHash(pk2.PublicKey())
@@ -1359,35 +1172,11 @@ func TestOrphans(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
+	network, genesisBlock := testV1Network(types.VoidAddress)
 	network.HardforkV2.AllowHeight = 200
 	network.HardforkV2.RequireHeight = 201
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesisBlock)
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -1517,7 +1306,7 @@ func TestOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wm, err = wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err = wallet.NewManager(cm, db, wallet.WithLogger(tn.log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1556,32 +1345,9 @@ func TestFullIndex(t *testing.T) {
 	pk2 := types.GeneratePrivateKey()
 	addr2 := types.StandardUnlockHash(pk2.PublicKey())
 
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
 	network, genesisBlock := testV2Network(addr2)
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesisBlock, wallet.WithIndexMode(wallet.IndexModeFull))
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	waitForBlock(t, cm, db)
 
@@ -1780,32 +1546,9 @@ func TestEvents(t *testing.T) {
 	pk2 := types.GeneratePrivateKey()
 	addr2 := types.StandardUnlockHash(pk2.PublicKey())
 
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
 	network, genesisBlock := testV2Network(addr2)
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesisBlock, wallet.WithIndexMode(wallet.IndexModeFull))
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	waitForBlock(t, cm, db)
 
@@ -2032,37 +1775,12 @@ func TestEvents(t *testing.T) {
 }
 
 func TestWalletUnconfirmedEvents(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	// mine a single payout to the wallet
 	pk := types.GeneratePrivateKey()
 	addr1 := types.StandardUnlockHash(pk.PublicKey())
 
-	network, genesisBlock := testutil.Network()
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	network, genesisBlock := ctestutil.Network()
+	tn := newTestNode(t, network, genesisBlock)
+	cm, wm := tn.Chain, tn.manager
 
 	// create a wallet with no addresses
 	w1, err := wm.AddWallet(wallet.Wallet{Name: "test1"})
@@ -2076,8 +1794,8 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 	}
 
 	// mine a block sending the payout to the wallet
-	mineAndSync(t, cm, db, addr1, 1)
-	mineAndSync(t, cm, db, types.VoidAddress, int(network.MaturityDelay))
+	tn.MineBlocks(t, addr1, 1)
+	tn.MineBlocks(t, types.VoidAddress, int(network.MaturityDelay))
 
 	utxos, _, err := wm.UnspentSiacoinOutputs(w1.ID, 0, 100)
 	if err != nil {
@@ -2208,7 +1926,7 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 	}
 
 	// mine the transactions
-	mineAndSync(t, cm, db, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	// check that the unconfirmed events were removed
 	events, err = wm.WalletUnconfirmedEvents(w1.ID)
@@ -2220,37 +1938,12 @@ func TestWalletUnconfirmedEvents(t *testing.T) {
 }
 
 func TestAddressUnconfirmedEvents(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	// mine a single payout to the wallet
 	pk := types.GeneratePrivateKey()
 	addr1 := types.StandardUnlockHash(pk.PublicKey())
 
-	network, genesisBlock := testutil.Network()
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	network, genesisBlock := ctestutil.Network()
+	tn := newTestNode(t, network, genesisBlock)
+	cm, wm := tn.Chain, tn.manager
 
 	// create a wallet with no addresses
 	w1, err := wm.AddWallet(wallet.Wallet{Name: "test1"})
@@ -2264,9 +1957,9 @@ func TestAddressUnconfirmedEvents(t *testing.T) {
 	}
 
 	// mine a block sending the payout to the wallet
-	mineAndSync(t, cm, db, addr1, 1)
+	tn.MineBlocks(t, addr1, 1)
 	// mine until the payout matures
-	mineAndSync(t, cm, db, types.VoidAddress, int(network.MaturityDelay))
+	tn.MineBlocks(t, types.VoidAddress, int(network.MaturityDelay))
 
 	utxos, _, err := wm.UnspentSiacoinOutputs(w1.ID, 0, 100)
 	if err != nil {
@@ -2406,7 +2099,7 @@ func TestAddressUnconfirmedEvents(t *testing.T) {
 	}
 
 	// mine the transactions
-	mineAndSync(t, cm, db, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	// check that the unconfirmed events were removed
 	events, err = wm.AddressUnconfirmedEvents(addr1)
@@ -2428,33 +2121,9 @@ func TestV2(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	network, genesisBlock := testV2Network(types.VoidAddress) // don't care about siafunds
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cm := chain.NewManager(store, genesisState)
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	network, genesisBlock := testV2Network(types.VoidAddress)
+	tn := newTestNode(t, network, genesisBlock)
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -2464,7 +2133,7 @@ func TestV2(t *testing.T) {
 	}
 
 	expectedPayout := cm.TipState().BlockReward()
-	mineAndSync(t, cm, db, addr, 1)
+	tn.MineBlocks(t, addr, 1)
 
 	// check that the payout was received
 	balance, err := db.AddressBalance(addr)
@@ -2485,7 +2154,7 @@ func TestV2(t *testing.T) {
 	}
 
 	// mine until the payout matures
-	mineAndSync(t, cm, db, types.VoidAddress, int(network.MaturityDelay))
+	tn.MineBlocks(t, types.VoidAddress, int(network.MaturityDelay))
 
 	// create a v2 transaction that spends the matured payout
 	utxos, basis, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
@@ -2512,7 +2181,7 @@ func TestV2(t *testing.T) {
 	if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	mineAndSync(t, cm, db, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	// check that the change was received
 	balance, err = wm.AddressBalance(addr)
@@ -2536,37 +2205,13 @@ func TestV2(t *testing.T) {
 }
 
 func TestScanV2(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	// mine a single payout to the wallet
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
 	network, genesisBlock := testV2Network(addr)
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesisBlock)
+	genesisState := tn.Chain.TipState()
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	pk2 := types.GeneratePrivateKey()
 	addr2 := types.StandardUnlockHash(pk2.PublicKey())
@@ -2731,33 +2376,10 @@ func TestReorgV2(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	network, genesisBlock := testV2Network(types.VoidAddress) // don't care about siafunds
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	network, genesisBlock := testV2Network(types.VoidAddress)
+	tn := newTestNode(t, network, genesisBlock)
+	genesisState := tn.Chain.TipState()
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -2959,32 +2581,9 @@ func TestOrphansV2(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	network, genesisBlock := testV2Network(types.VoidAddress) // don't care about siafunds
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	network, genesisBlock := testV2Network(types.VoidAddress)
+	tn := newTestNode(t, network, genesisBlock)
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -3105,7 +2704,7 @@ func TestOrphansV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wm, err = wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
+	wm, err = wallet.NewManager(cm, db, wallet.WithLogger(tn.log.Named("wallet")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3173,33 +2772,9 @@ func TestDeleteWallet(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	network, genesisBlock := testV1Network(types.VoidAddress) // don't care about siafunds
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	network, genesisBlock := testV1Network(types.VoidAddress)
+	tn := newTestNode(t, network, genesisBlock)
+	wm := tn.manager
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -3857,36 +3432,11 @@ func TestSiafundClaims(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
-	network, genesis := testutil.Network()
-	// send the siafunds to the owned address
+	network, genesis := ctestutil.Network()
 	genesis.Transactions[0].SiafundOutputs[0].Address = addr
 	siafundValue := genesis.Transactions[0].SiafundOutputs[0].Value
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesis, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesis)
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -3941,7 +3491,7 @@ func TestSiafundClaims(t *testing.T) {
 	if _, err := cm.AddPoolTransactions([]types.Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	ctestutil.MineBlocks(t, cm, types.VoidAddress, 1)
 	waitForBlock(t, cm, db)
 
 	siacoins, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
@@ -3959,8 +3509,8 @@ func TestSiafundClaims(t *testing.T) {
 	}
 
 	// fund the wallet with some siacoins
-	testutil.MineBlocks(t, cm, addr, 5)
-	testutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
+	ctestutil.MineBlocks(t, cm, addr, 5)
+	ctestutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
 	waitForBlock(t, cm, db)
 
 	payout := types.Siacoins(100000)
@@ -4017,7 +3567,7 @@ func TestSiafundClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	ctestutil.MineBlocks(t, cm, types.VoidAddress, 1)
 	waitForBlock(t, cm, db)
 
 	cs = cm.TipState()
@@ -4058,7 +3608,7 @@ func TestSiafundClaims(t *testing.T) {
 	if _, err := cm.AddPoolTransactions([]types.Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	ctestutil.MineBlocks(t, cm, types.VoidAddress, 1)
 	waitForBlock(t, cm, db)
 
 	events, err = wm.WalletEvents(w.ID, 0, 100)
@@ -4083,7 +3633,7 @@ func TestSiafundClaims(t *testing.T) {
 	}
 
 	// mine until the siafund claim output is mature
-	testutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
+	ctestutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
 	waitForBlock(t, cm, db)
 
 	// check that the output is now spendable
@@ -4103,39 +3653,14 @@ func TestV2SiafundClaims(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardAddress(pk.PublicKey())
 
-	log := zaptest.NewLogger(t)
-	dir := t.TempDir()
-	db, err := sqlite.OpenDatabase(filepath.Join(dir, "walletd.sqlite3"), sqlite.WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(dir, "consensus.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer bdb.Close()
-
 	network, genesis := testutil.V2Network()
-	// send the siafunds to the owned address
 	genesis.Transactions[0].SiafundOutputs[0].Address = addr
 	siafundValue := genesis.Transactions[0].SiafundOutputs[0].Value
-
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesis, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cm := chain.NewManager(store, genesisState)
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesis)
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
 	// activate the v2 hardfork
-	testutil.MineBlocks(t, cm, types.VoidAddress, 2)
+	ctestutil.MineBlocks(t, cm, types.VoidAddress, 2)
 
 	w, err := wm.AddWallet(wallet.Wallet{Name: "test"})
 	if err != nil {
@@ -4187,7 +3712,7 @@ func TestV2SiafundClaims(t *testing.T) {
 	if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	ctestutil.MineBlocks(t, cm, types.VoidAddress, 1)
 	waitForBlock(t, cm, db)
 
 	siacoins, _, err := wm.UnspentSiacoinOutputs(w.ID, 0, 100)
@@ -4205,8 +3730,8 @@ func TestV2SiafundClaims(t *testing.T) {
 	}
 
 	// fund the wallet with some siacoins
-	testutil.MineBlocks(t, cm, addr, 5)
-	testutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
+	ctestutil.MineBlocks(t, cm, addr, 5)
+	ctestutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
 	waitForBlock(t, cm, db)
 
 	payout := types.Siacoins(100000)
@@ -4262,7 +3787,7 @@ func TestV2SiafundClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	ctestutil.MineBlocks(t, cm, types.VoidAddress, 1)
 	waitForBlock(t, cm, db)
 
 	cs = cm.TipState()
@@ -4299,7 +3824,7 @@ func TestV2SiafundClaims(t *testing.T) {
 	if _, err := cm.AddV2PoolTransactions(basis, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	testutil.MineBlocks(t, cm, types.VoidAddress, 1)
+	ctestutil.MineBlocks(t, cm, types.VoidAddress, 1)
 	waitForBlock(t, cm, db)
 
 	events, err = wm.WalletEvents(w.ID, 0, 100)
@@ -4324,7 +3849,7 @@ func TestV2SiafundClaims(t *testing.T) {
 	}
 
 	// mine until the siafund claim output is mature
-	testutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
+	ctestutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay))
 	waitForBlock(t, cm, db)
 
 	// check that the output is now spendable
@@ -4346,7 +3871,7 @@ func TestReset(t *testing.T) {
 	pk := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
-	network, genesisBlock := testutil.Network()
+	network, genesisBlock := ctestutil.Network()
 	// send the siafunds to the owned address
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = addr
 
