@@ -1,30 +1,21 @@
 package sqlite
 
 import (
-	"path/filepath"
 	"testing"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/v2/wallet"
-	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
 func TestCheckAddresses(t *testing.T) {
-	log := zaptest.NewLogger(t)
-
 	// generate a large number of random addresses
 	addresses := make([]types.Address, 1000)
 	for i := range addresses {
 		addresses[i] = frand.Entropy256()
 	}
 
-	// create a new database
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "walletd.sqlite"), WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
+	db := newTestStore(t)
 
 	if known, err := db.CheckAddresses(addresses); err != nil {
 		t.Fatal(err)

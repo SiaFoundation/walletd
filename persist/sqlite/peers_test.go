@@ -2,29 +2,20 @@ package sqlite
 
 import (
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"go.sia.tech/coreutils/syncer"
-	"go.uber.org/zap/zaptest"
 )
 
 func TestAddPeer(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
+	db := newTestStore(t)
 	ps, err := NewPeerStore(db)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	const peer = "1.2.3.4:9981"
-
 	if err := ps.AddPeer(peer); err != nil {
 		t.Fatal(err)
 	}
@@ -76,20 +67,13 @@ func TestAddPeer(t *testing.T) {
 }
 
 func TestBanPeer(t *testing.T) {
-	log := zaptest.NewLogger(t)
-	db, err := OpenDatabase(filepath.Join(t.TempDir(), "test.db"), WithLog(log.Named("sqlite3")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
+	db := newTestStore(t)
 	ps, err := NewPeerStore(db)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	const peer = "1.2.3.4"
-
 	if banned, err := ps.Banned(peer); err != nil || banned {
 		t.Fatal("expected peer to not be banned", err)
 	}

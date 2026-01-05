@@ -2,21 +2,17 @@ package sqlite
 
 import (
 	"fmt"
-	"path/filepath"
 	"testing"
 
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/v2/wallet"
+	"go.uber.org/zap"
 	"lukechampine.com/frand"
 )
 
 func runBenchmarkWalletEvents(b *testing.B, name string, addresses, eventsPerAddress int) {
 	b.Run(name, func(b *testing.B) {
-		db, err := OpenDatabase(filepath.Join(b.TempDir(), "walletd.sqlite3"))
-		if err != nil {
-			b.Fatal(err)
-		}
-		defer db.Close()
+		db := newTestStore(b, WithLog(zap.NewNop()))
 
 		w, err := db.AddWallet(wallet.Wallet{
 			Name: "test",
