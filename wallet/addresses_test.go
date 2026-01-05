@@ -6,13 +6,10 @@ import (
 	"go.sia.tech/core/types"
 	"go.sia.tech/walletd/v2/internal/testutil"
 	"go.sia.tech/walletd/v2/wallet"
-	"go.uber.org/zap/zaptest"
 	"lukechampine.com/frand"
 )
 
 func TestAddressUseTpool(t *testing.T) {
-	log := zaptest.NewLogger(t)
-
 	// mine a single payout to the wallet
 	pk := types.GeneratePrivateKey()
 	uc := types.StandardUnlockConditions(pk.PublicKey())
@@ -22,17 +19,10 @@ func TestAddressUseTpool(t *testing.T) {
 	genesisBlock.Transactions[0].SiacoinOutputs = []types.SiacoinOutput{
 		{Address: addr1, Value: types.Siacoins(100)},
 	}
-	cn := testutil.NewConsensusNode(t, network, genesisBlock, log)
-	cm := cn.Chain
-	db := cn.Store
+	tn := newTestNode(t, network, genesisBlock, wallet.WithIndexMode(wallet.IndexModeFull))
+	cm, wm := tn.Chain, tn.manager
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
-
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	assertSiacoinElement := func(t *testing.T, id types.SiacoinOutputID, value types.Currency, confirmations uint64) {
 		t.Helper()
@@ -95,29 +85,20 @@ func TestAddressUseTpool(t *testing.T) {
 	}
 	wm.SyncPool() // force reindexing of the tpool
 	assertSiacoinElement(t, txn.SiacoinOutputID(txn.ID(), 1), types.Siacoins(75), 0)
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 	assertSiacoinElement(t, txn.SiacoinOutputID(txn.ID(), 1), types.Siacoins(75), 1)
 }
 
 func TestBatchAddresses(t *testing.T) {
-	log := zaptest.NewLogger(t)
-
 	network, genesisBlock := testutil.V2Network()
-	cn := testutil.NewConsensusNode(t, network, genesisBlock, log)
-	cm := cn.Chain
-	db := cn.Store
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesisBlock, wallet.WithIndexMode(wallet.IndexModeFull))
+	wm := tn.manager
 
 	// mine a bunch of payouts to different addresses
 	addresses := make([]types.Address, 100)
 	for i := range addresses {
 		addresses[i] = types.StandardAddress(types.GeneratePrivateKey().PublicKey())
-		cn.MineBlocks(t, addresses[i], 1)
+		tn.MineBlocks(t, addresses[i], 1)
 	}
 
 	events, err := wm.BatchAddressEvents(addresses, 0, 1000)
@@ -129,26 +110,17 @@ func TestBatchAddresses(t *testing.T) {
 }
 
 func TestBatchSiacoinOutputs(t *testing.T) {
-	log := zaptest.NewLogger(t)
-
 	network, genesisBlock := testutil.V2Network()
-	cn := testutil.NewConsensusNode(t, network, genesisBlock, log)
-	cm := cn.Chain
-	db := cn.Store
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(t, network, genesisBlock, wallet.WithIndexMode(wallet.IndexModeFull))
+	wm := tn.manager
 
 	// mine a bunch of payouts to different addresses
 	addresses := make([]types.Address, 100)
 	for i := range addresses {
 		addresses[i] = types.StandardAddress(types.GeneratePrivateKey().PublicKey())
-		cn.MineBlocks(t, addresses[i], 1)
+		tn.MineBlocks(t, addresses[i], 1)
 	}
-	cn.MineBlocks(t, types.VoidAddress, int(network.MaturityDelay))
+	tn.MineBlocks(t, types.VoidAddress, int(network.MaturityDelay))
 
 	sces, _, err := wm.BatchAddressSiacoinOutputs(addresses, 0, 1000)
 	if err != nil {
@@ -159,24 +131,15 @@ func TestBatchSiacoinOutputs(t *testing.T) {
 }
 
 func TestBatchSiafundOutputs(t *testing.T) {
-	log := zaptest.NewLogger(t)
-
 	giftAddr := types.AnyoneCanSpend().Address()
 	network, genesisBlock := testutil.V2Network()
 	genesisBlock.Transactions[0].SiafundOutputs = []types.SiafundOutput{
 		{Address: giftAddr, Value: 10000},
 	}
-	cn := testutil.NewConsensusNode(t, network, genesisBlock, log)
-	cm := cn.Chain
-	db := cn.Store
+	tn := newTestNode(t, network, genesisBlock, wallet.WithIndexMode(wallet.IndexModeFull))
+	db, cm, wm := tn.Store, tn.Chain, tn.manager
 
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer wm.Close()
-
-	cn.WaitForSync(t)
+	tn.WaitForSync(t)
 
 	// distribute the siafund output to multiple addresses
 	var addresses []types.Address
@@ -223,7 +186,7 @@ func TestBatchSiafundOutputs(t *testing.T) {
 		if _, err := cm.AddV2PoolTransactions(basis, txns); err != nil {
 			t.Fatalf("failed to add pool transactions %d: %s", i, err)
 		}
-		cn.MineBlocks(t, types.VoidAddress, 1)
+		tn.MineBlocks(t, types.VoidAddress, 1)
 	}
 
 	sfes, _, err := wm.BatchAddressSiafundOutputs(addresses, 0, 10000)
@@ -235,24 +198,15 @@ func TestBatchSiafundOutputs(t *testing.T) {
 }
 
 func BenchmarkBatchAddresses(b *testing.B) {
-	log := zaptest.NewLogger(b)
-
 	network, genesisBlock := testutil.V2Network()
-	cn := testutil.NewConsensusNode(b, network, genesisBlock, log)
-	cm := cn.Chain
-	db := cn.Store
-
-	wm, err := wallet.NewManager(cm, db, wallet.WithLogger(log.Named("wallet")), wallet.WithIndexMode(wallet.IndexModeFull))
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer wm.Close()
+	tn := newTestNode(b, network, genesisBlock, wallet.WithIndexMode(wallet.IndexModeFull))
+	wm := tn.manager
 
 	// mine a bunch of payouts to different addresses
 	addresses := make([]types.Address, 10000)
 	for i := range addresses {
 		addresses[i] = types.StandardAddress(types.GeneratePrivateKey().PublicKey())
-		cn.MineBlocks(b, addresses[i], 1)
+		tn.MineBlocks(b, addresses[i], 1)
 	}
 
 	b.ResetTimer()
