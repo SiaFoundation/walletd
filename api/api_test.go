@@ -38,12 +38,11 @@ func (tn *testNode) fundingAddr() types.Address {
 	return types.StandardUnlockHash(tn.pk.PublicKey())
 }
 
-// newV1TestNode creates a V1 network test node with initial siacoin funding.
+// newCustomTestNode creates a test node with the given network and genesis block.
 // If sf is true, also assigns genesis siafunds to the funding address.
-func newV1TestNode(tb testing.TB, log *zap.Logger, sc types.Currency, sf bool, walletOpts ...wallet.Option) *testNode {
+func newCustomTestNode(tb testing.TB, log *zap.Logger, n *consensus.Network, genesisBlock types.Block, sc types.Currency, sf bool, walletOpts ...wallet.Option) *testNode {
 	tb.Helper()
 
-	n, genesisBlock := testutil.V1Network()
 	fundingKey := types.GeneratePrivateKey()
 	fundingAddr := types.StandardUnlockHash(fundingKey.PublicKey())
 	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
@@ -64,30 +63,20 @@ func newV1TestNode(tb testing.TB, log *zap.Logger, sc types.Currency, sf bool, w
 	}
 }
 
+// newV1TestNode creates a V1 network test node with initial siacoin funding.
+// If sf is true, also assigns genesis siafunds to the funding address.
+func newV1TestNode(tb testing.TB, log *zap.Logger, sc types.Currency, sf bool, walletOpts ...wallet.Option) *testNode {
+	tb.Helper()
+	n, genesisBlock := testutil.V1Network()
+	return newCustomTestNode(tb, log, n, genesisBlock, sc, sf, walletOpts...)
+}
+
 // newV2TestNode creates a V2 network test node with initial siacoin funding.
 // If sf is true, also assigns genesis siafunds to the funding address.
 func newV2TestNode(tb testing.TB, log *zap.Logger, sc types.Currency, sf bool, walletOpts ...wallet.Option) *testNode {
 	tb.Helper()
-
 	n, genesisBlock := testutil.V2Network()
-	fundingKey := types.GeneratePrivateKey()
-	fundingAddr := types.StandardUnlockHash(fundingKey.PublicKey())
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   sc,
-		Address: fundingAddr,
-	}
-	if sf {
-		genesisBlock.Transactions[0].SiafundOutputs[0].Address = fundingAddr
-	}
-	cn := testutil.NewConsensusNode(tb, n, genesisBlock, log)
-	c := startWalletServer(tb, cn, log, walletOpts...)
-	return &testNode{
-		ConsensusNode: cn,
-		network:       n,
-		client:        c,
-		genesis:       genesisBlock,
-		pk:            fundingKey,
-	}
+	return newCustomTestNode(tb, log, n, genesisBlock, sc, sf, walletOpts...)
 }
 
 // signV1Txn signs all signatures in a V1 transaction.
