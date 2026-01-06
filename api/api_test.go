@@ -25,6 +25,92 @@ import (
 	"lukechampine.com/frand"
 )
 
+// testNode wraps a ConsensusNode with additional fields.
+type testNode struct {
+	*testutil.ConsensusNode
+	network *consensus.Network
+	client  *api.Client
+	genesis types.Block
+	pk      types.PrivateKey
+}
+
+func (tn *testNode) fundingAddr() types.Address {
+	return types.StandardUnlockHash(tn.pk.PublicKey())
+}
+
+// newV1TestNode creates a V1 network test node with initial siacoin funding.
+// If sf is true, also assigns genesis siafunds to the funding address.
+func newV1TestNode(tb testing.TB, log *zap.Logger, sc types.Currency, sf bool, walletOpts ...wallet.Option) *testNode {
+	tb.Helper()
+
+	n, genesisBlock := testutil.V1Network()
+	fundingKey := types.GeneratePrivateKey()
+	fundingAddr := types.StandardUnlockHash(fundingKey.PublicKey())
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   sc,
+		Address: fundingAddr,
+	}
+	if sf {
+		genesisBlock.Transactions[0].SiafundOutputs[0].Address = fundingAddr
+	}
+	cn := testutil.NewConsensusNode(tb, n, genesisBlock, log)
+	c := startWalletServer(tb, cn, log, walletOpts...)
+	return &testNode{
+		ConsensusNode: cn,
+		network:       n,
+		client:        c,
+		genesis:       genesisBlock,
+		pk:            fundingKey,
+	}
+}
+
+// newV2TestNode creates a V2 network test node with initial siacoin funding.
+// If sf is true, also assigns genesis siafunds to the funding address.
+func newV2TestNode(tb testing.TB, log *zap.Logger, sc types.Currency, sf bool, walletOpts ...wallet.Option) *testNode {
+	tb.Helper()
+
+	n, genesisBlock := testutil.V2Network()
+	fundingKey := types.GeneratePrivateKey()
+	fundingAddr := types.StandardUnlockHash(fundingKey.PublicKey())
+	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
+		Value:   sc,
+		Address: fundingAddr,
+	}
+	if sf {
+		genesisBlock.Transactions[0].SiafundOutputs[0].Address = fundingAddr
+	}
+	cn := testutil.NewConsensusNode(tb, n, genesisBlock, log)
+	c := startWalletServer(tb, cn, log, walletOpts...)
+	return &testNode{
+		ConsensusNode: cn,
+		network:       n,
+		client:        c,
+		genesis:       genesisBlock,
+		pk:            fundingKey,
+	}
+}
+
+// signV1Txn signs all signatures in a V1 transaction.
+func signV1Txn(cs consensus.State, txn *types.Transaction, pk types.PrivateKey) {
+	for i, sig := range txn.Signatures {
+		sigHash := cs.WholeSigHash(*txn, sig.ParentID, 0, 0, nil)
+		s := pk.SignHash(sigHash)
+		txn.Signatures[i].Signature = s[:]
+	}
+}
+
+// signV2Txn signs all siacoin and siafund inputs in a V2 transaction.
+func signV2Txn(cs consensus.State, txn *types.V2Transaction, pk types.PrivateKey) {
+	sigHash := cs.InputSigHash(*txn)
+	sig := pk.SignHash(sigHash)
+	for i := range txn.SiacoinInputs {
+		txn.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{sig}
+	}
+	for i := range txn.SiafundInputs {
+		txn.SiafundInputs[i].SatisfiedPolicy.Signatures = []types.Signature{sig}
+	}
+}
+
 func startWalletServer(tb testing.TB, cn *testutil.ConsensusNode, log *zap.Logger, walletOpts ...wallet.Option) *api.Client {
 	tb.Helper()
 
@@ -53,16 +139,8 @@ func startWalletServer(tb testing.TB, cn *testutil.ConsensusNode, log *zap.Logge
 
 func TestWalletAdd(t *testing.T) {
 	log := zaptest.NewLogger(t)
-
-	n, genesisBlock := testutil.V1Network()
-	giftPrivateKey := types.GeneratePrivateKey()
-	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(1),
-		Address: giftAddress,
-	}
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
+	tn := newV1TestNode(t, log, types.Siacoins(1), false)
+	c := tn.client
 
 	checkWalletResponse := func(wr api.WalletUpdateRequest, w wallet.Wallet, isUpdate bool) error {
 		// check wallet
@@ -200,24 +278,8 @@ func TestWalletAdd(t *testing.T) {
 
 func TestWallet(t *testing.T) {
 	log := zaptest.NewLogger(t)
-
-	// create syncer
-	syncerListener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer syncerListener.Close()
-
-	// create chain manager
-	n, genesisBlock := testutil.V1Network()
-	giftPrivateKey := types.GeneratePrivateKey()
-	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(1),
-		Address: giftAddress,
-	}
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
+	tn := newV1TestNode(t, log, types.Siacoins(1), false)
+	c := tn.client
 
 	w, err := c.AddWallet(api.WalletUpdateRequest{Name: "primary"})
 	if err != nil {
@@ -229,7 +291,7 @@ func TestWallet(t *testing.T) {
 	if err := c.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
-	cn.WaitForSync(t)
+	tn.WaitForSync(t)
 
 	balance, err := wc.Balance()
 	if err != nil {
@@ -275,11 +337,11 @@ func TestWallet(t *testing.T) {
 	}
 
 	// send gift to wallet
-	giftSCOID := genesisBlock.Transactions[0].SiacoinOutputID(0)
+	giftSCOID := tn.genesis.Transactions[0].SiacoinOutputID(0)
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			ParentID:         giftSCOID,
-			UnlockConditions: types.StandardUnlockConditions(giftPrivateKey.PublicKey()),
+			UnlockConditions: types.StandardUnlockConditions(tn.pk.PublicKey()),
 		}},
 		SiacoinOutputs: []types.SiacoinOutput{
 			{Address: addr, Value: types.Siacoins(1).Div64(2)},
@@ -296,7 +358,7 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sig := giftPrivateKey.SignHash(cs.WholeSigHash(txn, types.Hash256(giftSCOID), 0, 0, nil))
+	sig := tn.pk.SignHash(cs.WholeSigHash(txn, types.Hash256(giftSCOID), 0, 0, nil))
 	txn.Signatures[0].Signature = sig[:]
 
 	// broadcast the transaction to the transaction pool
@@ -319,7 +381,7 @@ func TestWallet(t *testing.T) {
 		t.Fatal("txpool should have one transaction")
 	}
 	// confirm the transaction
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	// get new balance
 	balance, err = wc.Balance()
@@ -344,15 +406,15 @@ func TestWallet(t *testing.T) {
 		t.Fatal(err)
 	} else if len(outputs) != 2 {
 		t.Fatal("should have two UTXOs, got", len(outputs))
-	} else if basis != cn.Chain.Tip() {
-		t.Fatalf("basis should be %v, got %v", cn.Chain.Tip(), basis)
+	} else if basis != tn.Chain.Tip() {
+		t.Fatalf("basis should be %v, got %v", tn.Chain.Tip(), basis)
 	} else if outputs[0].Confirmations != 1 {
 		t.Fatalf("expected 1 confirmation, got %v", outputs[0].Confirmations)
 	}
 
 	// mine a block to add an immature balance
-	expectedPayout := cn.Chain.TipState().BlockReward()
-	cn.MineBlocks(t, addr, 1)
+	expectedPayout := tn.Chain.TipState().BlockReward()
+	tn.MineBlocks(t, addr, 1)
 
 	// get new balance
 	balance, err = wc.Balance()
@@ -366,7 +428,7 @@ func TestWallet(t *testing.T) {
 
 	// mine enough blocks for the miner payout to mature
 	expectedBalance := types.Siacoins(1).Add(expectedPayout)
-	cn.MineBlocks(t, types.VoidAddress, int(n.MaturityDelay))
+	tn.MineBlocks(t, types.VoidAddress, int(tn.network.MaturityDelay))
 
 	// get new balance
 	balance, err = wc.Balance()
@@ -381,17 +443,8 @@ func TestWallet(t *testing.T) {
 
 func TestAddresses(t *testing.T) {
 	log := zaptest.NewLogger(t)
-
-	n, genesisBlock := testutil.V1Network()
-	giftPrivateKey := types.GeneratePrivateKey()
-	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(1),
-		Address: giftAddress,
-	}
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
+	tn := newV1TestNode(t, log, types.Siacoins(1), false)
+	c := tn.client
 
 	sk2 := types.GeneratePrivateKey()
 	addr := types.StandardUnlockHash(sk2.PublicKey())
@@ -408,11 +461,11 @@ func TestAddresses(t *testing.T) {
 	}
 
 	// send gift to wallet
-	giftSCOID := genesisBlock.Transactions[0].SiacoinOutputID(0)
+	giftSCOID := tn.genesis.Transactions[0].SiacoinOutputID(0)
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			ParentID:         giftSCOID,
-			UnlockConditions: types.StandardUnlockConditions(giftPrivateKey.PublicKey()),
+			UnlockConditions: types.StandardUnlockConditions(tn.pk.PublicKey()),
 		}},
 		SiacoinOutputs: []types.SiacoinOutput{
 			{Address: addr, Value: types.Siacoins(1).Div64(2)},
@@ -429,14 +482,14 @@ func TestAddresses(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sig := giftPrivateKey.SignHash(cs.WholeSigHash(txn, types.Hash256(giftSCOID), 0, 0, nil))
+	sig := tn.pk.SignHash(cs.WholeSigHash(txn, types.Hash256(giftSCOID), 0, 0, nil))
 	txn.Signatures[0].Signature = sig[:]
 
 	// broadcast the transaction to the transaction pool
 	if _, err := c.TxpoolBroadcast(cs.Index, []types.Transaction{txn}, nil); err != nil {
 		t.Fatal(err)
 	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	// get new balance
 	balance, err := c.AddressBalance(addr)
@@ -461,13 +514,13 @@ func TestAddresses(t *testing.T) {
 		t.Fatal(err)
 	} else if len(outputs) != 2 {
 		t.Fatal("should have two UTXOs, got", len(outputs))
-	} else if basis != cn.Chain.Tip() {
-		t.Fatalf("basis should be %v, got %v", cn.Chain.Tip(), basis)
+	} else if basis != tn.Chain.Tip() {
+		t.Fatalf("basis should be %v, got %v", tn.Chain.Tip(), basis)
 	}
 
 	// mine a block to add an immature balance
-	expectedPayout := cn.Chain.TipState().BlockReward()
-	cn.MineBlocks(t, addr, 1)
+	expectedPayout := tn.Chain.TipState().BlockReward()
+	tn.MineBlocks(t, addr, 1)
 
 	// get new balance
 	balance, err = c.AddressBalance(addr)
@@ -481,7 +534,7 @@ func TestAddresses(t *testing.T) {
 
 	// mine enough blocks for the miner payout to mature
 	expectedBalance := types.Siacoins(1).Add(expectedPayout)
-	cn.MineBlocks(t, types.VoidAddress, int(n.MaturityDelay))
+	tn.MineBlocks(t, types.VoidAddress, int(tn.network.MaturityDelay))
 
 	// get new balance
 	balance, err = c.AddressBalance(addr)
@@ -518,23 +571,14 @@ func TestAddresses(t *testing.T) {
 
 func TestConsensus(t *testing.T) {
 	log := zaptest.NewLogger(t)
-
-	n, genesisBlock := testutil.V2Network()
-	giftPrivateKey := types.GeneratePrivateKey()
-	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(1),
-		Address: giftAddress,
-	}
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
+	tn := newV2TestNode(t, log, types.Siacoins(1), false)
+	c := tn.client
 
 	// mine a block
-	minedBlock, ok := coreutils.MineBlock(cn.Chain, types.Address{}, time.Minute)
+	minedBlock, ok := coreutils.MineBlock(tn.Chain, types.Address{}, time.Minute)
 	if !ok {
 		t.Fatal("no block found")
-	} else if err := cn.Chain.AddBlocks([]types.Block{minedBlock}); err != nil {
+	} else if err := tn.Chain.AddBlocks([]types.Block{minedBlock}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -557,23 +601,14 @@ func TestConsensus(t *testing.T) {
 
 func TestConsensusCheckpoint(t *testing.T) {
 	log := zaptest.NewLogger(t)
-
-	n, genesisBlock := testutil.V2Network()
-	giftPrivateKey := types.GeneratePrivateKey()
-	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(1),
-		Address: giftAddress,
-	}
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
+	tn := newV2TestNode(t, log, types.Siacoins(1), false)
+	c := tn.client
 
 	// mine a block
-	minedBlock, ok := coreutils.MineBlock(cn.Chain, types.Address{}, time.Minute)
+	minedBlock, ok := coreutils.MineBlock(tn.Chain, types.Address{}, time.Minute)
 	if !ok {
 		t.Fatal("no block found")
-	} else if err := cn.Chain.AddBlocks([]types.Block{minedBlock}); err != nil {
+	} else if err := tn.Chain.AddBlocks([]types.Block{minedBlock}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -591,34 +626,25 @@ func TestConsensusCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	} else if resp.Block.ID() != minedBlock.ID() {
 		t.Fatal("mismatch")
-	} else if resp.State.Index != cn.Chain.Tip() {
+	} else if resp.State.Index != tn.Chain.Tip() {
 		t.Fatal("mismatch tip")
 	}
 
-	heightResp, err := c.ConsensusCheckpointHeight(cn.Chain.Tip().Height)
+	heightResp, err := c.ConsensusCheckpointHeight(tn.Chain.Tip().Height)
 	if err != nil {
 		t.Fatal(err)
 	} else if heightResp.Block.ID() != minedBlock.ID() {
 		t.Fatal("mismatch")
-	} else if heightResp.State.Index != cn.Chain.Tip() {
+	} else if heightResp.State.Index != tn.Chain.Tip() {
 		t.Fatal("mismatch tip")
 	}
 }
 
 func TestConsensusUpdates(t *testing.T) {
 	log := zaptest.NewLogger(t)
-
-	n, genesisBlock := testutil.V1Network()
-	giftPrivateKey := types.GeneratePrivateKey()
-	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(1),
-		Address: giftAddress,
-	}
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
-	cn.MineBlocks(t, types.VoidAddress, 10)
+	tn := newV1TestNode(t, log, types.Siacoins(1), false)
+	c := tn.client
+	tn.MineBlocks(t, types.VoidAddress, 10)
 
 	reverted, applied, err := c.ConsensusUpdates(types.ChainIndex{}, 10)
 	if err != nil {
@@ -631,36 +657,27 @@ func TestConsensusUpdates(t *testing.T) {
 
 	for i, cau := range applied {
 		// using i for height since we're testing the update contents
-		expected, ok := cn.Chain.BestIndex(uint64(i))
+		expected, ok := tn.Chain.BestIndex(uint64(i))
 		if !ok {
 			t.Fatalf("failed to get expected index for block %v", i)
 		} else if cau.State.Index != expected {
 			t.Fatalf("expected index %v, got %v", expected, cau.State.Index)
-		} else if cau.State.Network.Name != n.Name { // TODO: better comparison. reflect.DeepEqual is failing in CI, but passing local.
-			t.Fatalf("expected network to be %q, got %q", n.Name, cau.State.Network.Name)
+		} else if cau.State.Network.Name != tn.network.Name { // TODO: better comparison. reflect.DeepEqual is failing in CI, but passing local.
+			t.Fatalf("expected network to be %q, got %q", tn.network.Name, cau.State.Network.Name)
 		}
 	}
 }
 
 func TestConstructSiacoins(t *testing.T) {
 	log := zaptest.NewLogger(t)
+	tn := newV1TestNode(t, log, types.Siacoins(100), false)
+	c := tn.client
 
-	n, genesisBlock := testutil.V1Network()
-	senderPrivateKey := types.GeneratePrivateKey()
+	senderPrivateKey := tn.pk
 	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
-	senderAddr := senderPolicy.Address()
+	senderAddr := tn.fundingAddr()
 
-	receiverPrivateKey := types.GeneratePrivateKey()
-	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
-	receiverAddr := receiverPolicy.Address()
-
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(100),
-		Address: senderAddr,
-	}
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
+	receiverAddr := types.StandardUnlockHash(types.GeneratePrivateKey().PublicKey())
 
 	w, err := c.AddWallet(api.WalletUpdateRequest{
 		Name: "primary",
@@ -681,7 +698,7 @@ func TestConstructSiacoins(t *testing.T) {
 	if err := c.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	// try to construct a valid transaction with no spend policy
 	_, err = wc.Construct([]types.SiacoinOutput{
@@ -693,10 +710,8 @@ func TestConstructSiacoins(t *testing.T) {
 
 	// add the spend policy
 	err = wc.AddAddress(wallet.Address{
-		Address: senderAddr,
-		SpendPolicy: &types.SpendPolicy{
-			Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey())),
-		},
+		Address:     senderAddr,
+		SpendPolicy: &senderPolicy,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -739,11 +754,7 @@ func TestConstructSiacoins(t *testing.T) {
 	}
 
 	// sign the transaction
-	for i, sig := range resp.Transaction.Signatures {
-		sigHash := cs.WholeSigHash(resp.Transaction, sig.ParentID, 0, 0, nil)
-		sig := senderPrivateKey.SignHash(sigHash)
-		resp.Transaction.Signatures[i].Signature = sig[:]
-	}
+	signV1Txn(cs, &resp.Transaction, senderPrivateKey)
 
 	if broadcastResp, err := c.TxpoolBroadcast(resp.Basis, []types.Transaction{resp.Transaction}, nil); err != nil {
 		t.Fatal(err)
@@ -769,7 +780,7 @@ func TestConstructSiacoins(t *testing.T) {
 	case !sent.SiacoinOutflow().Sub(sent.SiacoinInflow()).Equals(expectedValue):
 		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", expectedValue, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
 	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	confirmed, err := wc.Events(0, 5)
 	if err != nil {
@@ -790,24 +801,14 @@ func TestConstructSiacoins(t *testing.T) {
 
 func TestConstructSiafunds(t *testing.T) {
 	log := zaptest.NewLogger(t)
+	tn := newV1TestNode(t, log, types.Siacoins(100), true) // siafunds=true
+	c := tn.client
 
-	n, genesisBlock := testutil.V1Network()
-	senderPrivateKey := types.GeneratePrivateKey()
+	senderPrivateKey := tn.pk
 	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
-	senderAddr := senderPolicy.Address()
+	senderAddr := tn.fundingAddr()
 
-	receiverPrivateKey := types.GeneratePrivateKey()
-	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
-	receiverAddr := receiverPolicy.Address()
-
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(100),
-		Address: senderAddr,
-	}
-	genesisBlock.Transactions[0].SiafundOutputs[0].Address = senderAddr
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
+	receiverAddr := types.StandardUnlockHash(types.GeneratePrivateKey().PublicKey())
 
 	w, err := c.AddWallet(api.WalletUpdateRequest{
 		Name: "primary",
@@ -828,7 +829,7 @@ func TestConstructSiafunds(t *testing.T) {
 	if err := c.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	resp, err := wc.Construct(nil, []types.SiafundOutput{
 		{Value: 1, Address: receiverAddr},
@@ -860,11 +861,7 @@ func TestConstructSiafunds(t *testing.T) {
 	}
 
 	// sign the transaction
-	for i, sig := range resp.Transaction.Signatures {
-		sigHash := cs.WholeSigHash(resp.Transaction, sig.ParentID, 0, 0, nil)
-		sig := senderPrivateKey.SignHash(sigHash)
-		resp.Transaction.Signatures[i].Signature = sig[:]
-	}
+	signV1Txn(cs, &resp.Transaction, senderPrivateKey)
 
 	if _, err := c.TxpoolBroadcast(resp.Basis, []types.Transaction{resp.Transaction}, nil); err != nil {
 		t.Fatal(err)
@@ -887,7 +884,7 @@ func TestConstructSiafunds(t *testing.T) {
 	case sent.SiafundOutflow()-sent.SiafundInflow() != 1:
 		t.Fatalf("expected unconfirmed event to have siafund outflow of 1, got %v", sent.SiafundOutflow()-sent.SiafundInflow())
 	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	confirmed, err := wc.Events(0, 5)
 	if err != nil {
@@ -910,23 +907,14 @@ func TestConstructSiafunds(t *testing.T) {
 
 func TestConstructV2Siacoins(t *testing.T) {
 	log := zaptest.NewLogger(t)
+	tn := newV2TestNode(t, log, types.Siacoins(100), false)
+	c := tn.client
 
-	n, genesisBlock := testutil.V2Network()
-	senderPrivateKey := types.GeneratePrivateKey()
+	senderPrivateKey := tn.pk
 	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
-	senderAddr := senderPolicy.Address()
+	senderAddr := tn.fundingAddr()
 
-	receiverPrivateKey := types.GeneratePrivateKey()
-	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
-	receiverAddr := receiverPolicy.Address()
-
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(100),
-		Address: senderAddr,
-	}
-
-	cm := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cm, log)
+	receiverAddr := types.StandardUnlockHash(types.GeneratePrivateKey().PublicKey())
 
 	w, err := c.AddWallet(api.WalletUpdateRequest{
 		Name: "primary",
@@ -947,7 +935,7 @@ func TestConstructV2Siacoins(t *testing.T) {
 	if err := c.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
-	cm.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	// try to construct a transaction
 	resp, err := wc.ConstructV2([]types.SiacoinOutput{
@@ -1003,11 +991,7 @@ func TestConstructV2Siacoins(t *testing.T) {
 	}
 
 	// sign the transaction
-	sigHash := cs.InputSigHash(resp.Transaction)
-	for i := range resp.Transaction.SiacoinInputs {
-		sig := senderPrivateKey.SignHash(sigHash)
-		resp.Transaction.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{sig}
-	}
+	signV2Txn(cs, &resp.Transaction, senderPrivateKey)
 
 	if broadcastResp, err := c.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{resp.Transaction}); err != nil {
 		t.Fatal(err)
@@ -1045,7 +1029,7 @@ func TestConstructV2Siacoins(t *testing.T) {
 		t.Fatalf("expected unconfirmed event to have ID %q, got %q", sent.ID, unconfirmed[0].ID)
 	}
 
-	cm.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	confirmed, err := wc.Events(0, 5)
 	if err != nil {
@@ -1066,24 +1050,14 @@ func TestConstructV2Siacoins(t *testing.T) {
 
 func TestConstructV2Siafunds(t *testing.T) {
 	log := zaptest.NewLogger(t)
+	tn := newV2TestNode(t, log, types.Siacoins(100), true) // siafunds=true
+	c := tn.client
 
-	n, genesisBlock := testutil.V2Network()
-	senderPrivateKey := types.GeneratePrivateKey()
+	senderPrivateKey := tn.pk
 	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
-	senderAddr := senderPolicy.Address()
+	senderAddr := tn.fundingAddr()
 
-	receiverPrivateKey := types.GeneratePrivateKey()
-	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
-	receiverAddr := receiverPolicy.Address()
-
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(100),
-		Address: senderAddr,
-	}
-	genesisBlock.Transactions[0].SiafundOutputs[0].Address = senderAddr
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
+	receiverAddr := types.StandardUnlockHash(types.GeneratePrivateKey().PublicKey())
 
 	w, err := c.AddWallet(api.WalletUpdateRequest{
 		Name: "primary",
@@ -1104,7 +1078,7 @@ func TestConstructV2Siafunds(t *testing.T) {
 	if err := c.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	resp, err := wc.ConstructV2(nil, []types.SiafundOutput{
 		{Value: 1, Address: receiverAddr},
@@ -1119,14 +1093,7 @@ func TestConstructV2Siafunds(t *testing.T) {
 	}
 
 	// sign the transaction
-	sigHash := cs.InputSigHash(resp.Transaction)
-	sig := senderPrivateKey.SignHash(sigHash)
-	for i := range resp.Transaction.SiafundInputs {
-		resp.Transaction.SiafundInputs[i].SatisfiedPolicy.Signatures = []types.Signature{sig}
-	}
-	for i := range resp.Transaction.SiafundInputs {
-		resp.Transaction.SiacoinInputs[i].SatisfiedPolicy.Signatures = []types.Signature{sig}
-	}
+	signV2Txn(cs, &resp.Transaction, senderPrivateKey)
 
 	if _, err := c.TxpoolBroadcast(resp.Basis, nil, []types.V2Transaction{resp.Transaction}); err != nil {
 		t.Fatal(err)
@@ -1149,7 +1116,7 @@ func TestConstructV2Siafunds(t *testing.T) {
 	case sent.SiafundOutflow()-sent.SiafundInflow() != 1:
 		t.Fatalf("expected unconfirmed event to have siafund outflow of 1, got %v", sent.SiafundOutflow()-sent.SiafundInflow())
 	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	confirmed, err := wc.Events(0, 5)
 	if err != nil {
@@ -1173,27 +1140,17 @@ func TestConstructV2Siafunds(t *testing.T) {
 
 func TestSpentElement(t *testing.T) {
 	log := zaptest.NewLogger(t)
+	tn := newV2TestNode(t, log, types.Siacoins(100), true, wallet.WithIndexMode(wallet.IndexModeFull))
+	c := tn.client
 
-	n, genesisBlock := testutil.V2Network()
-	senderPrivateKey := types.GeneratePrivateKey()
+	senderPrivateKey := tn.pk
 	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
-	senderAddr := senderPolicy.Address()
+	senderAddr := tn.fundingAddr()
 
-	receiverPrivateKey := types.GeneratePrivateKey()
-	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
-	receiverAddr := receiverPolicy.Address()
-
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(100),
-		Address: senderAddr,
-	}
-	genesisBlock.Transactions[0].SiafundOutputs[0].Address = senderAddr
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log, wallet.WithIndexMode(wallet.IndexModeFull))
+	receiverAddr := types.StandardUnlockHash(types.GeneratePrivateKey().PublicKey())
 
 	// trigger initial scan
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	sce, basis, err := c.AddressSiacoinOutputs(senderAddr, false, 0, 100)
 	if err != nil {
@@ -1240,7 +1197,7 @@ func TestSpentElement(t *testing.T) {
 	if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	// check if the element is spent
 	spent, err = c.SpentSiacoinElement(sce[0].ID)
@@ -1255,7 +1212,7 @@ func TestSpentElement(t *testing.T) {
 	}
 
 	// mine until the utxo is pruned
-	cn.MineBlocks(t, types.VoidAddress, 144)
+	tn.MineBlocks(t, types.VoidAddress, 144)
 
 	_, err = c.SpentSiacoinElement(sce[0].ID)
 	if !strings.Contains(err.Error(), "not found") {
@@ -1308,7 +1265,7 @@ func TestSpentElement(t *testing.T) {
 	if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{txn}); err != nil {
 		t.Fatal(err)
 	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	// check if the element is spent
 	spent, err = c.SpentSiafundElement(sfe[0].ID)
@@ -1323,7 +1280,7 @@ func TestSpentElement(t *testing.T) {
 	}
 
 	// mine until the utxo is pruned
-	cn.MineBlocks(t, types.VoidAddress, 144)
+	tn.MineBlocks(t, types.VoidAddress, 144)
 
 	_, err = c.SpentSiafundElement(sfe[0].ID)
 	if !strings.Contains(err.Error(), "not found") {
@@ -1333,13 +1290,10 @@ func TestSpentElement(t *testing.T) {
 
 func TestDebugMine(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	n, genesisBlock := testutil.V1Network()
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
+	tn := newV1TestNode(t, log, types.ZeroCurrency, false)
 
 	jc := jape.Client{
-		BaseURL:  c.BaseURL(),
+		BaseURL:  tn.client.BaseURL(),
 		Password: "password",
 	}
 
@@ -1350,9 +1304,9 @@ func TestDebugMine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cn.WaitForSync(t)
+	tn.WaitForSync(t)
 
-	tip, err := c.ConsensusTip()
+	tip, err := tn.client.ConsensusTip()
 	if err != nil {
 		t.Fatal(err)
 	} else if tip.Height != 5 {
@@ -1449,12 +1403,10 @@ func TestAPISecurity(t *testing.T) {
 
 func TestAPINoContent(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	n, genesisBlock := testutil.V1Network()
+	tn := newV1TestNode(t, log, types.ZeroCurrency, false)
+	c := tn.client
 
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
-
-	buf, err := json.Marshal(cn.Chain.Tip().Height)
+	buf, err := json.Marshal(tn.Chain.Tip().Height)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1476,10 +1428,8 @@ func TestAPINoContent(t *testing.T) {
 
 func TestV2TransactionUpdateBasis(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	n, genesisBlock := testutil.V2Network()
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
+	tn := newV2TestNode(t, log, types.ZeroCurrency, false)
+	c := tn.client
 
 	// create a wallet
 	w, err := c.AddWallet(api.WalletUpdateRequest{
@@ -1504,7 +1454,7 @@ func TestV2TransactionUpdateBasis(t *testing.T) {
 	}
 
 	// fund the wallet
-	cn.MineBlocks(t, addr, 5+int(n.MaturityDelay))
+	tn.MineBlocks(t, addr, 5+int(tn.network.MaturityDelay))
 
 	resp, err := wc.ConstructV2([]types.SiacoinOutput{
 		{Value: types.Siacoins(100), Address: addr},
@@ -1529,7 +1479,7 @@ func TestV2TransactionUpdateBasis(t *testing.T) {
 	if _, err := c.TxpoolBroadcast(basis, nil, []types.V2Transaction{parentTxn}); err != nil {
 		t.Fatal(err)
 	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	// create a child transaction
 	sce := parentTxn.EphemeralSiacoinOutput(0)
@@ -1570,24 +1520,17 @@ func TestV2TransactionUpdateBasis(t *testing.T) {
 	if _, err := c.TxpoolBroadcast(basis, nil, txnset); err != nil {
 		t.Fatal(err)
 	}
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 }
 
 func TestAddressTPool(t *testing.T) {
 	log := zaptest.NewLogger(t)
+	tn := newV2TestNode(t, log, types.Siacoins(100), false, wallet.WithIndexMode(wallet.IndexModeFull))
+	c := tn.client
 
-	pk := types.GeneratePrivateKey()
+	pk := tn.pk
 	uc := types.StandardUnlockConditions(pk.PublicKey())
-	addr1 := types.StandardUnlockHash(pk.PublicKey())
-
-	n, genesisBlock := testutil.V2Network()
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(100),
-		Address: addr1,
-	}
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log, wallet.WithIndexMode(wallet.IndexModeFull))
+	addr1 := tn.fundingAddr()
 
 	assertSiacoinElement := func(t *testing.T, id types.SiacoinOutputID, value types.Currency, confirmations uint64) {
 		t.Helper()
@@ -1609,9 +1552,9 @@ func TestAddressTPool(t *testing.T) {
 		t.Fatalf("expected siacoin element with ID %q not found", id)
 	}
 
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
-	airdropID := genesisBlock.Transactions[0].SiacoinOutputID(0)
+	airdropID := tn.genesis.Transactions[0].SiacoinOutputID(0)
 	assertSiacoinElement(t, airdropID, types.Siacoins(100), 2)
 
 	utxos, basis, err := c.AddressSiacoinOutputs(addr1, true, 0, 100)
@@ -1655,28 +1598,22 @@ func TestAddressTPool(t *testing.T) {
 	}
 
 	assertSiacoinElement(t, txn.SiacoinOutputID(txn.ID(), 1), types.Siacoins(75), 0)
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 	assertSiacoinElement(t, txn.SiacoinOutputID(txn.ID(), 1), types.Siacoins(75), 1)
 }
 
 func TestEphemeralTransactions(t *testing.T) {
 	log := zaptest.NewLogger(t)
-	pk := types.GeneratePrivateKey()
+	tn := newV2TestNode(t, log, types.Siacoins(100), false, wallet.WithIndexMode(wallet.IndexModeFull))
+	c := tn.client
+
+	pk := tn.pk
 	sp := types.SpendPolicy{
 		Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey())),
 	}
-	addr1 := sp.Address()
+	addr1 := tn.fundingAddr()
 
-	n, genesisBlock := testutil.V2Network()
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(100),
-		Address: addr1,
-	}
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log, wallet.WithIndexMode(wallet.IndexModeFull))
-
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	sces, basis, err := c.AddressSiacoinOutputs(addr1, true, 0, 100)
 	if err != nil {
@@ -1747,7 +1684,7 @@ func TestEphemeralTransactions(t *testing.T) {
 	txn2.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(sigHash)}
 
 	// mine a block so the basis is behind
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	sces, _, err = c.AddressSiacoinOutputs(addr1, true, 0, 100)
 	if err != nil {
@@ -1776,20 +1713,14 @@ func TestBroadcastRace(t *testing.T) {
 	t.Skip("NDF") // TODO: fix
 
 	log := zap.NewNop()
-	pk := types.GeneratePrivateKey()
+	tn := newV2TestNode(t, log, types.Siacoins(100000), false, wallet.WithIndexMode(wallet.IndexModeFull))
+	c := tn.client
+
+	pk := tn.pk
 	sp := types.SpendPolicy{
 		Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(pk.PublicKey())),
 	}
-	addr1 := sp.Address()
-
-	n, genesisBlock := testutil.V2Network()
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(100000),
-		Address: addr1,
-	}
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log, wallet.WithIndexMode(wallet.IndexModeFull))
+	addr1 := tn.fundingAddr()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1800,7 +1731,7 @@ func TestBroadcastRace(t *testing.T) {
 			case <-ctx.Done():
 				return
 			default:
-				cn.MineBlocks(t, types.VoidAddress, 1)
+				tn.MineBlocks(t, types.VoidAddress, 1)
 			}
 		}
 	}()
@@ -1855,23 +1786,14 @@ func TestBroadcastRace(t *testing.T) {
 
 func TestTxPoolOverwriteProofs(t *testing.T) {
 	log := zaptest.NewLogger(t)
+	tn := newV2TestNode(t, log, types.Siacoins(100), false, wallet.WithIndexMode(wallet.IndexModeFull))
+	c := tn.client
 
-	n, genesisBlock := testutil.V2Network()
-	senderPrivateKey := types.GeneratePrivateKey()
+	senderPrivateKey := tn.pk
 	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
-	senderAddr := senderPolicy.Address()
+	senderAddr := tn.fundingAddr()
 
-	receiverPrivateKey := types.GeneratePrivateKey()
-	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
-	receiverAddr := receiverPolicy.Address()
-
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(100),
-		Address: senderAddr,
-	}
-
-	cm := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cm, log, wallet.WithIndexMode(wallet.IndexModeFull))
+	receiverAddr := types.StandardUnlockHash(types.GeneratePrivateKey().PublicKey())
 
 	w, err := c.AddWallet(api.WalletUpdateRequest{
 		Name: "primary",
@@ -1889,7 +1811,7 @@ func TestTxPoolOverwriteProofs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	resp, err := wc.ConstructV2([]types.SiacoinOutput{
 		{Value: types.Siacoins(1), Address: receiverAddr},
@@ -1910,7 +1832,7 @@ func TestTxPoolOverwriteProofs(t *testing.T) {
 	}
 
 	// assert the transaction is valid
-	cs, ok := cm.Chain.State(resp.Basis.ID)
+	cs, ok := tn.Chain.State(resp.Basis.ID)
 	if !ok {
 		t.Fatal("failed to get state")
 	}
@@ -1952,7 +1874,7 @@ func TestTxPoolOverwriteProofs(t *testing.T) {
 	case !sent.SiacoinOutflow().Sub(sent.SiacoinInflow()).Equals(expectedValue):
 		t.Fatalf("expected unconfirmed event to have outflow of %v, got %v", expectedValue, sent.SiacoinOutflow().Sub(sent.SiacoinInflow()))
 	}
-	cm.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	confirmed, err := wc.Events(0, 5)
 	if err != nil {
@@ -1973,23 +1895,14 @@ func TestTxPoolOverwriteProofs(t *testing.T) {
 
 func TestTxPoolOverwriteProofsEphemeral(t *testing.T) {
 	log := zaptest.NewLogger(t)
+	tn := newV2TestNode(t, log, types.Siacoins(100), false, wallet.WithIndexMode(wallet.IndexModeFull))
+	c := tn.client
 
-	n, genesisBlock := testutil.V2Network()
-	senderPrivateKey := types.GeneratePrivateKey()
+	senderPrivateKey := tn.pk
 	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
-	senderAddr := senderPolicy.Address()
+	senderAddr := tn.fundingAddr()
 
-	receiverPrivateKey := types.GeneratePrivateKey()
-	receiverPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(receiverPrivateKey.PublicKey()))}
-	receiverAddr := receiverPolicy.Address()
-
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(100),
-		Address: senderAddr,
-	}
-
-	cm := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cm, log, wallet.WithIndexMode(wallet.IndexModeFull))
+	receiverAddr := types.StandardUnlockHash(types.GeneratePrivateKey().PublicKey())
 
 	w, err := c.AddWallet(api.WalletUpdateRequest{
 		Name: "primary",
@@ -2007,7 +1920,7 @@ func TestTxPoolOverwriteProofsEphemeral(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	resp, err := wc.ConstructV2([]types.SiacoinOutput{
 		{Value: types.Siacoins(1), Address: senderAddr},
@@ -2065,7 +1978,7 @@ func TestTxPoolOverwriteProofsEphemeral(t *testing.T) {
 	} else if len(unconfirmed) != 2 {
 		t.Fatalf("expected 2 unconfirmed events, got %v", len(unconfirmed))
 	}
-	cm.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	confirmed, err := wc.Events(0, 5)
 	if err != nil {
@@ -2077,26 +1990,10 @@ func TestTxPoolOverwriteProofsEphemeral(t *testing.T) {
 
 func TestWalletConfirmations(t *testing.T) {
 	log := zaptest.NewLogger(t)
+	tn := newV1TestNode(t, log, types.Siacoins(1), true)
+	c := tn.client
 
-	// create syncer
-	syncerListener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer syncerListener.Close()
-
-	// create chain manager
-	n, genesisBlock := testutil.V1Network()
-	giftPrivateKey := types.GeneratePrivateKey()
-	giftAddress := types.StandardUnlockHash(giftPrivateKey.PublicKey())
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(1),
-		Address: giftAddress,
-	}
-	genesisBlock.Transactions[0].SiafundOutputs[0].Address = giftAddress
-
-	cn := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cn, log)
+	giftPrivateKey := tn.pk
 
 	w, err := c.AddWallet(api.WalletUpdateRequest{
 		Name: "primary",
@@ -2121,7 +2018,7 @@ func TestWalletConfirmations(t *testing.T) {
 	c.Rescan(0)
 
 	// send gift to wallet
-	giftSCOID := genesisBlock.Transactions[0].SiacoinOutputID(0)
+	giftSCOID := tn.genesis.Transactions[0].SiacoinOutputID(0)
 	txn := types.Transaction{
 		SiacoinInputs: []types.SiacoinInput{{
 			ParentID:         giftSCOID,
@@ -2131,17 +2028,17 @@ func TestWalletConfirmations(t *testing.T) {
 			{Address: addr, Value: types.Siacoins(1)},
 		},
 		SiafundInputs: []types.SiafundInput{{
-			ParentID:         genesisBlock.Transactions[0].SiafundOutputID(0),
+			ParentID:         tn.genesis.Transactions[0].SiafundOutputID(0),
 			UnlockConditions: types.StandardUnlockConditions(giftPrivateKey.PublicKey()),
 		}},
 		SiafundOutputs: []types.SiafundOutput{
-			{Address: addr, Value: genesisBlock.Transactions[0].SiafundOutputs[0].Value},
+			{Address: addr, Value: tn.genesis.Transactions[0].SiafundOutputs[0].Value},
 		},
 		Signatures: []types.TransactionSignature{{
 			ParentID:      types.Hash256(giftSCOID),
 			CoveredFields: types.CoveredFields{WholeTransaction: true},
 		}, {
-			ParentID:      types.Hash256(genesisBlock.Transactions[0].SiafundOutputID(0)),
+			ParentID:      types.Hash256(tn.genesis.Transactions[0].SiafundOutputID(0)),
 			CoveredFields: types.CoveredFields{WholeTransaction: true},
 		}},
 	}
@@ -2153,7 +2050,7 @@ func TestWalletConfirmations(t *testing.T) {
 
 	sig := giftPrivateKey.SignHash(cs.WholeSigHash(txn, types.Hash256(giftSCOID), 0, 0, nil))
 	txn.Signatures[0].Signature = sig[:]
-	sig2 := giftPrivateKey.SignHash(cs.WholeSigHash(txn, types.Hash256(genesisBlock.Transactions[0].SiafundOutputID(0)), 0, 0, nil))
+	sig2 := giftPrivateKey.SignHash(cs.WholeSigHash(txn, types.Hash256(tn.genesis.Transactions[0].SiafundOutputID(0)), 0, 0, nil))
 	txn.Signatures[1].Signature = sig2[:]
 
 	// broadcast the transaction to the transaction pool
@@ -2162,7 +2059,7 @@ func TestWalletConfirmations(t *testing.T) {
 	}
 
 	// confirm the transaction
-	cn.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	assertConfirmations := func(t *testing.T, n uint64) {
 		t.Helper()
@@ -2172,8 +2069,8 @@ func TestWalletConfirmations(t *testing.T) {
 			t.Fatal(err)
 		} else if len(outputs) != 1 {
 			t.Fatal("should have one UTXOs, got", len(outputs))
-		} else if basis != cn.Chain.Tip() {
-			t.Fatalf("basis should be %v, got %v", cn.Chain.Tip(), basis)
+		} else if basis != tn.Chain.Tip() {
+			t.Fatalf("basis should be %v, got %v", tn.Chain.Tip(), basis)
 		} else if outputs[0].Confirmations != n {
 			t.Fatalf("expected %d confirmation, got %v", n, outputs[0].Confirmations)
 		}
@@ -2183,33 +2080,26 @@ func TestWalletConfirmations(t *testing.T) {
 			t.Fatal(err)
 		} else if len(sfe) != 1 {
 			t.Fatal("should have one siafund output, got", len(sfe))
-		} else if basis != cn.Chain.Tip() {
-			t.Fatalf("basis should be %v, got %v", cn.Chain.Tip(), basis)
+		} else if basis != tn.Chain.Tip() {
+			t.Fatalf("basis should be %v, got %v", tn.Chain.Tip(), basis)
 		} else if sfe[0].Confirmations != n {
 			t.Fatalf("expected %d confirmation, got %v", n, sfe[0].Confirmations)
 		}
 	}
 
 	assertConfirmations(t, 1)
-	cn.MineBlocks(t, types.VoidAddress, 10)
+	tn.MineBlocks(t, types.VoidAddress, 10)
 	assertConfirmations(t, 11)
 }
 
 func TestTxPoolAllowVoid(t *testing.T) {
 	log := zaptest.NewLogger(t)
+	tn := newV2TestNode(t, log, types.Siacoins(100), false)
+	c := tn.client
 
-	n, genesisBlock := testutil.V2Network()
-	senderPrivateKey := types.GeneratePrivateKey()
+	senderPrivateKey := tn.pk
 	senderPolicy := types.SpendPolicy{Type: types.PolicyTypeUnlockConditions(types.StandardUnlockConditions(senderPrivateKey.PublicKey()))}
-	senderAddr := senderPolicy.Address()
-
-	genesisBlock.Transactions[0].SiacoinOutputs[0] = types.SiacoinOutput{
-		Value:   types.Siacoins(100),
-		Address: senderAddr,
-	}
-
-	cm := testutil.NewConsensusNode(t, n, genesisBlock, log)
-	c := startWalletServer(t, cm, log)
+	senderAddr := tn.fundingAddr()
 
 	w, err := c.AddWallet(api.WalletUpdateRequest{
 		Name: "primary",
@@ -2230,7 +2120,7 @@ func TestTxPoolAllowVoid(t *testing.T) {
 	if err := c.Rescan(0); err != nil {
 		t.Fatal(err)
 	}
-	cm.MineBlocks(t, types.VoidAddress, 1)
+	tn.MineBlocks(t, types.VoidAddress, 1)
 
 	sces, basis, err := wc.SiacoinOutputs(0, 100)
 	if err != nil {
