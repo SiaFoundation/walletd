@@ -116,7 +116,7 @@ func startWalletServer(tb testing.TB, cn *testutil.ConsensusNode, log *zap.Logge
 	tb.Cleanup(func() { wm.Close() })
 
 	server := &http.Server{
-		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithLogger(log)),
+		Handler:      api.NewServer(cn.Store, cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithLogger(log)),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
@@ -139,7 +139,7 @@ func TestWalletAdd(t *testing.T) {
 			return fmt.Errorf("expected wallet description to be %v, got %v", wr.Description, w.Description)
 		} else if w.DateCreated.After(time.Now()) {
 			return fmt.Errorf("expected wallet creation date to be in the past, got %v", w.DateCreated)
-		} else if isUpdate && w.DateCreated == w.LastUpdated {
+		} else if isUpdate && w.DateCreated.Equal(w.LastUpdated) {
 			return fmt.Errorf("expected wallet last updated date to be after creation %v, got %v", w.DateCreated, w.LastUpdated)
 		}
 
@@ -1321,7 +1321,7 @@ func TestAPISecurity(t *testing.T) {
 	defer httpListener.Close()
 
 	server := &http.Server{
-		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t)), api.WithBasicAuth("test")),
+		Handler:      api.NewServer(cn.Store, cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t)), api.WithBasicAuth("test")),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
@@ -1329,7 +1329,7 @@ func TestAPISecurity(t *testing.T) {
 	go server.Serve(httpListener)
 
 	replaceHandler := func(apiOpts ...api.ServerOption) {
-		server.Handler = api.NewServer(cn.Chain, cn.Syncer, wm, apiOpts...)
+		server.Handler = api.NewServer(cn.Store, cn.Chain, cn.Syncer, wm, apiOpts...)
 	}
 
 	// create a client with correct credentials

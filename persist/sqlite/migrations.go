@@ -7,6 +7,13 @@ import (
 	"go.uber.org/zap"
 )
 
+func migrateVersion9(tx *txn, _ *zap.Logger) error {
+	_, err := tx.Exec(`ALTER TABLE siacoin_elements ADD COLUMN origin_source TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE siacoin_elements ADD COLUMN origin_transaction_id BLOB;
+ALTER TABLE siacoin_elements ADD COLUMN origin_transaction_index INTEGER;`)
+	return err
+}
+
 func migrateVersion8(tx *txn, _ *zap.Logger) error {
 	_, err := tx.Exec(`CREATE TABLE signing_keys (
 	public_key BLOB PRIMARY KEY,
@@ -209,4 +216,5 @@ var migrations = []func(tx *txn, log *zap.Logger) error{
 	migrateVersion6,
 	migrateVersion7,
 	migrateVersion8,
+	migrateVersion9,
 }

@@ -255,3 +255,84 @@ type ElementSpentResponse struct {
 type BatchAddressesRequest struct {
 	Addresses []types.Address `json:"addresses"`
 }
+
+type (
+	// ConsensusSiacoinInput represents a siacoin input along with its origin
+	// information.
+	ConsensusSiacoinInput struct {
+		ParentID         types.SiacoinOutputID  `json:"parentID"`
+		UnlockConditions types.UnlockConditions `json:"unlockConditions"`
+
+		// analogous to txnid:vout in bitcoin
+		Origin wallet.SiacoinOrigin `json:"origin"`
+	}
+
+	// ConsensusV2SiacoinInput represents a v2 siacoin input along with its origin
+	// information.
+	ConsensusV2SiacoinInput struct {
+		Parent          types.SiacoinElement  `json:"parent"`
+		SatisfiedPolicy types.SatisfiedPolicy `json:"satisfiedPolicy"`
+
+		// analogous to txnid:vout in bitcoin
+		Origin wallet.SiacoinOrigin `json:"origin"`
+	}
+
+	// ConsensusSiacoinOutput represents a siacoin output along with its ID.
+	ConsensusSiacoinOutput struct {
+		ID      types.SiacoinOutputID `json:"id"`
+		Value   types.Currency        `json:"value"`
+		Address types.Address         `json:"address"`
+	}
+
+	// ConsensusTransaction represents a transaction along with its
+	// decorated inputs and outputs.
+	ConsensusTransaction struct {
+		ID                    types.TransactionID          `json:"id"`
+		SiacoinInputs         []ConsensusSiacoinInput      `json:"siacoinInputs,omitempty"`
+		SiacoinOutputs        []ConsensusSiacoinOutput     `json:"siacoinOutputs,omitempty"`
+		FileContracts         []types.FileContract         `json:"fileContracts,omitempty"`
+		FileContractRevisions []types.FileContractRevision `json:"fileContractRevisions,omitempty"`
+		StorageProofs         []types.StorageProof         `json:"storageProofs,omitempty"`
+		SiafundInputs         []types.SiafundInput         `json:"siafundInputs,omitempty"`
+		SiafundOutputs        []types.SiafundOutput        `json:"siafundOutputs,omitempty"`
+		MinerFees             []types.Currency             `json:"minerFees,omitempty"`
+		ArbitraryData         [][]byte                     `json:"arbitraryData,omitempty"`
+		Signatures            []types.TransactionSignature `json:"signatures,omitempty"`
+	}
+
+	// ConsensusV2Transaction represents a v2 transaction along with its
+	// decorated inputs and outputs.
+	ConsensusV2Transaction struct {
+		ID                      types.TransactionID              `json:"id"`
+		SiacoinInputs           []ConsensusV2SiacoinInput        `json:"siacoinInputs,omitempty"`
+		SiacoinOutputs          []ConsensusSiacoinOutput         `json:"siacoinOutputs,omitempty"`
+		SiafundInputs           []types.V2SiafundInput           `json:"siafundInputs,omitempty"`
+		SiafundOutputs          []types.SiafundOutput            `json:"siafundOutputs,omitempty"`
+		FileContracts           []types.V2FileContract           `json:"fileContracts,omitempty"`
+		FileContractRevisions   []types.V2FileContractRevision   `json:"fileContractRevisions,omitempty"`
+		FileContractResolutions []types.V2FileContractResolution `json:"fileContractResolutions,omitempty"`
+		Attestations            []types.Attestation              `json:"attestations,omitempty"`
+		ArbitraryData           []byte                           `json:"arbitraryData,omitempty"`
+		NewFoundationAddress    *types.Address                   `json:"newFoundationAddress,omitempty"`
+		MinerFee                types.Currency                   `json:"minerFee"`
+	}
+
+	// ConsensusV2BlockData contains additional data for v2 blocks.
+	ConsensusV2BlockData struct {
+		Height       uint64                   `json:"height"`
+		Commitment   types.Hash256            `json:"commitment"`
+		Transactions []ConsensusV2Transaction `json:"transactions"`
+	}
+
+	// ConsensusBlock represents a block along with its decorated transactions.
+	ConsensusBlock struct {
+		ID           types.BlockID          `json:"id"`
+		ParentID     types.BlockID          `json:"parentID"`
+		Nonce        uint64                 `json:"nonce"`
+		Timestamp    time.Time              `json:"timestamp"`
+		MinerPayouts []types.SiacoinOutput  `json:"minerPayouts"`
+		Transactions []ConsensusTransaction `json:"transactions"`
+
+		V2 *ConsensusV2BlockData `json:"v2,omitempty"`
+	}
+)

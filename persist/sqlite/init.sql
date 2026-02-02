@@ -23,7 +23,11 @@ CREATE TABLE siacoin_elements (
 	matured BOOLEAN NOT NULL, -- tracks whether the value has been added to the address balance 
 	chain_index_id INTEGER NOT NULL REFERENCES chain_indices (id),
 	spent_index_id INTEGER REFERENCES chain_indices (id), -- soft delete
-	spent_event_id INTEGER REFERENCES events (id) -- atomic swap tracking 
+	spent_event_id INTEGER REFERENCES events (id), -- atomic swap tracking 
+
+	origin_source TEXT NOT NULL DEFAULT 'unknown', -- source of the UTXO (e.g. miner payout, contract payout, foundation subsidy, transaction)
+	origin_transaction_id BLOB, -- transaction that created the UTXO if source is 'transaction'
+	origin_transaction_index INTEGER -- index of the output in the origin transaction (vout equivalent)
 );
 CREATE INDEX siacoin_elements_address_id_idx ON siacoin_elements (address_id);
 CREATE INDEX siacoin_elements_maturity_height_matured_idx ON siacoin_elements (maturity_height, matured);

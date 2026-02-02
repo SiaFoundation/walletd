@@ -9,6 +9,7 @@ import (
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/coreutils/chain"
+	"go.sia.tech/walletd/v2/api"
 	"go.sia.tech/walletd/v2/wallet"
 	"go.uber.org/zap"
 )
@@ -561,7 +562,7 @@ func revertMatureSiacoinBalance(tx *txn, index types.ChainIndex) error {
 	return nil
 }
 
-func addSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64, indexMode wallet.IndexMode, log *zap.Logger) error {
+func addSiacoinElements(tx *txn, elements []wallet.CreatedSiacoinElement, indexID int64, indexMode wallet.IndexMode, log *zap.Logger) error {
 	if len(elements) == 0 {
 		return nil
 	}
@@ -579,7 +580,7 @@ func addSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64,
 	defer existsStmt.Close()
 
 	// ignore elements already in the database.
-	insertStmt, err := tx.Prepare(`INSERT INTO siacoin_elements (id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured, chain_index_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET leaf_index=EXCLUDED.leaf_index, merkle_proof=EXCLUDED.merkle_proof`)
+	insertStmt, err := tx.Prepare(`INSERT INTO siacoin_elements (id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured, chain_index_id, origin_source, origin_transaction_id, origin_transaction_index) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (id) DO UPDATE SET leaf_index=EXCLUDED.leaf_index, merkle_proof=EXCLUDED.merkle_proof`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert statement: %w", err)
 	}
@@ -606,7 +607,7 @@ func addSiacoinElements(tx *txn, elements []types.SiacoinElement, indexID int64,
 			se.StateElement.MerkleProof = nil
 		}
 
-		_, err = insertStmt.Exec(encode(se.ID), encode(se.SiacoinOutput.Value), encode(se.StateElement.MerkleProof), se.StateElement.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0, indexID)
+		_, err = insertStmt.Exec(encode(se.ID), encode(se.SiacoinOutput.Value), encode(se.StateElement.MerkleProof), se.StateElement.LeafIndex, se.MaturityHeight, addrRef.ID, se.MaturityHeight == 0, indexID, se.Origin.Source, encode(se.Origin.ID), se.Origin.Index)
 		if err != nil {
 			return fmt.Errorf("failed to execute statement: %w", err)
 		}
@@ -1439,4 +1440,136 @@ func addressRefStmt(tx *txn) (func(types.Address) (addressRef, error), func() er
 		}
 		return ref, nil
 	}, stmt.Close, nil
+}
+
+// DecorateConsensusBlock converts a types.Block into an api.ConsensusBlock by
+// decorating its transactions with additional information such as siacoin input
+// origins.
+func (s *Store) DecorateConsensusBlock(block types.Block) (api.ConsensusBlock, error) {
+	cb := api.ConsensusBlock{
+		ID:           block.ID(),
+		ParentID:     block.ParentID,
+		Nonce:        block.Nonce,
+		Timestamp:    block.Timestamp,
+		MinerPayouts: block.MinerPayouts,
+		Transactions: make([]api.ConsensusTransaction, 0, len(block.Transactions)),
+	}
+
+	if block.V2 != nil {
+		cb.V2 = &api.ConsensusV2BlockData{
+			Height:       block.V2.Height,
+			Commitment:   block.V2.Commitment,
+			Transactions: make([]api.ConsensusV2Transaction, 0, len(block.V2Transactions())),
+		}
+	}
+
+	err := s.transaction(func(tx *txn) error {
+		stmt, err := tx.Prepare(`SELECT origin_source, origin_transaction_id, origin_transaction_index FROM siacoin_elements WHERE id=$1`)
+		if err != nil {
+			return fmt.Errorf("failed to prepare statement: %w", err)
+		}
+		defer stmt.Close()
+
+		getUTXOOrigin := func(id types.SiacoinOutputID) (wallet.SiacoinOrigin, error) {
+			var source sql.NullString
+			var originID nullDecodable[types.Hash256]
+			var index sql.NullInt64
+			err := stmt.QueryRow(encode(id)).Scan(&source, &originID, &index)
+			if err != nil {
+				return wallet.SiacoinOrigin{}, fmt.Errorf("failed to query siacoin input source for %q: %w", id, err)
+			} else if !source.Valid || !originID.Valid || !index.Valid {
+				// don't allow partially null origins
+				return wallet.SiacoinOrigin{}, nil
+			}
+			return wallet.SiacoinOrigin{
+				Source: source.String,
+				ID:     originID.V,
+				Index:  uint64(index.Int64),
+			}, nil
+		}
+
+		for _, txn := range block.Transactions {
+			apiTx := api.ConsensusTransaction{
+				ID:            txn.ID(),
+				MinerFees:     txn.MinerFees,
+				ArbitraryData: txn.ArbitraryData,
+				SiacoinInputs: make([]api.ConsensusSiacoinInput, 0, len(txn.SiacoinInputs)),
+				SiacoinOutputs: func() []api.ConsensusSiacoinOutput {
+					outputs := make([]api.ConsensusSiacoinOutput, 0, len(txn.SiacoinOutputs))
+					for i, sco := range txn.SiacoinOutputs {
+						outputs = append(outputs, api.ConsensusSiacoinOutput{
+							ID:      txn.SiacoinOutputID(i),
+							Address: sco.Address,
+							Value:   sco.Value,
+						})
+					}
+					return outputs
+				}(),
+				SiafundInputs:  txn.SiafundInputs,
+				SiafundOutputs: txn.SiafundOutputs,
+				FileContracts:  txn.FileContracts,
+				Signatures:     txn.Signatures,
+			}
+
+			for _, sci := range txn.SiacoinInputs {
+				origin, err := getUTXOOrigin(sci.ParentID)
+				if err != nil {
+					return fmt.Errorf("failed to get siacoin input source for %q: %w", sci.ParentID, err)
+				}
+
+				apiTx.SiacoinInputs = append(apiTx.SiacoinInputs, api.ConsensusSiacoinInput{
+					ParentID:         sci.ParentID,
+					UnlockConditions: sci.UnlockConditions,
+					Origin:           origin,
+				})
+			}
+
+			cb.Transactions = append(cb.Transactions, apiTx)
+		}
+
+		for _, txn := range block.V2Transactions() {
+			txnID := txn.ID()
+			apiTx := api.ConsensusV2Transaction{
+				ID:            txnID,
+				SiacoinInputs: make([]api.ConsensusV2SiacoinInput, 0, len(txn.SiacoinInputs)),
+				SiacoinOutputs: func() []api.ConsensusSiacoinOutput {
+					outputs := make([]api.ConsensusSiacoinOutput, 0, len(txn.SiacoinOutputs))
+					for i, sco := range txn.SiacoinOutputs {
+						outputs = append(outputs, api.ConsensusSiacoinOutput{
+							ID:      txn.SiacoinOutputID(txnID, i),
+							Address: sco.Address,
+							Value:   sco.Value,
+						})
+					}
+					return outputs
+				}(),
+				SiafundInputs:           txn.SiafundInputs,
+				SiafundOutputs:          txn.SiafundOutputs,
+				FileContracts:           txn.FileContracts,
+				FileContractRevisions:   txn.FileContractRevisions,
+				FileContractResolutions: txn.FileContractResolutions,
+				Attestations:            txn.Attestations,
+				ArbitraryData:           txn.ArbitraryData,
+				NewFoundationAddress:    txn.NewFoundationAddress,
+				MinerFee:                txn.MinerFee,
+			}
+
+			for _, sci := range txn.SiacoinInputs {
+				origin, err := getUTXOOrigin(sci.Parent.ID)
+				if err != nil {
+					return fmt.Errorf("failed to get siacoin input source for %q: %w", sci.Parent.ID, err)
+				}
+
+				apiTx.SiacoinInputs = append(apiTx.SiacoinInputs, api.ConsensusV2SiacoinInput{
+					Parent:          sci.Parent,
+					SatisfiedPolicy: sci.SatisfiedPolicy,
+					Origin:          origin,
+				})
+			}
+
+			cb.V2.Transactions = append(cb.V2.Transactions, apiTx)
+		}
+		return nil
+	})
+	return cb, err
 }

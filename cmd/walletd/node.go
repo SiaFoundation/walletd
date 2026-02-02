@@ -296,7 +296,7 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	if cfg.Debug {
 		apiOpts = append(apiOpts, api.WithDebug())
 	}
-	api := api.NewServer(cm, s, wm, apiOpts...)
+	api := api.NewServer(store, cm, s, wm, apiOpts...)
 	web := walletd.Handler()
 	server := &http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
