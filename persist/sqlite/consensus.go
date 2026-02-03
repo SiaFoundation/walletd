@@ -1475,11 +1475,13 @@ func (s *Store) DecorateConsensusBlock(block types.Block) (api.ConsensusBlock, e
 			var originID nullDecodable[types.Hash256]
 			var index sql.NullInt64
 			err := stmt.QueryRow(encode(id)).Scan(&source, &originID, &index)
-			if err != nil {
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return wallet.SiacoinOrigin{}, fmt.Errorf("failed to query siacoin input source for %q: %w", id, err)
 			} else if !source.Valid || !originID.Valid || !index.Valid {
 				// don't allow partially null origins
-				return wallet.SiacoinOrigin{}, nil
+				return wallet.SiacoinOrigin{
+					Source: wallet.ElementSourceUnknown,
+				}, nil
 			}
 			return wallet.SiacoinOrigin{
 				Source: source.String,

@@ -746,4 +746,80 @@ func TestDecorateBlock(t *testing.T) {
 			Index:  0,
 		})
 	})
+
+	t.Run("unknown", func(t *testing.T) {
+		// this test is different because it needs to spend an
+		// element without the wallet manager tracking it.
+		pk := types.GeneratePrivateKey()
+		sp := types.PolicyPublicKey(pk.PublicKey())
+		addr := sp.Address()
+
+		network, genesisBlock := testutil.V2Network()
+		genesisBlock.Transactions[0].SiacoinOutputs = []types.SiacoinOutput{
+			{Address: addr, Value: types.Siacoins(1000)},
+		}
+		tn := newTestNode(t, network, genesisBlock)
+		cm, db := tn.Chain, tn.Store
+
+		ctestutil.MineBlocks(t, cm, types.VoidAddress, 1)
+		waitForBlock(t, cm, db)
+
+		var sce *types.SiacoinElement
+		_, applied, err := cm.UpdatesSince(types.ChainIndex{}, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, cau := range applied {
+			for _, diff := range cau.SiacoinElementDiffs() {
+				if diff.Created && diff.SiacoinElement.SiacoinOutput.Address == addr {
+					sce = &diff.SiacoinElement
+				}
+			}
+			if sce != nil {
+				cau.UpdateElementProof(&sce.StateElement)
+			}
+		}
+
+		txn := types.V2Transaction{
+			SiacoinInputs: []types.V2SiacoinInput{
+				{
+					Parent: *sce,
+					SatisfiedPolicy: types.SatisfiedPolicy{
+						Policy: sp,
+					},
+				},
+			},
+			SiacoinOutputs: []types.SiacoinOutput{
+				{Address: types.VoidAddress, Value: sce.SiacoinOutput.Value},
+			},
+		}
+		txn.SiacoinInputs[0].SatisfiedPolicy.Signatures = []types.Signature{pk.SignHash(cm.TipState().InputSigHash(txn))}
+
+		if _, err := cm.AddV2PoolTransactions(cm.Tip(), []types.V2Transaction{txn}); err != nil {
+			t.Fatal(err)
+		}
+		ctestutil.MineBlocks(t, cm, types.VoidAddress, 1)
+		waitForBlock(t, cm, db)
+
+		// check the last block contains the decorated input
+		block, ok := cm.Block(cm.Tip().ID)
+		if !ok {
+			t.Fatal("could not retrieve block")
+		}
+
+		expected := wallet.SiacoinOrigin{
+			Source: wallet.ElementSourceUnknown,
+		}
+		decorated, err := db.DecorateConsensusBlock(block)
+		if err != nil {
+			t.Fatal(err)
+		} else if len(decorated.V2.Transactions) != 2 {
+			// one "coinbase" txn + the test txn
+			t.Fatalf("expected 2 transactions, got %d", len(decorated.V2.Transactions))
+		} else if len(decorated.V2.Transactions[1].SiacoinInputs) != 1 {
+			t.Fatalf("expected 1 siacoin input, got %d", len(decorated.V2.Transactions[0].SiacoinInputs))
+		} else if decorated.V2.Transactions[1].SiacoinInputs[0].Origin != expected {
+			t.Fatalf("expected origin %v, got %v", expected, decorated.V2.Transactions[1].SiacoinInputs[0].Origin)
+		}
+	})
 }
