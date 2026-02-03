@@ -1868,6 +1868,7 @@ components:
             - contractPayout
             - siafundClaim
             - foundationSubsidy
+            - unknown
         id:
           $ref: "#/components/schemas/Hash256"
           description: The ID of the source (transaction ID, block ID, or contract ID).

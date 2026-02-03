@@ -734,7 +734,7 @@ func TestDecorateBlock(t *testing.T) {
 		ctestutil.MineBlocks(t, cm, types.VoidAddress, int(network.HardforkFoundation.Height))
 		waitForBlock(t, cm, db)
 
-		foundatonSubsidyID := cm.Tip().ID
+		foundationSubsidyID := cm.Tip().ID
 
 		// mine until the first foundation subsidy matures
 		ctestutil.MineBlocks(t, cm, types.VoidAddress, int(network.MaturityDelay)+1)
@@ -742,7 +742,7 @@ func TestDecorateBlock(t *testing.T) {
 
 		testV2Origin(t, tn, pk, sp, wallet.SiacoinOrigin{
 			Source: wallet.ElementSourceFoundationSubsidy,
-			ID:     types.Hash256(foundatonSubsidyID),
+			ID:     types.Hash256(foundationSubsidyID),
 			Index:  0,
 		})
 	})

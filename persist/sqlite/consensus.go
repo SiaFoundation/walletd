@@ -1507,10 +1507,12 @@ func (s *Store) DecorateConsensusBlock(block types.Block) (api.ConsensusBlock, e
 					}
 					return outputs
 				}(),
-				SiafundInputs:  txn.SiafundInputs,
-				SiafundOutputs: txn.SiafundOutputs,
-				FileContracts:  txn.FileContracts,
-				Signatures:     txn.Signatures,
+				SiafundInputs:         txn.SiafundInputs,
+				SiafundOutputs:        txn.SiafundOutputs,
+				FileContracts:         txn.FileContracts,
+				FileContractRevisions: txn.FileContractRevisions,
+				StorageProofs:         txn.StorageProofs,
+				Signatures:            txn.Signatures,
 			}
 
 			for _, sci := range txn.SiacoinInputs {
