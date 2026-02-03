@@ -24,7 +24,7 @@ const (
 	// ElementSourceFoundationSubsidy indicates that a siacoin element originated
 	// from a foundation subsidy payout.
 	ElementSourceFoundationSubsidy SiacoinElementSource = "foundationSubsidy"
-
+	// ElementSourceUnknown indicates that the source of a siacoin element is unknown.
 	ElementSourceUnknown SiacoinElementSource = "unknown"
 )
 
