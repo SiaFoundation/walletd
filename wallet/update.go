@@ -24,9 +24,6 @@ const (
 	// ElementSourceFoundationSubsidy indicates that a siacoin element originated
 	// from a foundation subsidy payout.
 	ElementSourceFoundationSubsidy SiacoinElementSource = "foundationSubsidy"
-	// ElementSourceUnknown indicates that the source of a siacoin element is
-	// unknown.
-	ElementSourceUnknown SiacoinElementSource = "unknown"
 )
 
 type (
@@ -54,7 +51,7 @@ type (
 	// A SiacoinOrigin is analogous to txnid:vout in Bitcoin, indicating the
 	// origin of a siacoin output.
 	SiacoinOrigin struct {
-		Source string
+		Source string        `json:"source"`
 		ID     types.Hash256 `json:"id"`
 		Index  uint64        `json:"index"`
 	}
@@ -74,7 +71,7 @@ type (
 	}
 
 	// CreatedSiacoinElement pairs a created siacoin element with its source
-	// and the ID of the transaction that created it.
+	// and an origin ID.
 	CreatedSiacoinElement struct {
 		types.SiacoinElement
 		Origin SiacoinOrigin
@@ -177,7 +174,7 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 		}
 		for i, input := range txn.SiafundInputs {
 			spentEventIDs[types.Hash256(input.Parent.ID)] = txnID
-			scoOrigins[input.Parent.ID.ClaimOutputID()] = SiacoinOrigin{
+			scoOrigins[input.Parent.ID.V2ClaimOutputID()] = SiacoinOrigin{
 				Source: ElementSourceSiafund,
 				ID:     types.Hash256(txnID),
 				Index:  uint64(i),
@@ -243,7 +240,7 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 
 	// determine sources for V2 file contract utxos
 	for _, diff := range cau.V2FileContractElementDiffs() {
-		if diff.Resolution != nil {
+		if diff.Resolution == nil {
 			continue
 		}
 
@@ -303,9 +300,13 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 				EventID:        spentTxnID,
 			})
 		} else {
+			origin, ok := scoOrigins[sce.ID]
+			if !ok {
+				panic("missing origin for created siacoin element " + sce.ID.String())
+			}
 			applied.CreatedSiacoinElements = append(applied.CreatedSiacoinElements, CreatedSiacoinElement{
 				SiacoinElement: sce,
-				Origin:         scoOrigins[sce.ID],
+				Origin:         origin,
 			})
 		}
 	}

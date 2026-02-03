@@ -583,7 +583,7 @@ func TestConsensus(t *testing.T) {
 	b, err := c.ConsensusBlocksID(minedBlock.ID())
 	if err != nil {
 		t.Fatal(err)
-	} else if b.ID() != minedBlock.ID() {
+	} else if b.ID != minedBlock.ID() {
 		t.Fatal("mismatch")
 	}
 }
