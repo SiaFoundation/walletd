@@ -196,25 +196,6 @@ func (s *Store) UpdateChainState(reverted []chain.RevertUpdate, applied []chain.
 			return fmt.Errorf("failed to set last committed index: %w", err)
 		}
 
-		// skip pruning if there are no applied updates
-		if len(applied) == 0 {
-			return nil
-		}
-
-		if state.Index.Height > s.spentElementRetentionBlocks {
-			pruneHeight := state.Index.Height - s.spentElementRetentionBlocks
-
-			siacoins, err := pruneSpentSiacoinElements(tx, pruneHeight)
-			if err != nil {
-				return fmt.Errorf("failed to cleanup siacoin elements: %w", err)
-			}
-
-			siafunds, err := pruneSpentSiafundElements(tx, pruneHeight)
-			if err != nil {
-				return fmt.Errorf("failed to cleanup siafund elements: %w", err)
-			}
-			log.Debug("pruned elements", zap.Int64("siacoins", siacoins), zap.Int64("siafunds", siafunds), zap.Uint64("pruneHeight", pruneHeight))
-		}
 		return nil
 	})
 }
@@ -1402,24 +1383,6 @@ func revertOrphans(tx *txn, index types.ChainIndex, log *zap.Logger) error {
 
 	_, err = tx.Exec(`DELETE FROM chain_indices WHERE height=$1 AND block_id<>$2`, index.Height, encode(index.ID))
 	return err
-}
-
-func pruneSpentSiacoinElements(tx *txn, height uint64) (removed int64, err error) {
-	const query = `DELETE FROM siacoin_elements WHERE spent_index_id IN (SELECT id FROM chain_indices WHERE height <= $1)`
-	res, err := tx.Exec(query, height)
-	if err != nil {
-		return 0, fmt.Errorf("failed to query siacoin elements: %w", err)
-	}
-	return res.RowsAffected()
-}
-
-func pruneSpentSiafundElements(tx *txn, height uint64) (removed int64, err error) {
-	const query = `DELETE FROM siafund_elements WHERE spent_index_id IN (SELECT id FROM chain_indices WHERE height <= $1)`
-	res, err := tx.Exec(query, height)
-	if err != nil {
-		return 0, fmt.Errorf("failed to query siacoin elements: %w", err)
-	}
-	return res.RowsAffected()
 }
 
 func setGlobalState(tx *txn, index types.ChainIndex, numLeaves uint64) error {

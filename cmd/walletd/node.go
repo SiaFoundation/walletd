@@ -177,6 +177,8 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	_, existsErr := os.Open(consensusDBPath)
 	consensusExists := !errors.Is(existsErr, os.ErrNotExist)
 
+	chainOpts := []chain.ManagerOption{chain.WithLog(log.Named("chain"))}
+
 	var cm *chain.Manager
 	if cfg.Checkpoint != (types.ChainIndex{}) && !consensusExists {
 		log.Info("beginning instant sync", zap.Stringer("checkpoint", cfg.Checkpoint))
@@ -196,7 +198,7 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		if err != nil {
 			return fmt.Errorf("failed to create chain store: %w", err)
 		}
-		cm = chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
+		cm = chain.NewManager(dbstore, tipState, chainOpts...)
 		if err := store.SetCheckpoint(cfg.Checkpoint); err != nil {
 			return fmt.Errorf("failed to set wallet db checkpoint: %w", err)
 		}
@@ -217,7 +219,7 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		if err != nil {
 			return fmt.Errorf("failed to create chain store: %w", err)
 		}
-		cm = chain.NewManager(dbstore, tipState, chain.WithLog(log.Named("chain")))
+		cm = chain.NewManager(dbstore, tipState, chainOpts...)
 	}
 
 	syncerListener, err := net.Listen("tcp", cfg.Syncer.Address)
