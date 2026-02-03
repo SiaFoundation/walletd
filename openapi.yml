@@ -1476,8 +1476,10 @@ components:
 
     Block:
       type: object
-      description: Block as returned by the walletd consensus endpoints.
+      description: Block as returned by the walletd consensus endpoints with origin information for inputs.
       properties:
+        id:
+          $ref: "#/components/schemas/BlockID"
         parentID:
           $ref: "#/components/schemas/BlockID"
         nonce:
@@ -1493,10 +1495,10 @@ components:
         transactions:
           type: array
           items:
-            $ref: "#/components/schemas/Transaction"
+            $ref: "#/components/schemas/ConsensusTransaction"
         v2:
-          $ref: "#/components/schemas/V2BlockData"
-      required: [parentID, nonce, timestamp, minerPayouts, transactions]
+          $ref: "#/components/schemas/ConsensusV2BlockData"
+      required: [id, parentID, nonce, timestamp, minerPayouts, transactions]
 
     ConsensusCheckpointResponse:
       type: object
@@ -1852,6 +1854,174 @@ components:
         address:
           $ref: "#/components/schemas/Address"
       required: [parentID, unlockConditions, address]
+
+    SiacoinOrigin:
+      type: object
+      description: Origin information for a siacoin output, analogous to txnid:vout in Bitcoin.
+      properties:
+        source:
+          type: string
+          description: The source type of the siacoin output.
+          enum:
+            - transaction
+            - minerPayout
+            - contractPayout
+            - siafundClaim
+            - foundationSubsidy
+        id:
+          $ref: "#/components/schemas/Hash256"
+          description: The ID of the source (transaction ID, block ID, or contract ID).
+        index:
+          type: integer
+          format: uint64
+          description: The index of the output within the source.
+      required: [source, id, index]
+
+    ConsensusSiacoinInput:
+      type: object
+      description: Siacoin input with origin information as returned by consensus block endpoints.
+      properties:
+        parentID:
+          $ref: "#/components/schemas/SiacoinOutputID"
+        unlockConditions:
+          $ref: "#/components/schemas/UnlockConditions"
+        origin:
+          $ref: "#/components/schemas/SiacoinOrigin"
+      required: [parentID, unlockConditions, origin]
+
+    ConsensusV2SiacoinInput:
+      type: object
+      description: V2 siacoin input with origin information as returned by consensus block endpoints.
+      properties:
+        parent:
+          $ref: "#/components/schemas/SiacoinElement"
+        satisfiedPolicy:
+          $ref: "#/components/schemas/SatisfiedPolicy"
+        origin:
+          $ref: "#/components/schemas/SiacoinOrigin"
+      required: [parent, satisfiedPolicy, origin]
+
+    ConsensusSiacoinOutput:
+      allOf:
+        - $ref: "#/components/schemas/SiacoinOutput"
+        - type: object
+          properties:
+            id:
+              $ref: "#/components/schemas/SiacoinOutputID"
+          required: [id]
+
+    ConsensusTransaction:
+      type: object
+      description: V1 transaction with origin information as returned by consensus block endpoints.
+      properties:
+        id:
+          $ref: "#/components/schemas/TransactionID"
+        siacoinInputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsensusSiacoinInput"
+        siacoinOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsensusSiacoinOutput"
+        fileContracts:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContract"
+        fileContractRevisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileContractRevision"
+        storageProofs:
+          type: array
+          items:
+            $ref: "#/components/schemas/StorageProof"
+        siafundInputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiafundInput"
+        siafundOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiafundOutput"
+        minerFees:
+          type: array
+          items:
+            $ref: "#/components/schemas/Currency"
+        arbitraryData:
+          type: array
+          description: Arbitrary data entries encoded as base64 strings.
+          items:
+            type: string
+            format: byte
+        signatures:
+          type: array
+          items:
+            $ref: "#/components/schemas/TransactionSignature"
+      required: [id]
+
+    ConsensusV2Transaction:
+      type: object
+      description: V2 transaction with origin information as returned by consensus block endpoints.
+      properties:
+        id:
+          $ref: "#/components/schemas/TransactionID"
+        siacoinInputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsensusV2SiacoinInput"
+        siacoinOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsensusSiacoinOutput"
+        siafundInputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2SiafundInput"
+        siafundOutputs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiafundOutput"
+        fileContracts:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2FileContract"
+        fileContractRevisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2FileContractRevision"
+        fileContractResolutions:
+          type: array
+          items:
+            $ref: "#/components/schemas/V2FileContractResolution"
+        attestations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attestation"
+        arbitraryData:
+          type: string
+          format: byte
+          description: Arbitrary data encoded as a base64 string.
+        newFoundationAddress:
+          $ref: "#/components/schemas/Address"
+        minerFee:
+          $ref: "#/components/schemas/Currency"
+      required: [id]
+
+    ConsensusV2BlockData:
+      type: object
+      description: V2-specific block data with consensus transaction information.
+      properties:
+        height:
+          type: integer
+          format: uint64
+        commitment:
+          $ref: "#/components/schemas/Hash256"
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsensusV2Transaction"
+      required: [height, commitment, transactions]
 
     SiafundInput:
       type: object
