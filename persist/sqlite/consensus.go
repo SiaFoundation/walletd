@@ -127,18 +127,17 @@ func (ut *updateTx) ApplyIndex(index types.ChainIndex, state wallet.AppliedState
 		return fmt.Errorf("failed to add events: %w", err)
 	}
 
-	if err := spendSiacoinElements(tx, state.SpentSiacoinElements, indexID); err != nil {
-		return fmt.Errorf("failed to spend siacoin elements: %w", err)
-	} else if err := addSiacoinElements(tx, state.CreatedSiacoinElements, indexID, ut.indexMode, log.Named("addSiacoinElements")); err != nil {
+	if err := addSiacoinElements(tx, state.CreatedSiacoinElements, indexID, ut.indexMode, log.Named("addSiacoinElements")); err != nil {
 		return fmt.Errorf("failed to add siacoin elements: %w", err)
+	} else if err := spendSiacoinElements(tx, state.SpentSiacoinElements, indexID); err != nil {
+		return fmt.Errorf("failed to spend siacoin elements: %w", err)
 	}
 
-	if err := spendSiafundElements(tx, state.SpentSiafundElements, indexID); err != nil {
-		return fmt.Errorf("failed to spend siafund elements: %w", err)
-	} else if err := addSiafundElements(tx, state.CreatedSiafundElements, indexID, ut.indexMode, log.Named("addSiafundElements")); err != nil {
+	if err := addSiafundElements(tx, state.CreatedSiafundElements, indexID, ut.indexMode, log.Named("addSiafundElements")); err != nil {
 		return fmt.Errorf("failed to add siafund elements: %w", err)
+	} else if err := spendSiafundElements(tx, state.SpentSiafundElements, indexID); err != nil {
+		return fmt.Errorf("failed to spend siafund elements: %w", err)
 	}
-
 	return nil
 }
 
