@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"go.sia.tech/core/consensus"
@@ -359,17 +358,21 @@ func TestDecorateConsensusBlock(t *testing.T) {
 			t.Fatalf("expected 1 siacoin input, got %d", len(decorated.Transactions[0].SiacoinInputs))
 		}
 
+		expected := wallet.SiacoinOrigin{Source: wallet.ElementSourceUnknown}
 		origin := decorated.Transactions[0].SiacoinInputs[0].Origin
-		if origin.Source != "" || origin.ID != (types.Hash256{}) || origin.Index != 0 {
-			t.Errorf("expected empty origin, got Source=%q, ID=%v, Index=%d", origin.Source, origin.ID, origin.Index)
+		if origin != expected {
+			t.Fatalf("expected origin %v, got %v", expected, origin)
 		}
 	})
 
 	t.Run("CompleteOriginFields", func(t *testing.T) {
 		outputID := types.SiacoinOutputID{4, 5, 6}
 		value := types.Siacoins(200)
-		originTxnID := types.TransactionID{7, 8, 9}
-		originIndex := uint64(2)
+		expected := wallet.SiacoinOrigin{
+			Source: wallet.ElementSourceTransaction,
+			ID:     types.Hash256{7, 8, 9},
+			Index:  2,
+		}
 
 		err := db.transaction(func(tx *txn) error {
 			var indexID int64
@@ -389,7 +392,7 @@ func TestDecorateConsensusBlock(t *testing.T) {
 			_, err = tx.Exec(`INSERT INTO siacoin_elements
 				(id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured, chain_index_id, origin_source, origin_transaction_id, origin_transaction_index)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-				encode(outputID), encode(value), encode([]types.Hash256{}), 1, 0, addressID, true, indexID, "transaction", encode(originTxnID), originIndex)
+				encode(outputID), encode(value), encode([]types.Hash256{}), 1, 0, addressID, true, indexID, "transaction", encode(expected.ID), expected.Index)
 			return err
 		})
 		if err != nil {
@@ -416,12 +419,8 @@ func TestDecorateConsensusBlock(t *testing.T) {
 		}
 
 		origin := decorated.Transactions[0].SiacoinInputs[0].Origin
-		if origin.Source != "transaction" {
-			t.Errorf("expected origin source 'transaction', got %q", origin.Source)
-		} else if origin.ID != types.Hash256(originTxnID) {
-			t.Errorf("expected origin ID %v, got %v", types.Hash256(originTxnID), origin.ID)
-		} else if origin.Index != originIndex {
-			t.Errorf("expected origin index %d, got %d", originIndex, origin.Index)
+		if origin != expected {
+			t.Fatalf("expected origin %v, got %v", expected, origin)
 		}
 	})
 
@@ -484,16 +483,20 @@ func TestDecorateConsensusBlock(t *testing.T) {
 		}
 
 		origin := decorated.V2.Transactions[0].SiacoinInputs[0].Origin
-		if origin.Source != "" || origin.ID != (types.Hash256{}) || origin.Index != 0 {
-			t.Errorf("expected empty origin, got Source=%q, ID=%v, Index=%d", origin.Source, origin.ID, origin.Index)
+		expected := wallet.SiacoinOrigin{Source: wallet.ElementSourceUnknown}
+		if origin != expected {
+			t.Fatalf("expected origin %v, got %v", expected, origin)
 		}
 	})
 
 	t.Run("V2CompleteOriginFields", func(t *testing.T) {
 		outputID := types.SiacoinOutputID{13, 14, 15}
 		value := types.Siacoins(400)
-		originTxnID := types.TransactionID{16, 17, 18}
-		originIndex := uint64(3)
+		expected := wallet.SiacoinOrigin{
+			Source: wallet.ElementSourceTransaction,
+			ID:     types.Hash256{16, 17, 18},
+			Index:  3,
+		}
 
 		err := db.transaction(func(tx *txn) error {
 			var indexID int64
@@ -512,7 +515,7 @@ func TestDecorateConsensusBlock(t *testing.T) {
 			_, err = tx.Exec(`INSERT INTO siacoin_elements
 				(id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured, chain_index_id, origin_source, origin_transaction_id, origin_transaction_index)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-				encode(outputID), encode(value), encode([]types.Hash256{}), 3, 0, addressID, true, indexID, "transaction", encode(originTxnID), originIndex)
+				encode(outputID), encode(value), encode([]types.Hash256{}), 3, 0, addressID, true, indexID, "transaction", encode(expected.ID), expected.Index)
 			return err
 		})
 		if err != nil {
@@ -550,16 +553,13 @@ func TestDecorateConsensusBlock(t *testing.T) {
 		}
 
 		origin := decorated.V2.Transactions[0].SiacoinInputs[0].Origin
-		if origin.Source != "transaction" {
-			t.Errorf("expected origin source 'transaction', got %q", origin.Source)
-		} else if origin.ID != types.Hash256(originTxnID) {
-			t.Errorf("expected origin ID %v, got %v", types.Hash256(originTxnID), origin.ID)
-		} else if origin.Index != originIndex {
-			t.Errorf("expected origin index %d, got %d", originIndex, origin.Index)
+		if origin != expected {
+			t.Fatalf("expected origin %v, got %v", expected, origin)
 		}
 	})
 
 	t.Run("MissingElement", func(t *testing.T) {
+		// in "personal" mode elements can be missing
 		nonExistentID := types.SiacoinOutputID{99, 99, 99}
 
 		pk := types.GeneratePrivateKey()
@@ -572,14 +572,14 @@ func TestDecorateConsensusBlock(t *testing.T) {
 			}},
 		}
 
-		_, err := db.DecorateConsensusBlock(block)
-		if err == nil {
-			t.Fatal("expected error when decorating block with missing element, got nil")
+		decorated, err := db.DecorateConsensusBlock(block)
+		if err != nil {
+			t.Fatal(err)
 		}
 
-		expectedErrMsg := "failed to query siacoin input source"
-		if !strings.Contains(err.Error(), expectedErrMsg) {
-			t.Errorf("expected error containing %q, got %q", expectedErrMsg, err.Error())
+		expected := wallet.SiacoinOrigin{Source: wallet.ElementSourceUnknown}
+		if decorated.Transactions[0].SiacoinInputs[0].Origin != expected {
+			t.Fatalf("expected origin %v, got %v", expected, decorated.Transactions[0].SiacoinInputs[0].Origin)
 		}
 	})
 }
