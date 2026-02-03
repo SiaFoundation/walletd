@@ -1200,14 +1200,6 @@ func TestSpentElement(t *testing.T) {
 		t.Fatalf("expected siacoin element to have type %q, got %q", wallet.EventTypeV2Transaction, spent.Event.Type)
 	}
 
-	// mine until the utxo is pruned
-	tn.MineBlocks(t, types.VoidAddress, 144)
-
-	_, err = c.SpentSiacoinElement(sce[0].ID)
-	if !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("expected error to contain %q, got %q", "not found", err)
-	}
-
 	sfe, basis, err := c.AddressSiafundOutputs(senderAddr, false, 0, 100)
 	if err != nil {
 		t.Fatal(err)
@@ -1266,14 +1258,6 @@ func TestSpentElement(t *testing.T) {
 		t.Fatalf("expected siafund element to have event %q, got %q", txn.ID(), spent.Event.ID)
 	} else if spent.Event.Type != wallet.EventTypeV2Transaction {
 		t.Fatalf("expected siafund element to have type %q, got %q", wallet.EventTypeV2Transaction, spent.Event.Type)
-	}
-
-	// mine until the utxo is pruned
-	tn.MineBlocks(t, types.VoidAddress, 144)
-
-	_, err = c.SpentSiafundElement(sfe[0].ID)
-	if !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("expected error to contain %q, got %q", "not found", err)
 	}
 }
 

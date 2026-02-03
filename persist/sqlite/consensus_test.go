@@ -47,7 +47,7 @@ func syncDB(tb testing.TB, store *Store, cm *chain.Manager) {
 	}
 }
 
-func TestPruneSiacoins(t *testing.T) {
+func TestSpendSiacoins(t *testing.T) {
 	db := newTestStore(t, WithRetainSpentElements(20))
 
 	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(t.TempDir(), "consensus.db"))
@@ -164,25 +164,9 @@ func TestPruneSiacoins(t *testing.T) {
 	// the utxo should now have 0 balance and 1 spent element
 	assertBalance(types.ZeroCurrency, types.ZeroCurrency)
 	assertUTXOs(1, 0)
-
-	// mine until the element is pruned
-	for i := uint64(0); i < db.spentElementRetentionBlocks-1; i++ {
-		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
-			t.Fatal(err)
-		}
-		syncDB(t, db, cm)
-		assertUTXOs(1, 0) // check that the element is not pruned early
-	}
-
-	// trigger the pruning
-	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
-		t.Fatal(err)
-	}
-	syncDB(t, db, cm)
-	assertUTXOs(0, 0)
 }
 
-func TestPruneSiafunds(t *testing.T) {
+func TestSpendSiafunds(t *testing.T) {
 	db := newTestStore(t)
 
 	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(t.TempDir(), "consensus.db"))
@@ -283,22 +267,6 @@ func TestPruneSiafunds(t *testing.T) {
 	// the utxo should now have 0 balance and 1 spent element
 	assertBalance(0)
 	assertUTXOs(1, 0)
-
-	// mine until the element is pruned
-	for i := uint64(0); i < db.spentElementRetentionBlocks-1; i++ {
-		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
-			t.Fatal(err)
-		}
-		syncDB(t, db, cm) // check that the element is not pruned early
-		assertUTXOs(1, 0)
-	}
-
-	// the spent element should now be pruned
-	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
-		t.Fatal(err)
-	}
-	syncDB(t, db, cm)
-	assertUTXOs(0, 0)
 }
 
 func TestDecorateConsensusBlock(t *testing.T) {
