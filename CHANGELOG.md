@@ -1,3 +1,15 @@
+## 2.12.0 (2026-02-05)
+
+### Features
+
+- Add -checkpoint CLI flag for instant-syncing to a given chain index.
+- Add `inputSigHash` to response body of `/wallets/:id/construct/v2/transaction`
+- Added Siacoin input origin to consensus/block
+
+### Fixes
+
+- Update core dependency to v0.19.0 and coreutils dependency to v0.20.0.
+
 ## 2.11.0 (2025-10-01)
 
 ### Features
