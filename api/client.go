@@ -106,13 +106,13 @@ func (c *Client) ConsensusNetwork() (resp *consensus.Network, err error) {
 }
 
 // ConsensusBlocksID returns the block with the given id.
-func (c *Client) ConsensusBlocksID(bid types.BlockID) (resp types.Block, err error) {
+func (c *Client) ConsensusBlocksID(bid types.BlockID) (resp ConsensusBlock, err error) {
 	err = c.c.GET(context.Background(), fmt.Sprintf("/consensus/blocks/%v", bid), &resp)
 	return
 }
 
 // ConsensusBlocksHeight returns the block with the given height.
-func (c *Client) ConsensusBlocksHeight(height uint64) (resp types.Block, err error) {
+func (c *Client) ConsensusBlocksHeight(height uint64) (resp ConsensusBlock, err error) {
 	err = c.c.GET(context.Background(), fmt.Sprintf("/consensus/blocks/%d", height), &resp)
 	return
 }

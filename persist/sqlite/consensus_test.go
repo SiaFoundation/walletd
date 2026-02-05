@@ -47,7 +47,7 @@ func syncDB(tb testing.TB, store *Store, cm *chain.Manager) {
 	}
 }
 
-func TestPruneSiacoins(t *testing.T) {
+func TestSpendSiacoins(t *testing.T) {
 	db := newTestStore(t, WithRetainSpentElements(20))
 
 	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(t.TempDir(), "consensus.db"))
@@ -164,25 +164,9 @@ func TestPruneSiacoins(t *testing.T) {
 	// the utxo should now have 0 balance and 1 spent element
 	assertBalance(types.ZeroCurrency, types.ZeroCurrency)
 	assertUTXOs(1, 0)
-
-	// mine until the element is pruned
-	for i := uint64(0); i < db.spentElementRetentionBlocks-1; i++ {
-		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
-			t.Fatal(err)
-		}
-		syncDB(t, db, cm)
-		assertUTXOs(1, 0) // check that the element is not pruned early
-	}
-
-	// trigger the pruning
-	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
-		t.Fatal(err)
-	}
-	syncDB(t, db, cm)
-	assertUTXOs(0, 0)
 }
 
-func TestPruneSiafunds(t *testing.T) {
+func TestSpendSiafunds(t *testing.T) {
 	db := newTestStore(t)
 
 	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(t.TempDir(), "consensus.db"))
@@ -283,20 +267,287 @@ func TestPruneSiafunds(t *testing.T) {
 	// the utxo should now have 0 balance and 1 spent element
 	assertBalance(0)
 	assertUTXOs(1, 0)
+}
 
-	// mine until the element is pruned
-	for i := uint64(0); i < db.spentElementRetentionBlocks-1; i++ {
-		if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
+func TestDecorateConsensusBlock(t *testing.T) {
+	db := newTestStore(t)
+	addr := types.VoidAddress
+
+	t.Run("NullOriginFields", func(t *testing.T) {
+		outputID := types.SiacoinOutputID{1, 2, 3}
+		value := types.Siacoins(100)
+
+		err := db.transaction(func(tx *txn) error {
+			var indexID int64
+			err := tx.QueryRow(`INSERT INTO chain_indices (block_id, height) VALUES ($1, $2) RETURNING id`,
+				encode(types.BlockID{}), 0).Scan(&indexID)
+			if err != nil {
+				return err
+			}
+
+			var addressID int64
+			err = tx.QueryRow(`INSERT INTO sia_addresses (sia_address, siacoin_balance, immature_siacoin_balance, siafund_balance)
+				VALUES ($1, $2, $3, $4) RETURNING id`,
+				encode(addr), encode(types.ZeroCurrency), encode(types.ZeroCurrency), 0).Scan(&addressID)
+			if err != nil {
+				return err
+			}
+
+			// hacky to use queries directly, but tests backwards compatibility with existing databases.
+			_, err = tx.Exec(`INSERT INTO siacoin_elements
+				(id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured, chain_index_id, origin_source, origin_transaction_id, origin_transaction_index)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL)`,
+				encode(outputID), encode(value), encode([]types.Hash256{}), 0, 0, addressID, true, indexID, "miner_payout")
+			return err
+		})
+		if err != nil {
 			t.Fatal(err)
 		}
-		syncDB(t, db, cm) // check that the element is not pruned early
-		assertUTXOs(1, 0)
-	}
 
-	// the spent element should now be pruned
-	if err := cm.AddBlocks([]types.Block{mineBlock(cm.TipState(), nil, types.VoidAddress)}); err != nil {
-		t.Fatal(err)
-	}
-	syncDB(t, db, cm)
-	assertUTXOs(0, 0)
+		// create a block with a transaction that spends the element
+		pk := types.GeneratePrivateKey()
+		block := types.Block{
+			Transactions: []types.Transaction{{
+				SiacoinInputs: []types.SiacoinInput{{
+					ParentID:         outputID,
+					UnlockConditions: types.StandardUnlockConditions(pk.PublicKey()),
+				}},
+			}},
+		}
+
+		decorated, err := db.DecorateConsensusBlock(block)
+		if err != nil {
+			t.Fatalf("DecorateConsensusBlock failed with NULL origin fields: %v", err)
+		}
+
+		if len(decorated.Transactions) != 1 {
+			t.Fatalf("expected 1 transaction, got %d", len(decorated.Transactions))
+		} else if len(decorated.Transactions[0].SiacoinInputs) != 1 {
+			t.Fatalf("expected 1 siacoin input, got %d", len(decorated.Transactions[0].SiacoinInputs))
+		}
+
+		expected := wallet.SiacoinOrigin{Source: wallet.ElementSourceUnknown}
+		origin := decorated.Transactions[0].SiacoinInputs[0].Origin
+		if origin != expected {
+			t.Fatalf("expected origin %v, got %v", expected, origin)
+		}
+	})
+
+	t.Run("CompleteOriginFields", func(t *testing.T) {
+		outputID := types.SiacoinOutputID{4, 5, 6}
+		value := types.Siacoins(200)
+		expected := wallet.SiacoinOrigin{
+			Source: wallet.ElementSourceTransaction,
+			ID:     types.Hash256{7, 8, 9},
+			Index:  2,
+		}
+
+		err := db.transaction(func(tx *txn) error {
+			var indexID int64
+			err := tx.QueryRow(`INSERT INTO chain_indices (block_id, height) VALUES ($1, $2) RETURNING id`,
+				encode(types.BlockID{1}), 1).Scan(&indexID)
+			if err != nil {
+				return err
+			}
+
+			var addressID int64
+			err = tx.QueryRow(`SELECT id FROM sia_addresses WHERE sia_address=$1`, encode(addr)).Scan(&addressID)
+			if err != nil {
+				return err
+			}
+
+			// simulate UpdateChainState for a transaction output
+			_, err = tx.Exec(`INSERT INTO siacoin_elements
+				(id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured, chain_index_id, origin_source, origin_transaction_id, origin_transaction_index)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+				encode(outputID), encode(value), encode([]types.Hash256{}), 1, 0, addressID, true, indexID, "transaction", encode(expected.ID), expected.Index)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		pk := types.GeneratePrivateKey()
+		block := types.Block{
+			Transactions: []types.Transaction{{
+				SiacoinInputs: []types.SiacoinInput{{
+					ParentID:         outputID,
+					UnlockConditions: types.StandardUnlockConditions(pk.PublicKey()),
+				}},
+			}},
+		}
+
+		decorated, err := db.DecorateConsensusBlock(block)
+		if err != nil {
+			t.Fatalf("DecorateConsensusBlock failed with complete origin fields: %v", err)
+		}
+
+		if len(decorated.Transactions) != 1 || len(decorated.Transactions[0].SiacoinInputs) != 1 {
+			t.Fatal("unexpected transaction structure")
+		}
+
+		origin := decorated.Transactions[0].SiacoinInputs[0].Origin
+		if origin != expected {
+			t.Fatalf("expected origin %v, got %v", expected, origin)
+		}
+	})
+
+	t.Run("V2NullOriginFields", func(t *testing.T) {
+		outputID := types.SiacoinOutputID{10, 11, 12}
+		value := types.Siacoins(300)
+
+		err := db.transaction(func(tx *txn) error {
+			var indexID int64
+			err := tx.QueryRow(`INSERT INTO chain_indices (block_id, height) VALUES ($1, $2) RETURNING id`,
+				encode(types.BlockID{2}), 2).Scan(&indexID)
+			if err != nil {
+				return err
+			}
+
+			var addressID int64
+			err = tx.QueryRow(`SELECT id FROM sia_addresses WHERE sia_address=$1`, encode(addr)).Scan(&addressID)
+			if err != nil {
+				return err
+			}
+
+			_, err = tx.Exec(`INSERT INTO siacoin_elements
+				(id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured, chain_index_id, origin_source, origin_transaction_id, origin_transaction_index)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL)`,
+				encode(outputID), encode(value), encode([]types.Hash256{}), 2, 0, addressID, true, indexID, "miner_payout")
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		block := types.Block{
+			V2: &types.V2BlockData{
+				Height:     1,
+				Commitment: types.Hash256{},
+				Transactions: []types.V2Transaction{{
+					SiacoinInputs: []types.V2SiacoinInput{{
+						Parent: types.SiacoinElement{
+							ID: outputID,
+							SiacoinOutput: types.SiacoinOutput{
+								Address: addr,
+								Value:   value,
+							},
+						},
+						SatisfiedPolicy: types.SatisfiedPolicy{},
+					}},
+				}},
+			},
+		}
+
+		decorated, err := db.DecorateConsensusBlock(block)
+		if err != nil {
+			t.Fatalf("DecorateConsensusBlock failed with NULL origin fields on V2: %v", err)
+		}
+
+		if decorated.V2 == nil || len(decorated.V2.Transactions) != 1 {
+			t.Fatalf("expected 1 V2 transaction, got %d", len(decorated.V2.Transactions))
+		} else if len(decorated.V2.Transactions[0].SiacoinInputs) != 1 {
+			t.Fatalf("expected 1 siacoin input, got %d", len(decorated.V2.Transactions[0].SiacoinInputs))
+		}
+
+		origin := decorated.V2.Transactions[0].SiacoinInputs[0].Origin
+		expected := wallet.SiacoinOrigin{Source: wallet.ElementSourceUnknown}
+		if origin != expected {
+			t.Fatalf("expected origin %v, got %v", expected, origin)
+		}
+	})
+
+	t.Run("V2CompleteOriginFields", func(t *testing.T) {
+		outputID := types.SiacoinOutputID{13, 14, 15}
+		value := types.Siacoins(400)
+		expected := wallet.SiacoinOrigin{
+			Source: wallet.ElementSourceTransaction,
+			ID:     types.Hash256{16, 17, 18},
+			Index:  3,
+		}
+
+		err := db.transaction(func(tx *txn) error {
+			var indexID int64
+			err := tx.QueryRow(`INSERT INTO chain_indices (block_id, height) VALUES ($1, $2) RETURNING id`,
+				encode(types.BlockID{3}), 3).Scan(&indexID)
+			if err != nil {
+				return err
+			}
+
+			var addressID int64
+			err = tx.QueryRow(`SELECT id FROM sia_addresses WHERE sia_address=$1`, encode(addr)).Scan(&addressID)
+			if err != nil {
+				return err
+			}
+
+			_, err = tx.Exec(`INSERT INTO siacoin_elements
+				(id, siacoin_value, merkle_proof, leaf_index, maturity_height, address_id, matured, chain_index_id, origin_source, origin_transaction_id, origin_transaction_index)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+				encode(outputID), encode(value), encode([]types.Hash256{}), 3, 0, addressID, true, indexID, "transaction", encode(expected.ID), expected.Index)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		block := types.Block{
+			V2: &types.V2BlockData{
+				Height:     2,
+				Commitment: types.Hash256{},
+				Transactions: []types.V2Transaction{{
+					SiacoinInputs: []types.V2SiacoinInput{{
+						Parent: types.SiacoinElement{
+							ID: outputID,
+							SiacoinOutput: types.SiacoinOutput{
+								Address: addr,
+								Value:   value,
+							},
+						},
+						SatisfiedPolicy: types.SatisfiedPolicy{},
+					}},
+				}},
+			},
+		}
+
+		decorated, err := db.DecorateConsensusBlock(block)
+		if err != nil {
+			t.Fatalf("DecorateConsensusBlock failed with complete origin fields on V2: %v", err)
+		}
+
+		if decorated.V2 == nil || len(decorated.V2.Transactions) != 1 {
+			t.Fatalf("expected 1 V2 transaction, got %d", len(decorated.V2.Transactions))
+		} else if len(decorated.V2.Transactions[0].SiacoinInputs) != 1 {
+			t.Fatalf("expected 1 siacoin input, got %d", len(decorated.V2.Transactions[0].SiacoinInputs))
+		}
+
+		origin := decorated.V2.Transactions[0].SiacoinInputs[0].Origin
+		if origin != expected {
+			t.Fatalf("expected origin %v, got %v", expected, origin)
+		}
+	})
+
+	t.Run("MissingElement", func(t *testing.T) {
+		// in "personal" mode elements can be missing
+		nonExistentID := types.SiacoinOutputID{99, 99, 99}
+
+		pk := types.GeneratePrivateKey()
+		block := types.Block{
+			Transactions: []types.Transaction{{
+				SiacoinInputs: []types.SiacoinInput{{
+					ParentID:         nonExistentID,
+					UnlockConditions: types.StandardUnlockConditions(pk.PublicKey()),
+				}},
+			}},
+		}
+
+		decorated, err := db.DecorateConsensusBlock(block)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		expected := wallet.SiacoinOrigin{Source: wallet.ElementSourceUnknown}
+		if decorated.Transactions[0].SiacoinInputs[0].Origin != expected {
+			t.Fatalf("expected origin %v, got %v", expected, decorated.Transactions[0].SiacoinInputs[0].Origin)
+		}
+	})
 }

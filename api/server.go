@@ -87,6 +87,11 @@ type (
 		BroadcastV2BlockOutline(bo gateway.V2BlockOutline) error
 	}
 
+	// A Store provides access to persistent storage.
+	Store interface {
+		DecorateConsensusBlock(types.Block) (ConsensusBlock, error)
+	}
+
 	// A WalletManager manages wallets, keyed by name.
 	WalletManager interface {
 		Health() error
@@ -160,10 +165,11 @@ type server struct {
 	publicEndpoints bool
 	password        string
 
-	log *zap.Logger
-	cm  ChainManager
-	s   Syncer
-	wm  WalletManager
+	log   *zap.Logger
+	cm    ChainManager
+	s     Syncer
+	wm    WalletManager
+	store Store
 
 	scanMu         sync.Mutex // for resubscribe
 	scanInProgress bool
@@ -266,7 +272,11 @@ func (s *server) consensusBlocksIDHandler(jc jape.Context) {
 		jc.Error(errors.New("couldn't find block"), http.StatusNotFound)
 		return
 	}
-	jc.Encode(block)
+	cb, err := s.store.DecorateConsensusBlock(block)
+	if jc.Check("couldn't decorate block", err) != nil {
+		return
+	}
+	jc.Encode(cb)
 }
 
 func (s *server) consensusIndexHeightHandler(jc jape.Context) {
@@ -1627,16 +1637,17 @@ func (s *server) pprofHandler(jc jape.Context) {
 }
 
 // NewServer returns an HTTP handler that serves the walletd API.
-func NewServer(cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption) http.Handler {
+func NewServer(store Store, cm ChainManager, s Syncer, wm WalletManager, opts ...ServerOption) http.Handler {
 	srv := server{
 		log:             zap.NewNop(),
 		debugEnabled:    false,
 		publicEndpoints: false,
 		startTime:       time.Now(),
 
-		cm: cm,
-		s:  s,
-		wm: wm,
+		cm:    cm,
+		s:     s,
+		wm:    wm,
+		store: store,
 	}
 	for _, opt := range opts {
 		opt(&srv)

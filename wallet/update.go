@@ -8,7 +8,30 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	// ElementSourceTransaction indicates that a siacoin element originated
+	// from a transaction output.
+	ElementSourceTransaction SiacoinElementSource = "transaction"
+	// ElementSourceMiner indicates that a siacoin element originated from a
+	// miner payout.
+	ElementSourceMiner SiacoinElementSource = "minerPayout"
+	// ElementSourceContract indicates that a siacoin element originated from a
+	// file contract output.
+	ElementSourceContract SiacoinElementSource = "contractPayout"
+	// ElementSourceSiafund indicates that a siacoin element originated from a
+	// siafund claim.
+	ElementSourceSiafund SiacoinElementSource = "siafundClaim"
+	// ElementSourceFoundationSubsidy indicates that a siacoin element originated
+	// from a foundation subsidy payout.
+	ElementSourceFoundationSubsidy SiacoinElementSource = "foundationSubsidy"
+	// ElementSourceUnknown indicates that the source of a siacoin element is unknown.
+	ElementSourceUnknown SiacoinElementSource = "unknown"
+)
+
 type (
+	// SiacoinElementSource indicates the source of a siacoin element.
+	SiacoinElementSource = string
+
 	// A stateTreeUpdater is an interface for applying and reverting
 	// Merkle tree updates.
 	stateTreeUpdater interface {
@@ -27,6 +50,14 @@ type (
 		Balance
 	}
 
+	// A SiacoinOrigin is analogous to txnid:vout in Bitcoin, indicating the
+	// origin of a siacoin output.
+	SiacoinOrigin struct {
+		Source string        `json:"source"`
+		ID     types.Hash256 `json:"id"`
+		Index  uint64        `json:"index"`
+	}
+
 	// SpentSiacoinElement pairs a spent siacoin element with the ID of the
 	// transaction that spent it.
 	SpentSiacoinElement struct {
@@ -41,12 +72,19 @@ type (
 		EventID types.TransactionID
 	}
 
+	// CreatedSiacoinElement pairs a created siacoin element with its source
+	// and an origin ID.
+	CreatedSiacoinElement struct {
+		types.SiacoinElement
+		Origin SiacoinOrigin
+	}
+
 	// AppliedState contains all state changes made to a store after applying a chain
 	// update.
 	AppliedState struct {
 		NumLeaves              uint64
 		Events                 []Event
-		CreatedSiacoinElements []types.SiacoinElement
+		CreatedSiacoinElements []CreatedSiacoinElement
 		SpentSiacoinElements   []SpentSiacoinElement
 		CreatedSiafundElements []types.SiafundElement
 		SpentSiafundElements   []SpentSiafundElement
@@ -106,14 +144,29 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 		NumLeaves: cau.State.Elements.NumLeaves,
 	}
 
+	scoOrigins := make(map[types.SiacoinOutputID]SiacoinOrigin)
 	spentEventIDs := make(map[types.Hash256]types.TransactionID)
 	for _, txn := range cau.Block.Transactions {
 		txnID := txn.ID()
 		for _, input := range txn.SiacoinInputs {
 			spentEventIDs[types.Hash256(input.ParentID)] = txnID
 		}
-		for _, input := range txn.SiafundInputs {
+		for i, input := range txn.SiafundInputs {
 			spentEventIDs[types.Hash256(input.ParentID)] = txnID
+			scoOrigins[input.ParentID.ClaimOutputID()] = SiacoinOrigin{
+				Source: ElementSourceSiafund,
+				ID:     types.Hash256(txnID),
+				Index:  uint64(i),
+			}
+		}
+		// add sources for siacoin utxos
+		for i := range txn.SiacoinOutputs {
+			scoID := txn.SiacoinOutputID(i)
+			scoOrigins[scoID] = SiacoinOrigin{
+				Source: ElementSourceTransaction,
+				ID:     types.Hash256(txnID),
+				Index:  uint64(i),
+			}
 		}
 	}
 	for _, txn := range cau.Block.V2Transactions() {
@@ -121,43 +174,104 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 		for _, input := range txn.SiacoinInputs {
 			spentEventIDs[types.Hash256(input.Parent.ID)] = txnID
 		}
-		for _, input := range txn.SiafundInputs {
+		for i, input := range txn.SiafundInputs {
 			spentEventIDs[types.Hash256(input.Parent.ID)] = txnID
+			scoOrigins[input.Parent.ID.V2ClaimOutputID()] = SiacoinOrigin{
+				Source: ElementSourceSiafund,
+				ID:     types.Hash256(txnID),
+				Index:  uint64(i),
+			}
+		}
+
+		// add sources for siacoin utxos
+		for i := range txn.SiacoinOutputs {
+			scoID := txn.SiacoinOutputID(txnID, i)
+			scoOrigins[scoID] = SiacoinOrigin{
+				Source: ElementSourceTransaction,
+				ID:     types.Hash256(txnID),
+				Index:  uint64(i),
+			}
 		}
 	}
 
-	// add new siacoin elements to the store
-	for _, sced := range cau.SiacoinElementDiffs() {
-		sce := sced.SiacoinElement
-		if (sced.Created && sced.Spent) || sce.SiacoinOutput.Value.IsZero() {
-			continue
-		} else if relevant, err := tx.AddressRelevant(sce.SiacoinOutput.Address); err != nil {
-			panic(err)
-		} else if !relevant {
-			continue
-		}
-		if sced.Spent {
-			spentTxnID, ok := spentEventIDs[types.Hash256(sce.ID)]
-			if !ok {
-				panic(fmt.Errorf("missing transaction ID for spent siacoin element %v", sce.ID))
-			}
-			applied.SpentSiacoinElements = append(applied.SpentSiacoinElements, SpentSiacoinElement{
-				SiacoinElement: sce,
-				EventID:        spentTxnID,
-			})
-		} else {
-			applied.CreatedSiacoinElements = append(applied.CreatedSiacoinElements, sce)
+	// determine sources for miner payout utxos
+	blockID := cau.Block.ID()
+	for i := range cau.Block.MinerPayouts {
+		scoID := blockID.MinerOutputID(i)
+		scoOrigins[scoID] = SiacoinOrigin{
+			Source: ElementSourceMiner,
+			ID:     types.Hash256(blockID),
+			Index:  uint64(i),
 		}
 	}
+
+	// source for possible foundation subsidy utxo
+	scoOrigins[blockID.FoundationOutputID()] = SiacoinOrigin{
+		Source: ElementSourceFoundationSubsidy,
+		ID:     types.Hash256(blockID),
+		Index:  0,
+	}
+	// determine sources for file contract utxos
+	for _, diff := range cau.FileContractElementDiffs() {
+		if !diff.Resolved {
+			continue
+		}
+
+		fce := diff.FileContractElement
+		if rev, ok := diff.RevisionElement(); ok {
+			fce = rev
+		}
+
+		for i := range fce.FileContract.ValidProofOutputs {
+			scoID := fce.ID.ValidOutputID(i)
+			scoOrigins[scoID] = SiacoinOrigin{
+				Source: ElementSourceContract,
+				ID:     types.Hash256(fce.ID),
+				Index:  uint64(i),
+			}
+		}
+		for i := range fce.FileContract.MissedProofOutputs {
+			scoID := fce.ID.MissedOutputID(i)
+			scoOrigins[scoID] = SiacoinOrigin{
+				Source: ElementSourceContract,
+				ID:     types.Hash256(fce.ID),
+				Index:  uint64(i),
+			}
+		}
+	}
+
+	// determine sources for V2 file contract utxos
+	for _, diff := range cau.V2FileContractElementDiffs() {
+		if diff.Resolution == nil {
+			continue
+		}
+
+		scoOrigins[diff.V2FileContractElement.ID.V2HostOutputID()] = SiacoinOrigin{
+			Source: ElementSourceContract,
+			ID:     types.Hash256(diff.V2FileContractElement.ID),
+			Index:  0,
+		}
+		scoOrigins[diff.V2FileContractElement.ID.V2RenterOutputID()] = SiacoinOrigin{
+			Source: ElementSourceContract,
+			ID:     types.Hash256(diff.V2FileContractElement.ID),
+			Index:  1,
+		}
+	}
+
+	// add new siafund elements to the store
 	for _, sfed := range cau.SiafundElementDiffs() {
 		sfe := sfed.SiafundElement
-		if (sfed.Created && sfed.Spent) || sfe.SiafundOutput.Value == 0 {
-			continue
-		} else if relevant, err := tx.AddressRelevant(sfe.SiafundOutput.Address); err != nil {
+		if relevant, err := tx.AddressRelevant(sfe.SiafundOutput.Address); err != nil {
 			panic(err)
 		} else if !relevant {
 			continue
 		}
+
+		// handle outputs that were created and spent in the same block
+		if sfed.Created {
+			applied.CreatedSiafundElements = append(applied.CreatedSiafundElements, sfe)
+		}
+
 		if sfed.Spent {
 			spentTxnID, ok := spentEventIDs[types.Hash256(sfe.ID)]
 			if !ok {
@@ -167,8 +281,39 @@ func applyChainUpdate(tx UpdateTx, cau chain.ApplyUpdate, indexMode IndexMode) e
 				SiafundElement: sfe,
 				EventID:        spentTxnID,
 			})
-		} else {
-			applied.CreatedSiafundElements = append(applied.CreatedSiafundElements, sfe)
+		}
+	}
+
+	// add new siacoin elements to the store
+	for _, sced := range cau.SiacoinElementDiffs() {
+		sce := sced.SiacoinElement
+		if relevant, err := tx.AddressRelevant(sce.SiacoinOutput.Address); err != nil {
+			panic(err)
+		} else if !relevant {
+			continue
+		}
+
+		// handle outputs that were created and spent in the same block
+		if sced.Created {
+			origin, ok := scoOrigins[sce.ID]
+			if !ok {
+				panic("missing origin for created siacoin element " + sce.ID.String())
+			}
+			applied.CreatedSiacoinElements = append(applied.CreatedSiacoinElements, CreatedSiacoinElement{
+				SiacoinElement: sce,
+				Origin:         origin,
+			})
+		}
+
+		if sced.Spent {
+			spentTxnID, ok := spentEventIDs[types.Hash256(sce.ID)]
+			if !ok {
+				panic(fmt.Errorf("missing transaction ID for spent siacoin element %v", sce.ID))
+			}
+			applied.SpentSiacoinElements = append(applied.SpentSiacoinElements, SpentSiacoinElement{
+				SiacoinElement: sce,
+				EventID:        spentTxnID,
+			})
 		}
 	}
 
@@ -219,33 +364,37 @@ func revertChainUpdate(tx UpdateTx, cru chain.RevertUpdate, revertedIndex types.
 
 	for _, sced := range cru.SiacoinElementDiffs() {
 		sce := sced.SiacoinElement
-		if (sced.Created && sced.Spent) || sce.SiacoinOutput.Value.IsZero() {
-			continue
-		} else if relevant, err := tx.AddressRelevant(sce.SiacoinOutput.Address); err != nil {
+		if relevant, err := tx.AddressRelevant(sce.SiacoinOutput.Address); err != nil {
 			panic(err)
 		} else if !relevant {
 			continue
 		}
+
 		if sced.Spent {
-			// re-add any spent siacoin elements
+			// unspend any spent siacoin elements
 			reverted.UnspentSiacoinElements = append(reverted.UnspentSiacoinElements, sce)
-		} else {
+		}
+
+		if sced.Created {
 			// delete any created siacoin elements
 			reverted.DeletedSiacoinElements = append(reverted.DeletedSiacoinElements, sce)
 		}
 	}
 	for _, sfed := range cru.SiafundElementDiffs() {
 		sfe := sfed.SiafundElement
-		if (sfed.Created && sfed.Spent) || sfe.SiafundOutput.Value == 0 {
-			continue
-		} else if relevant, err := tx.AddressRelevant(sfe.SiafundOutput.Address); err != nil {
+		if relevant, err := tx.AddressRelevant(sfe.SiafundOutput.Address); err != nil {
 			panic(err)
 		} else if !relevant {
 			continue
 		}
+
 		if sfed.Spent {
+			// unspend any spent siafund elements
 			reverted.UnspentSiafundElements = append(reverted.UnspentSiafundElements, sfe)
-		} else {
+		}
+
+		if sfed.Created {
+			// delete any created siafund elements
 			reverted.DeletedSiafundElements = append(reverted.DeletedSiafundElements, sfe)
 		}
 	}

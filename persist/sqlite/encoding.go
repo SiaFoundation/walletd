@@ -93,3 +93,20 @@ func (d *decodable) Scan(src any) error {
 func decode(obj any) sql.Scanner {
 	return &decodable{obj}
 }
+
+type nullDecodable[T any] struct {
+	V     T
+	Valid bool
+}
+
+// Scan implements the sql.Scanner interface.
+func (d *nullDecodable[T]) Scan(src any) error {
+	if src == nil {
+		d.Valid = false
+		return nil
+	}
+
+	err := decode(&d.V).Scan(src)
+	d.Valid = err == nil
+	return err
+}

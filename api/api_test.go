@@ -116,7 +116,7 @@ func startWalletServer(tb testing.TB, cn *testutil.ConsensusNode, log *zap.Logge
 	tb.Cleanup(func() { wm.Close() })
 
 	server := &http.Server{
-		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithLogger(log)),
+		Handler:      api.NewServer(cn.Store, cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithLogger(log)),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
@@ -139,7 +139,7 @@ func TestWalletAdd(t *testing.T) {
 			return fmt.Errorf("expected wallet description to be %v, got %v", wr.Description, w.Description)
 		} else if w.DateCreated.After(time.Now()) {
 			return fmt.Errorf("expected wallet creation date to be in the past, got %v", w.DateCreated)
-		} else if isUpdate && w.DateCreated == w.LastUpdated {
+		} else if isUpdate && w.DateCreated.Equal(w.LastUpdated) {
 			return fmt.Errorf("expected wallet last updated date to be after creation %v, got %v", w.DateCreated, w.LastUpdated)
 		}
 
@@ -583,7 +583,7 @@ func TestConsensus(t *testing.T) {
 	b, err := c.ConsensusBlocksID(minedBlock.ID())
 	if err != nil {
 		t.Fatal(err)
-	} else if b.ID() != minedBlock.ID() {
+	} else if b.ID != minedBlock.ID() {
 		t.Fatal("mismatch")
 	}
 }
@@ -1200,14 +1200,6 @@ func TestSpentElement(t *testing.T) {
 		t.Fatalf("expected siacoin element to have type %q, got %q", wallet.EventTypeV2Transaction, spent.Event.Type)
 	}
 
-	// mine until the utxo is pruned
-	tn.MineBlocks(t, types.VoidAddress, 144)
-
-	_, err = c.SpentSiacoinElement(sce[0].ID)
-	if !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("expected error to contain %q, got %q", "not found", err)
-	}
-
 	sfe, basis, err := c.AddressSiafundOutputs(senderAddr, false, 0, 100)
 	if err != nil {
 		t.Fatal(err)
@@ -1267,14 +1259,6 @@ func TestSpentElement(t *testing.T) {
 	} else if spent.Event.Type != wallet.EventTypeV2Transaction {
 		t.Fatalf("expected siafund element to have type %q, got %q", wallet.EventTypeV2Transaction, spent.Event.Type)
 	}
-
-	// mine until the utxo is pruned
-	tn.MineBlocks(t, types.VoidAddress, 144)
-
-	_, err = c.SpentSiafundElement(sfe[0].ID)
-	if !strings.Contains(err.Error(), "not found") {
-		t.Fatalf("expected error to contain %q, got %q", "not found", err)
-	}
 }
 
 func TestDebugMine(t *testing.T) {
@@ -1321,7 +1305,7 @@ func TestAPISecurity(t *testing.T) {
 	defer httpListener.Close()
 
 	server := &http.Server{
-		Handler:      api.NewServer(cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t)), api.WithBasicAuth("test")),
+		Handler:      api.NewServer(cn.Store, cn.Chain, cn.Syncer, wm, api.WithDebug(), api.WithLogger(zaptest.NewLogger(t)), api.WithBasicAuth("test")),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
@@ -1329,7 +1313,7 @@ func TestAPISecurity(t *testing.T) {
 	go server.Serve(httpListener)
 
 	replaceHandler := func(apiOpts ...api.ServerOption) {
-		server.Handler = api.NewServer(cn.Chain, cn.Syncer, wm, apiOpts...)
+		server.Handler = api.NewServer(cn.Store, cn.Chain, cn.Syncer, wm, apiOpts...)
 	}
 
 	// create a client with correct credentials
