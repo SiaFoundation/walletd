@@ -48,7 +48,7 @@ func syncDB(tb testing.TB, store *Store, cm *chain.Manager) {
 }
 
 func TestSpendSiacoins(t *testing.T) {
-	db := newTestStore(t, WithRetainSpentElements(20))
+	db := newTestStore(t)
 
 	bdb, err := coreutils.OpenBoltChainDB(filepath.Join(t.TempDir(), "consensus.db"))
 	if err != nil {
