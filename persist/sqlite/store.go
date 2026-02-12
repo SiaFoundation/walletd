@@ -15,8 +15,7 @@ import (
 type (
 	// A Store is a persistent store that uses a SQL database as its backend.
 	Store struct {
-		indexMode                   wallet.IndexMode
-		spentElementRetentionBlocks uint64 // number of blocks to retain spent elements
+		indexMode wallet.IndexMode
 
 		db  *sql.DB
 		log *zap.Logger
@@ -86,8 +85,7 @@ func OpenDatabase(fp string, opts ...Option) (*Store, error) {
 	store := &Store{
 		db: db,
 
-		log:                         zap.NewNop(),
-		spentElementRetentionBlocks: 144, // default to 144 blocks (1 day)
+		log: zap.NewNop(),
 	}
 	for _, opt := range opts {
 		opt(store)
