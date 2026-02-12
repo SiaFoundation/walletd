@@ -11,11 +11,3 @@ func WithLog(log *zap.Logger) Option {
 		s.log = log
 	}
 }
-
-// WithRetainSpentElements sets the number of blocks to retain
-// spent elements.
-func WithRetainSpentElements(blocks uint64) Option {
-	return func(s *Store) {
-		s.spentElementRetentionBlocks = blocks
-	}
-}
