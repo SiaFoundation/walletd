@@ -3,11 +3,11 @@ module go.sia.tech/walletd/v2 // v2.12.0
 go 1.24.3
 
 require (
-	github.com/mattn/go-sqlite3 v1.14.33
+	github.com/mattn/go-sqlite3 v1.14.34
 	go.sia.tech/core v0.19.0
 	go.sia.tech/coreutils v0.21.0
 	go.sia.tech/jape v0.14.1
-	go.sia.tech/web/walletd v0.35.0
+	go.sia.tech/web/walletd v0.36.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 	golang.org/x/term v0.40.0
