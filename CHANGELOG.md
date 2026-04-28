@@ -1,3 +1,17 @@
+## 2.13.0 (2026-04-28)
+
+### Features
+
+- Update Go to 1.26.0.
+
+### Fixes
+
+- Removed unused ephemeral and created maps in revert path
+- Update core dependency to v0.19.0 and coreutils dependency to v0.21.0.
+- Update core to 0.20.0.
+- Update coreutils to 0.21.3.
+- Update coreutils from v0.21.0 to v0.21.1
+
 ## 2.12.0 (2026-02-05)
 
 ### Features
