@@ -1631,9 +1631,8 @@ func (s *server) pprofHandler(jc jape.Context) {
 	case "trace":
 		pprof.Trace(jc.ResponseWriter, jc.Request)
 	default:
-		pprof.Index(jc.ResponseWriter, jc.Request)
+		pprof.Handler(handler).ServeHTTP(jc.ResponseWriter, jc.Request)
 	}
-	pprof.Index(jc.ResponseWriter, jc.Request)
 }
 
 // NewServer returns an HTTP handler that serves the walletd API.
