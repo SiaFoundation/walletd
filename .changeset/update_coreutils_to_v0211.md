@@ -2,4 +2,4 @@
 default: patch
 ---
 
-# Update coreutils from v0.21.0 to v0.21.1
+# Update coreutils to v0.23.2 and core to v0.21.4
