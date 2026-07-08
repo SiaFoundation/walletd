@@ -1,3 +1,10 @@
+## 2.15.2 (2026-07-08)
+
+### Fixes
+
+- Update go.sia.tech/core to 0.21.6.
+- Update go.sia.tech/coreutils to 0.23.5.
+
 ## 2.15.1 (2026-07-06)
 
 ### Fixes
