@@ -61,12 +61,12 @@ func TestSpendSiacoins(t *testing.T) {
 	addr := types.StandardUnlockHash(pk.PublicKey())
 
 	network, genesisBlock := testutil.Network()
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
+	store, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	cm := chain.NewManager(store, genesisState)
+	cm := chain.NewManager(store)
 
 	// create a wallet
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})
@@ -182,12 +182,12 @@ func TestSpendSiafunds(t *testing.T) {
 	network, genesisBlock := testutil.Network()
 	// send the siafund airdrop to the wallet
 	genesisBlock.Transactions[0].SiafundOutputs[0].Address = addr
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
+	store, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	cm := chain.NewManager(store, genesisState)
+	cm := chain.NewManager(store)
 
 	// create a wallet
 	w, err := db.AddWallet(wallet.Wallet{Name: "test"})

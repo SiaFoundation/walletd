@@ -2864,11 +2864,12 @@ func TestEventTypes(t *testing.T) {
 	network, genesisBlock := testV2Network(addr)
 	// raise the require height to test v1 events
 	network.HardforkV2.RequireHeight = 250
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
+	store, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm := chain.NewManager(store, genesisState)
+	cm := chain.NewManager(store)
+	genesisState := cm.TipState()
 
 	// helper to mine blocks
 	mineBlock := func(n int, addr types.Address) {
@@ -3881,22 +3882,23 @@ func TestReset(t *testing.T) {
 	}
 	defer bdb.Close()
 
-	store, genesisState, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
+	store, err := chain.NewDBStore(bdb, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm1 := chain.NewManager(store, genesisState)
+	cm1 := chain.NewManager(store)
+	genesisState := cm1.TipState()
 
 	bdb2, err := coreutils.OpenBoltChainDB(filepath.Join(t.TempDir(), "consensus2.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer bdb2.Close()
-	store2, genesisState2, err := chain.NewDBStore(bdb2, network, genesisBlock, nil)
+	store2, err := chain.NewDBStore(bdb2, network, genesisBlock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cm2 := chain.NewManager(store2, genesisState2)
+	cm2 := chain.NewManager(store2)
 
 	// mine blocks before starting the wallet manager
 	for i := 0; i < 25; i++ {

@@ -194,11 +194,11 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		}
 		defer bdb.Close()
 
-		dbstore, tipState, err := chain.NewDBStoreAtCheckpoint(bdb, cs, b, chain.NewZapMigrationLogger(log.Named("chaindb")))
+		dbstore, err := chain.NewDBStoreAtCheckpoint(bdb, cs, b, chain.NewZapMigrationLogger(log.Named("chaindb")))
 		if err != nil {
 			return fmt.Errorf("failed to create chain store: %w", err)
 		}
-		cm = chain.NewManager(dbstore, tipState, chainOpts...)
+		cm = chain.NewManager(dbstore, chainOpts...)
 		if err := store.SetCheckpoint(cfg.Checkpoint); err != nil {
 			return fmt.Errorf("failed to set wallet db checkpoint: %w", err)
 		}
@@ -215,11 +215,11 @@ func runNode(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		}
 		defer bdb.Close()
 
-		dbstore, tipState, err := chain.NewDBStore(bdb, network, genesisBlock, chain.NewZapMigrationLogger(log.Named("chaindb")))
+		dbstore, err := chain.NewDBStore(bdb, network, genesisBlock, chain.NewZapMigrationLogger(log.Named("chaindb")))
 		if err != nil {
 			return fmt.Errorf("failed to create chain store: %w", err)
 		}
-		cm = chain.NewManager(dbstore, tipState, chainOpts...)
+		cm = chain.NewManager(dbstore, chainOpts...)
 	}
 
 	syncerListener, err := net.Listen("tcp", cfg.Syncer.Address)
