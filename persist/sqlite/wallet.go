@@ -51,29 +51,28 @@ WHERE wa.wallet_id=? AND ea.event_id=?`)
 }
 
 // WalletEvents returns the events relevant to a wallet, sorted by height descending.
-func (s *Store) WalletEvents(id wallet.ID, offset, limit int) (events []wallet.Event, err error) {
-	err = s.transaction(func(tx *txn) error {
+func (s *Store) WalletEvents(id wallet.ID, offset, limit int) ([]wallet.Event, error) {
+	return valuedTransaction(s, func(tx *txn) ([]wallet.Event, error) {
 		dbIDs, err := getWalletEvents(tx, id, offset, limit)
 		if err != nil {
-			return fmt.Errorf("failed to get wallet events: %w", err)
+			return nil, fmt.Errorf("failed to get wallet events: %w", err)
 		}
 
-		events, err = getEventsByID(tx, dbIDs)
+		events, err := getEventsByID(tx, dbIDs)
 		if err != nil {
-			return fmt.Errorf("failed to get events by ID: %w", err)
+			return nil, fmt.Errorf("failed to get events by ID: %w", err)
 		}
 
 		eventRelevantAddresses, err := s.getWalletEventRelevantAddresses(tx, id, dbIDs)
 		if err != nil {
-			return fmt.Errorf("failed to get relevant addresses: %w", err)
+			return nil, fmt.Errorf("failed to get relevant addresses: %w", err)
 		}
 
 		for i := range events {
 			events[i].Relevant = eventRelevantAddresses[dbIDs[i]]
 		}
-		return nil
+		return events, nil
 	})
-	return
 }
 
 // AddWallet adds a wallet to the database.
@@ -81,26 +80,29 @@ func (s *Store) AddWallet(w wallet.Wallet) (wallet.Wallet, error) {
 	w.DateCreated = time.Now().Truncate(time.Second)
 	w.LastUpdated = time.Now().Truncate(time.Second)
 
-	err := s.transaction(func(tx *txn) error {
+	return valuedTransaction(s, func(tx *txn) (wallet.Wallet, error) {
 		const query = `INSERT INTO wallets (friendly_name, description, date_created, last_updated, extra_data) VALUES ($1, $2, $3, $4, $5) RETURNING id`
-		return tx.QueryRow(query, w.Name, w.Description, encode(w.DateCreated), encode(w.LastUpdated), w.Metadata).Scan(&w.ID)
+		if err := tx.QueryRow(query, w.Name, w.Description, encode(w.DateCreated), encode(w.LastUpdated), w.Metadata).Scan(&w.ID); err != nil {
+			return wallet.Wallet{}, err
+		}
+		return w, nil
 	})
-	return w, err
 }
 
 // UpdateWallet updates a wallet in the database.
 func (s *Store) UpdateWallet(w wallet.Wallet) (wallet.Wallet, error) {
 	w.LastUpdated = time.Now()
-	err := s.transaction(func(tx *txn) error {
+	return valuedTransaction(s, func(tx *txn) (wallet.Wallet, error) {
 		var dummyID int64
 		const query = `UPDATE wallets SET friendly_name=$1, description=$2, last_updated=$3, extra_data=$4 WHERE id=$5 RETURNING id, date_created, last_updated`
 		err := tx.QueryRow(query, w.Name, w.Description, encode(w.LastUpdated), w.Metadata, w.ID).Scan(&dummyID, decode(&w.DateCreated), decode(&w.LastUpdated))
 		if errors.Is(err, sql.ErrNoRows) {
-			return wallet.ErrNotFound
+			return wallet.Wallet{}, wallet.ErrNotFound
+		} else if err != nil {
+			return wallet.Wallet{}, err
 		}
-		return err
+		return w, nil
 	})
-	return w, err
 }
 
 // DeleteWallet deletes a wallet from the database. This does not stop tracking
@@ -122,26 +124,25 @@ func (s *Store) DeleteWallet(id wallet.ID) error {
 }
 
 // Wallets returns a map of wallet names to wallet extra data.
-func (s *Store) Wallets() (wallets []wallet.Wallet, err error) {
-	err = s.transaction(func(tx *txn) error {
+func (s *Store) Wallets() ([]wallet.Wallet, error) {
+	return valuedTransaction(s, func(tx *txn) (wallets []wallet.Wallet, _ error) {
 		const query = `SELECT id, friendly_name, description, date_created, last_updated, extra_data FROM wallets`
 
 		rows, err := tx.Query(query)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer rows.Close()
 
 		for rows.Next() {
 			var w wallet.Wallet
 			if err := rows.Scan(&w.ID, &w.Name, &w.Description, decode(&w.DateCreated), decode(&w.LastUpdated), (*[]byte)(&w.Metadata)); err != nil {
-				return fmt.Errorf("failed to scan wallet: %w", err)
+				return nil, fmt.Errorf("failed to scan wallet: %w", err)
 			}
 			wallets = append(wallets, w)
 		}
-		return rows.Err()
+		return wallets, rows.Err()
 	})
-	return
 }
 
 // AddWalletAddresses adds the given addresses to a wallet.
@@ -201,10 +202,10 @@ func (s *Store) RemoveWalletAddress(id wallet.ID, address types.Address) error {
 }
 
 // WalletAddress returns an address registered to the wallet.
-func (s *Store) WalletAddress(id wallet.ID, address types.Address) (addr wallet.Address, err error) {
-	err = s.transaction(func(tx *txn) error {
+func (s *Store) WalletAddress(id wallet.ID, address types.Address) (wallet.Address, error) {
+	return valuedTransaction(s, func(tx *txn) (wallet.Address, error) {
 		if err := walletExists(tx, id); err != nil {
-			return err
+			return wallet.Address{}, err
 		}
 
 		const query = `SELECT sa.sia_address, wa.description, wa.spend_policy, wa.extra_data
@@ -212,17 +213,15 @@ FROM wallet_addresses wa
 INNER JOIN sia_addresses sa ON (sa.id = wa.address_id)
 WHERE wa.wallet_id=$1 AND sa.sia_address=$2`
 
-		addr, err = scanWalletAddress(tx.QueryRow(query, id, encode(address)))
-		return err
+		return scanWalletAddress(tx.QueryRow(query, id, encode(address)))
 	})
-	return
 }
 
 // WalletAddresses returns a slice of addresses registered to the wallet.
-func (s *Store) WalletAddresses(id wallet.ID) (addresses []wallet.Address, err error) {
-	err = s.transaction(func(tx *txn) error {
+func (s *Store) WalletAddresses(id wallet.ID) ([]wallet.Address, error) {
+	return valuedTransaction(s, func(tx *txn) (addresses []wallet.Address, _ error) {
 		if err := walletExists(tx, id); err != nil {
-			return err
+			return nil, err
 		}
 
 		const query = `SELECT sa.sia_address, wa.description, wa.spend_policy, wa.extra_data
@@ -232,32 +231,31 @@ WHERE wa.wallet_id=$1`
 
 		rows, err := tx.Query(query, id)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer rows.Close()
 
 		for rows.Next() {
 			addr, err := scanWalletAddress(rows)
 			if err != nil {
-				return fmt.Errorf("failed to scan address: %w", err)
+				return nil, fmt.Errorf("failed to scan address: %w", err)
 			}
 			addresses = append(addresses, addr)
 		}
-		return rows.Err()
+		return addresses, rows.Err()
 	})
-	return
 }
 
 // WalletSiacoinOutputs returns the unspent siacoin outputs for a wallet.
-func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins []wallet.UnspentSiacoinElement, basis types.ChainIndex, err error) {
-	err = s.transaction(func(tx *txn) error {
+func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) ([]wallet.UnspentSiacoinElement, types.ChainIndex, error) {
+	return valuedTransaction2(s, func(tx *txn) (siacoins []wallet.UnspentSiacoinElement, basis types.ChainIndex, _ error) {
 		if err := walletExists(tx, id); err != nil {
-			return err
+			return nil, types.ChainIndex{}, err
 		}
 
-		basis, err = getScanBasis(tx)
+		basis, err := getScanBasis(tx)
 		if err != nil {
-			return fmt.Errorf("failed to get basis: %w", err)
+			return nil, types.ChainIndex{}, fmt.Errorf("failed to get basis: %w", err)
 		}
 
 		const query = `SELECT se.id, se.siacoin_value, se.merkle_proof, se.leaf_index, se.maturity_height, sa.sia_address, ci.height 
@@ -269,21 +267,21 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 
 		rows, err := tx.Query(query, basis.Height, id, limit, offset)
 		if err != nil {
-			return err
+			return nil, types.ChainIndex{}, err
 		}
 		defer rows.Close()
 
 		for rows.Next() {
 			siacoin, err := scanUnspentSiacoinElement(rows, basis.Height)
 			if err != nil {
-				return fmt.Errorf("failed to scan siacoin element: %w", err)
+				return nil, types.ChainIndex{}, fmt.Errorf("failed to scan siacoin element: %w", err)
 			}
 
 			siacoins = append(siacoins, siacoin)
 		}
 
 		if err := rows.Err(); err != nil {
-			return err
+			return nil, types.ChainIndex{}, err
 		}
 
 		// retrieve the merkle proofs for the siacoin elements
@@ -294,27 +292,26 @@ func (s *Store) WalletSiacoinOutputs(id wallet.ID, offset, limit int) (siacoins 
 			}
 			proofs, err := fillElementProofs(tx, indices)
 			if err != nil {
-				return fmt.Errorf("failed to fill element proofs: %w", err)
+				return nil, types.ChainIndex{}, fmt.Errorf("failed to fill element proofs: %w", err)
 			}
 			for i, proof := range proofs {
 				siacoins[i].StateElement.MerkleProof = proof
 			}
 		}
-		return nil
+		return siacoins, basis, nil
 	})
-	return
 }
 
 // WalletSiafundOutputs returns the unspent siafund outputs for a wallet.
-func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds []wallet.UnspentSiafundElement, basis types.ChainIndex, err error) {
-	err = s.transaction(func(tx *txn) error {
+func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) ([]wallet.UnspentSiafundElement, types.ChainIndex, error) {
+	return valuedTransaction2(s, func(tx *txn) (siafunds []wallet.UnspentSiafundElement, basis types.ChainIndex, _ error) {
 		if err := walletExists(tx, id); err != nil {
-			return err
+			return nil, types.ChainIndex{}, err
 		}
 
-		basis, err = getScanBasis(tx)
+		basis, err := getScanBasis(tx)
 		if err != nil {
-			return fmt.Errorf("failed to get basis: %w", err)
+			return nil, types.ChainIndex{}, fmt.Errorf("failed to get basis: %w", err)
 		}
 
 		const query = `SELECT se.id, se.leaf_index, se.merkle_proof, se.siafund_value, se.claim_start, sa.sia_address, ci.height
@@ -326,19 +323,19 @@ func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds 
 
 		rows, err := tx.Query(query, id, limit, offset)
 		if err != nil {
-			return err
+			return nil, types.ChainIndex{}, err
 		}
 		defer rows.Close()
 
 		for rows.Next() {
 			siafund, err := scanUnspentSiafundElement(rows, basis.Height)
 			if err != nil {
-				return fmt.Errorf("failed to scan siafund element: %w", err)
+				return nil, types.ChainIndex{}, fmt.Errorf("failed to scan siafund element: %w", err)
 			}
 			siafunds = append(siafunds, siafund)
 		}
 		if err := rows.Err(); err != nil {
-			return err
+			return nil, types.ChainIndex{}, err
 		}
 
 		// retrieve the merkle proofs for the siacoin elements
@@ -349,22 +346,21 @@ func (s *Store) WalletSiafundOutputs(id wallet.ID, offset, limit int) (siafunds 
 			}
 			proofs, err := fillElementProofs(tx, indices)
 			if err != nil {
-				return fmt.Errorf("failed to fill element proofs: %w", err)
+				return nil, types.ChainIndex{}, fmt.Errorf("failed to fill element proofs: %w", err)
 			}
 			for i, proof := range proofs {
 				siafunds[i].StateElement.MerkleProof = proof
 			}
 		}
-		return nil
+		return siafunds, basis, nil
 	})
-	return
 }
 
 // WalletBalance returns the total balance of a wallet.
-func (s *Store) WalletBalance(id wallet.ID) (balance wallet.Balance, err error) {
-	err = s.transaction(func(tx *txn) error {
+func (s *Store) WalletBalance(id wallet.ID) (wallet.Balance, error) {
+	return valuedTransaction(s, func(tx *txn) (balance wallet.Balance, _ error) {
 		if err := walletExists(tx, id); err != nil {
-			return err
+			return wallet.Balance{}, err
 		}
 
 		const query = `SELECT siacoin_balance, immature_siacoin_balance, siafund_balance FROM sia_addresses sa
@@ -373,7 +369,7 @@ func (s *Store) WalletBalance(id wallet.ID) (balance wallet.Balance, err error) 
 
 		rows, err := tx.Query(query, id)
 		if err != nil {
-			return err
+			return wallet.Balance{}, err
 		}
 		defer rows.Close()
 
@@ -383,30 +379,29 @@ func (s *Store) WalletBalance(id wallet.ID) (balance wallet.Balance, err error) 
 			var addressSF uint64
 
 			if err := rows.Scan(decode(&addressSC), decode(&addressISC), &addressSF); err != nil {
-				return fmt.Errorf("failed to scan address balance: %w", err)
+				return wallet.Balance{}, fmt.Errorf("failed to scan address balance: %w", err)
 			}
 			balance.Siacoins = balance.Siacoins.Add(addressSC)
 			balance.ImmatureSiacoins = balance.ImmatureSiacoins.Add(addressISC)
 			balance.Siafunds += addressSF
 		}
-		return rows.Err()
+		return balance, rows.Err()
 	})
-	return
 }
 
 // WalletUnconfirmedEvents annotates a list of unconfirmed transactions with
 // relevant addresses and siacoin/siafund elements.
-func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, timestamp time.Time, v1 []types.Transaction, v2 []types.V2Transaction) (annotated []wallet.Event, err error) {
-	err = s.transaction(func(tx *txn) error {
+func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, timestamp time.Time, v1 []types.Transaction, v2 []types.V2Transaction) ([]wallet.Event, error) {
+	return valuedTransaction(s, func(tx *txn) (annotated []wallet.Event, _ error) {
 		if err := walletExists(tx, id); err != nil {
-			return err
+			return nil, err
 		}
 
 		addrStmt, err := tx.Prepare(`SELECT sa.id FROM sia_addresses sa
 	INNER JOIN wallet_addresses wa ON (sa.id = wa.address_id)
 	WHERE wa.wallet_id=$1 AND sa.sia_address=$2 LIMIT 1`)
 		if err != nil {
-			return fmt.Errorf("failed to prepare address statement: %w", err)
+			return nil, fmt.Errorf("failed to prepare address statement: %w", err)
 		}
 		defer addrStmt.Close()
 
@@ -437,7 +432,7 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE se.id=$1`)
 		if err != nil {
-			return fmt.Errorf("failed to prepare siacoin statement: %w", err)
+			return nil, fmt.Errorf("failed to prepare siacoin statement: %w", err)
 		}
 		defer siacoinElementStmt.Close()
 
@@ -460,7 +455,7 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 		INNER JOIN sia_addresses sa ON (se.address_id = sa.id)
 		WHERE se.id=$1`)
 		if err != nil {
-			return fmt.Errorf("failed to prepare siafund statement: %w", err)
+			return nil, fmt.Errorf("failed to prepare siafund statement: %w", err)
 		}
 		defer siafundElementStmt.Close()
 
@@ -511,7 +506,7 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 				// fetch the siacoin element
 				sce, err := fetchSiacoinElement(input.ParentID)
 				if err != nil {
-					return fmt.Errorf("failed to fetch siacoin element %q: %w", input.ParentID, err)
+					return nil, fmt.Errorf("failed to fetch siacoin element %q: %w", input.ParentID, err)
 				}
 				ev.SpentSiacoinElements = append(ev.SpentSiacoinElements, sce)
 			}
@@ -550,7 +545,7 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 				// fetch the siafund element
 				sfe, err := fetchSiafundElement(input.ParentID)
 				if err != nil {
-					return fmt.Errorf("failed to fetch siafund element %q: %w", input.ParentID, err)
+					return nil, fmt.Errorf("failed to fetch siafund element %q: %w", input.ParentID, err)
 				}
 				ev.SpentSiafundElements = append(ev.SpentSiafundElements, sfe)
 			}
@@ -625,9 +620,8 @@ func (s *Store) WalletUnconfirmedEvents(id wallet.ID, index types.ChainIndex, ti
 
 			addEvent(types.Hash256(txn.ID()), wallet.EventTypeV2Transaction, wallet.EventV2Transaction(txn), relevant)
 		}
-		return nil
+		return annotated, nil
 	})
-	return
 }
 
 func scanUnspentSiacoinElement(s scanner, basisHeight uint64) (se wallet.UnspentSiacoinElement, err error) {
@@ -796,11 +790,11 @@ func walletExists(tx *txn, id wallet.ID) error {
 }
 
 // OverwriteElementProofs overwrites the element proofs for the given transactions.
-func (s *Store) OverwriteElementProofs(txns []types.V2Transaction) (basis types.ChainIndex, updated []types.V2Transaction, err error) {
-	err = s.transaction(func(tx *txn) error {
-		basis, err = getScanBasis(tx)
+func (s *Store) OverwriteElementProofs(txns []types.V2Transaction) (types.ChainIndex, []types.V2Transaction, error) {
+	return valuedTransaction2(s, func(tx *txn) (basis types.ChainIndex, updated []types.V2Transaction, _ error) {
+		basis, err := getScanBasis(tx)
 		if err != nil {
-			return fmt.Errorf("failed to get basis: %w", err)
+			return types.ChainIndex{}, nil, fmt.Errorf("failed to get basis: %w", err)
 		}
 
 		for _, txn := range txns {
@@ -810,7 +804,7 @@ func (s *Store) OverwriteElementProofs(txns []types.V2Transaction) (basis types.
 				if errors.Is(err, sql.ErrNoRows) {
 					continue
 				} else if err != nil {
-					return fmt.Errorf("failed to get siacoin element: %w", err)
+					return types.ChainIndex{}, nil, fmt.Errorf("failed to get siacoin element: %w", err)
 				}
 				txn.SiacoinInputs[i].Parent = ele
 			}
@@ -819,13 +813,12 @@ func (s *Store) OverwriteElementProofs(txns []types.V2Transaction) (basis types.
 				if errors.Is(err, sql.ErrNoRows) {
 					continue
 				} else if err != nil {
-					return fmt.Errorf("failed to get siafund element: %w", err)
+					return types.ChainIndex{}, nil, fmt.Errorf("failed to get siafund element: %w", err)
 				}
 				txn.SiafundInputs[i].Parent = ele
 			}
 			updated = append(updated, txn)
 		}
-		return nil
+		return basis, updated, nil
 	})
-	return
 }

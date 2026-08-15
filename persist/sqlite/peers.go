@@ -109,24 +109,23 @@ func (s *Store) AddPeer(peer string) error {
 }
 
 // Peers returns the addresses of all known peers.
-func (s *Store) Peers() (peers []syncer.PeerInfo, _ error) {
-	err := s.transaction(func(tx *txn) error {
+func (s *Store) Peers() ([]syncer.PeerInfo, error) {
+	return valuedTransaction(s, func(tx *txn) (peers []syncer.PeerInfo, _ error) {
 		const query = `SELECT peer_address, first_seen FROM syncer_peers`
 		rows, err := tx.Query(query)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			peer, err := scanPeerInfo(rows)
 			if err != nil {
-				return fmt.Errorf("failed to scan peer info: %w", err)
+				return nil, fmt.Errorf("failed to scan peer info: %w", err)
 			}
 			peers = append(peers, peer)
 		}
-		return rows.Err()
+		return peers, rows.Err()
 	})
-	return peers, err
 }
 
 // normalizePeer normalizes a peer address to a CIDR subnet.
@@ -177,7 +176,7 @@ func (s *Store) Ban(peer string, duration time.Duration, reason string) error {
 }
 
 // Banned returns true if the peer is banned.
-func (s *Store) Banned(peer string) (banned bool, _ error) {
+func (s *Store) Banned(peer string) (bool, error) {
 	// normalize the peer into a CIDR subnet
 	peer, err := normalizePeer(peer)
 	if err != nil {
@@ -206,10 +205,10 @@ func (s *Store) Banned(peer string) (banned bool, _ error) {
 		checkSubnets = append(checkSubnets, subnet.String())
 	}
 
-	err = s.transaction(func(tx *txn) error {
+	banned, err := valuedTransaction(s, func(tx *txn) (banned bool, _ error) {
 		checkSubnetStmt, err := tx.Prepare(`SELECT expiration FROM syncer_bans WHERE net_cidr = $1 ORDER BY expiration DESC LIMIT 1`)
 		if err != nil {
-			return fmt.Errorf("failed to prepare statement: %w", err)
+			return false, fmt.Errorf("failed to prepare statement: %w", err)
 		}
 		defer checkSubnetStmt.Close()
 
@@ -219,13 +218,13 @@ func (s *Store) Banned(peer string) (banned bool, _ error) {
 			err := checkSubnetStmt.QueryRow(subnet).Scan(decode(&expiration))
 			banned = time.Now().Before(expiration) // will return false for any sql errors, including ErrNoRows
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("failed to check ban status: %w", err)
+				return false, fmt.Errorf("failed to check ban status: %w", err)
 			} else if banned {
 				s.log.Debug("found ban", zap.String("subnet", subnet), zap.Time("expiration", expiration))
-				return nil
+				return true, nil
 			}
 		}
-		return nil
+		return false, nil
 	})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("failed to check ban status: %w", err)

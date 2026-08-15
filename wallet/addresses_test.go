@@ -109,6 +109,51 @@ func TestBatchAddresses(t *testing.T) {
 	}
 }
 
+func TestBatchAddressBalance(t *testing.T) {
+	network, genesisBlock := testutil.V2Network()
+	tn := newTestNode(t, network, genesisBlock, wallet.WithIndexMode(wallet.IndexModeFull))
+	wm := tn.manager
+
+	addresses := make([]types.Address, 10)
+	for i := range addresses {
+		addresses[i] = types.StandardAddress(types.GeneratePrivateKey().PublicKey())
+		tn.MineBlocks(t, addresses[i], i+1)
+	}
+	tn.MineBlocks(t, types.VoidAddress, int(network.MaturityDelay))
+
+	var expected wallet.Balance
+	for _, addr := range addresses {
+		b, err := wm.AddressBalance(addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected.Siacoins = expected.Siacoins.Add(b.Siacoins)
+		expected.ImmatureSiacoins = expected.ImmatureSiacoins.Add(b.ImmatureSiacoins)
+		expected.Siafunds += b.Siafunds
+	}
+	if expected.Siacoins.IsZero() {
+		t.Fatal("expected a non-zero balance")
+	}
+
+	balance, err := wm.AddressBalance(addresses...)
+	if err != nil {
+		t.Fatal(err)
+	} else if !balance.Siacoins.Equals(expected.Siacoins) {
+		t.Fatalf("expected %v siacoins, got %v", expected.Siacoins, balance.Siacoins)
+	} else if !balance.ImmatureSiacoins.Equals(expected.ImmatureSiacoins) {
+		t.Fatalf("expected %v immature siacoins, got %v", expected.ImmatureSiacoins, balance.ImmatureSiacoins)
+	} else if balance.Siafunds != expected.Siafunds {
+		t.Fatalf("expected %v siafunds, got %v", expected.Siafunds, balance.Siafunds)
+	}
+
+	withUnknown := append(addresses, types.StandardAddress(types.GeneratePrivateKey().PublicKey()))
+	if balance, err := wm.AddressBalance(withUnknown...); err != nil {
+		t.Fatal(err)
+	} else if !balance.Siacoins.Equals(expected.Siacoins) {
+		t.Fatalf("expected %v siacoins, got %v", expected.Siacoins, balance.Siacoins)
+	}
+}
+
 func TestBatchSiacoinOutputs(t *testing.T) {
 	network, genesisBlock := testutil.V2Network()
 	tn := newTestNode(t, network, genesisBlock, wallet.WithIndexMode(wallet.IndexModeFull))

@@ -11,12 +11,12 @@ import (
 
 // Events returns the events with the given event IDs. If an event is not found,
 // it is skipped.
-func (s *Store) Events(eventIDs []types.Hash256) (events []wallet.Event, err error) {
-	err = s.transaction(func(tx *txn) error {
+func (s *Store) Events(eventIDs []types.Hash256) ([]wallet.Event, error) {
+	return valuedTransaction(s, func(tx *txn) ([]wallet.Event, error) {
 		var scanHeight uint64
 		err := tx.QueryRow(`SELECT COALESCE(last_indexed_height, 0) FROM global_settings`).Scan(&scanHeight)
 		if err != nil {
-			return fmt.Errorf("failed to get last indexed height: %w", err)
+			return nil, fmt.Errorf("failed to get last indexed height: %w", err)
 		}
 
 		// sqlite doesn't have easy support for IN clauses, use a statement since
@@ -39,23 +39,22 @@ WHERE ev.event_id = $1`
 
 		stmt, err := tx.Prepare(query)
 		if err != nil {
-			return fmt.Errorf("failed to prepare statement: %w", err)
+			return nil, fmt.Errorf("failed to prepare statement: %w", err)
 		}
 		defer stmt.Close()
 
-		events = make([]wallet.Event, 0, len(eventIDs))
+		events := make([]wallet.Event, 0, len(eventIDs))
 		for _, id := range eventIDs {
 			event, _, err := scanEvent(stmt.QueryRow(encode(id)), scanHeight)
 			if errors.Is(err, sql.ErrNoRows) {
 				continue
 			} else if err != nil {
-				return fmt.Errorf("failed to query transaction %q: %w", id, err)
+				return nil, fmt.Errorf("failed to query transaction %q: %w", id, err)
 			}
 			events = append(events, event)
 		}
-		return nil
+		return events, nil
 	})
-	return
 }
 
 func decodeEventData[T wallet.EventPayout |

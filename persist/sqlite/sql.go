@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -13,6 +14,11 @@ import (
 const (
 	longQueryDuration = 10 * time.Millisecond
 	longTxnDuration   = time.Second // reduce syncing spam
+
+	busyTimeout      = 10 * time.Second
+	maxRetryAttempts = 30  // 30 attempts
+	factor           = 1.8 // factor ^ retryAttempts = backoff time in milliseconds
+	maxBackoff       = 15 * time.Second
 )
 
 type (
@@ -184,11 +190,27 @@ func setDBVersion(tx *txn, version int64) error {
 	return tx.QueryRow(query, version).Scan(&dbID)
 }
 
+// jitterSleep sleeps for a random duration between t and t*1.5.
+func jitterSleep(t time.Duration) {
+	time.Sleep(t + time.Duration(rand.Int63n(int64(t/2))))
+}
+
 func queryPlaceHolders(n int) string {
 	if n == 0 {
 		return ""
 	}
 	return strings.Repeat("?,", n-1) + "?"
+}
+
+func anySlice[T any](args []T) []any {
+	if len(args) == 0 {
+		return nil
+	}
+	out := make([]any, len(args))
+	for i, arg := range args {
+		out[i] = arg
+	}
+	return out
 }
 
 func encodeSlice[T any](args []T) []any {

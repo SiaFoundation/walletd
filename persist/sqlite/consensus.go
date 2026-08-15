@@ -1408,27 +1408,27 @@ func addressRefStmt(tx *txn) (func(types.Address) (addressRef, error), func() er
 // decorating its transactions with additional information such as siacoin input
 // origins.
 func (s *Store) DecorateConsensusBlock(block types.Block) (api.ConsensusBlock, error) {
-	cb := api.ConsensusBlock{
-		ID:           block.ID(),
-		ParentID:     block.ParentID,
-		Nonce:        block.Nonce,
-		Timestamp:    block.Timestamp,
-		MinerPayouts: block.MinerPayouts,
-		Transactions: make([]api.ConsensusTransaction, 0, len(block.Transactions)),
-	}
-
-	if block.V2 != nil {
-		cb.V2 = &api.ConsensusV2BlockData{
-			Height:       block.V2.Height,
-			Commitment:   block.V2.Commitment,
-			Transactions: make([]api.ConsensusV2Transaction, 0, len(block.V2Transactions())),
+	return valuedTransaction(s, func(tx *txn) (api.ConsensusBlock, error) {
+		cb := api.ConsensusBlock{
+			ID:           block.ID(),
+			ParentID:     block.ParentID,
+			Nonce:        block.Nonce,
+			Timestamp:    block.Timestamp,
+			MinerPayouts: block.MinerPayouts,
+			Transactions: make([]api.ConsensusTransaction, 0, len(block.Transactions)),
 		}
-	}
 
-	err := s.transaction(func(tx *txn) error {
+		if block.V2 != nil {
+			cb.V2 = &api.ConsensusV2BlockData{
+				Height:       block.V2.Height,
+				Commitment:   block.V2.Commitment,
+				Transactions: make([]api.ConsensusV2Transaction, 0, len(block.V2Transactions())),
+			}
+		}
+
 		stmt, err := tx.Prepare(`SELECT origin_source, origin_transaction_id, origin_transaction_index FROM siacoin_elements WHERE id=$1`)
 		if err != nil {
-			return fmt.Errorf("failed to prepare statement: %w", err)
+			return api.ConsensusBlock{}, fmt.Errorf("failed to prepare statement: %w", err)
 		}
 		defer stmt.Close()
 
@@ -1480,7 +1480,7 @@ func (s *Store) DecorateConsensusBlock(block types.Block) (api.ConsensusBlock, e
 			for _, sci := range txn.SiacoinInputs {
 				origin, err := getUTXOOrigin(sci.ParentID)
 				if err != nil {
-					return fmt.Errorf("failed to get siacoin input source for %q: %w", sci.ParentID, err)
+					return api.ConsensusBlock{}, fmt.Errorf("failed to get siacoin input source for %q: %w", sci.ParentID, err)
 				}
 
 				apiTx.SiacoinInputs = append(apiTx.SiacoinInputs, api.ConsensusSiacoinInput{
@@ -1523,7 +1523,7 @@ func (s *Store) DecorateConsensusBlock(block types.Block) (api.ConsensusBlock, e
 			for _, sci := range txn.SiacoinInputs {
 				origin, err := getUTXOOrigin(sci.Parent.ID)
 				if err != nil {
-					return fmt.Errorf("failed to get siacoin input source for %q: %w", sci.Parent.ID, err)
+					return api.ConsensusBlock{}, fmt.Errorf("failed to get siacoin input source for %q: %w", sci.Parent.ID, err)
 				}
 
 				apiTx.SiacoinInputs = append(apiTx.SiacoinInputs, api.ConsensusV2SiacoinInput{
@@ -1535,7 +1535,6 @@ func (s *Store) DecorateConsensusBlock(block types.Block) (api.ConsensusBlock, e
 
 			cb.V2.Transactions = append(cb.V2.Transactions, apiTx)
 		}
-		return nil
+		return cb, nil
 	})
-	return cb, err
 }

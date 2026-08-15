@@ -58,82 +58,73 @@ WHERE se.id=$1 AND spent_index_id IS NULL`
 }
 
 // SiacoinElement returns an unspent Siacoin UTXO by its ID.
-func (s *Store) SiacoinElement(id types.SiacoinOutputID) (ele types.SiacoinElement, err error) {
-	err = s.transaction(func(tx *txn) error {
-		ele, err = getSiacoinElement(tx, id, s.indexMode)
+func (s *Store) SiacoinElement(id types.SiacoinOutputID) (types.SiacoinElement, error) {
+	return valuedTransaction(s, func(tx *txn) (types.SiacoinElement, error) {
+		ele, err := getSiacoinElement(tx, id, s.indexMode)
 		if errors.Is(err, sql.ErrNoRows) {
-			return wallet.ErrNotFound
+			return types.SiacoinElement{}, wallet.ErrNotFound
 		}
-		return err
+		return ele, err
 	})
-	return
 }
 
 // SiafundElement returns an unspent Siafund UTXO by its ID.
-func (s *Store) SiafundElement(id types.SiafundOutputID) (ele types.SiafundElement, err error) {
-	err = s.transaction(func(tx *txn) error {
-		ele, err = getSiafundElement(tx, id, s.indexMode)
+func (s *Store) SiafundElement(id types.SiafundOutputID) (types.SiafundElement, error) {
+	return valuedTransaction(s, func(tx *txn) (types.SiafundElement, error) {
+		ele, err := getSiafundElement(tx, id, s.indexMode)
 		if errors.Is(err, sql.ErrNoRows) {
-			return wallet.ErrNotFound
+			return types.SiafundElement{}, wallet.ErrNotFound
 		}
-		return err
+		return ele, err
 	})
-	return
 }
 
 // SiacoinElementSpentEvent returns the event that spent a Siacoin UTXO.
-func (s *Store) SiacoinElementSpentEvent(id types.SiacoinOutputID) (ev wallet.Event, spent bool, err error) {
-	err = s.transaction(func(tx *txn) error {
+func (s *Store) SiacoinElementSpentEvent(id types.SiacoinOutputID) (wallet.Event, bool, error) {
+	return valuedTransaction2(s, func(tx *txn) (wallet.Event, bool, error) {
 		const query = `SELECT spent_event_id FROM siacoin_elements WHERE id=$1`
 
 		var spentEventID sql.NullInt64
-		err = tx.QueryRow(query, encode(id)).Scan(&spentEventID)
+		err := tx.QueryRow(query, encode(id)).Scan(&spentEventID)
 		if errors.Is(err, sql.ErrNoRows) {
-			return wallet.ErrNotFound
+			return wallet.Event{}, false, wallet.ErrNotFound
 		} else if err != nil {
-			return fmt.Errorf("failed to query spent event ID: %w", err)
+			return wallet.Event{}, false, fmt.Errorf("failed to query spent event ID: %w", err)
 		} else if !spentEventID.Valid {
-			return nil
+			return wallet.Event{}, false, nil
 		}
 
-		spent = true
 		events, err := getEventsByID(tx, []int64{spentEventID.Int64})
 		if err != nil {
-			return fmt.Errorf("failed to get events by ID: %w", err)
+			return wallet.Event{}, false, fmt.Errorf("failed to get events by ID: %w", err)
 		} else if len(events) != 1 {
 			panic("expected exactly one event") // should never happen
 		}
-		ev = events[0]
-		return nil
+		return events[0], true, nil
 	})
-	return
 }
 
 // SiafundElementSpentEvent returns the event that spent a Siafund UTXO.
-func (s *Store) SiafundElementSpentEvent(id types.SiafundOutputID) (ev wallet.Event, spent bool, err error) {
-	err = s.transaction(func(tx *txn) error {
+func (s *Store) SiafundElementSpentEvent(id types.SiafundOutputID) (wallet.Event, bool, error) {
+	return valuedTransaction2(s, func(tx *txn) (wallet.Event, bool, error) {
 		const query = `SELECT spent_event_id FROM siafund_elements WHERE id=$1`
 
 		var spentEventID sql.NullInt64
-		err = tx.QueryRow(query, encode(id)).Scan(&spentEventID)
+		err := tx.QueryRow(query, encode(id)).Scan(&spentEventID)
 		if errors.Is(err, sql.ErrNoRows) {
-			return wallet.ErrNotFound
+			return wallet.Event{}, false, wallet.ErrNotFound
 		} else if err != nil {
-			return fmt.Errorf("failed to query spent event ID: %w", err)
+			return wallet.Event{}, false, fmt.Errorf("failed to query spent event ID: %w", err)
 		} else if !spentEventID.Valid {
-			return nil
+			return wallet.Event{}, false, nil
 		}
 
-		spent = true
 		events, err := getEventsByID(tx, []int64{spentEventID.Int64})
 		if err != nil {
-			return fmt.Errorf("failed to get events by ID: %w", err)
+			return wallet.Event{}, false, fmt.Errorf("failed to get events by ID: %w", err)
 		} else if len(events) != 1 {
 			panic("expected exactly one event") // should never happen
 		}
-		ev = events[0]
-		return nil
+		return events[0], true, nil
 	})
-
-	return
 }
