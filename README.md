@@ -1,4 +1,4 @@
-# [![Sia](https://sia.tech/assets/banners/sia-banner-expanded-walletd.png)](http://sia.tech)
+# [![Sia](.github/assets/banner.png)](http://sia.tech)
 
 [![GoDoc](https://godoc.org/go.sia.tech/walletd?status.svg)](https://godoc.org/go.sia.tech/walletd)
 
