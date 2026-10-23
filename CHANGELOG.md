@@ -1,3 +1,14 @@
+## 2.16.0 (2026-10-23)
+
+### Features
+
+- Enabled concurrent read transactions for improved scalability.
+
+### Fixes
+
+- Update core from v0.21.7 to v0.21.8 and coreutils from v0.25.0 to v0.25.1.
+- Update coreutils to v0.24.0
+
 ## 2.15.2 (2026-07-08)
 
 ### Fixes

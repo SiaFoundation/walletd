@@ -4,7 +4,7 @@ info:
   description: >
     Walletd exposes a REST API for managing wallets, querying blockchain data, and broadcasting transactions on the Sia network. These endpoints are primarily intended for integrators that need low-level access to wallet state, UTXOs, and transaction construction utilities.
 
-  version: 2.15.2
+  version: 2.16.0
 servers:
   - url: http://localhost:9980/api
 tags:
